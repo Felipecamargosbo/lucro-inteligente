@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { Calculator, RotateCcw, Target } from "lucide-react";
+import { RotateCcw, Target } from "lucide-react";
 import { formatBRL, formatPercentual } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

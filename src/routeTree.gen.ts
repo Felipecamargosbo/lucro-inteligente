@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnunciosRouteImport } from './routes/anuncios'
+import { Route as CalculadoraRouteImport } from './routes/calculadora'
 import { Route as VendasRouteImport } from './routes/vendas'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,6 +24,11 @@ const AnunciosRoute = AnunciosRouteImport.update({
   path: '/anuncios',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CalculadoraRoute = CalculadoraRouteImport.update({
+  id: '/calculadora',
+  path: '/calculadora',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const VendasRoute = VendasRouteImport.update({
   id: '/vendas',
   path: '/vendas',
@@ -32,30 +38,34 @@ const VendasRoute = VendasRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/anuncios': typeof AnunciosRoute
+  '/calculadora': typeof CalculadoraRoute
   '/vendas': typeof VendasRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/anuncios': typeof AnunciosRoute
+  '/calculadora': typeof CalculadoraRoute
   '/vendas': typeof VendasRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/anuncios': typeof AnunciosRoute
+  '/calculadora': typeof CalculadoraRoute
   '/vendas': typeof VendasRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/anuncios' | '/vendas'
+  fullPaths: '/' | '/anuncios' | '/calculadora' | '/vendas'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/anuncios' | '/vendas'
-  id: '__root__' | '/' | '/anuncios' | '/vendas'
+  to: '/' | '/anuncios' | '/calculadora' | '/vendas'
+  id: '__root__' | '/' | '/anuncios' | '/calculadora' | '/vendas'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnunciosRoute: typeof AnunciosRoute
+  CalculadoraRoute: typeof CalculadoraRoute
   VendasRoute: typeof VendasRoute
 }
 
@@ -75,6 +85,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnunciosRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/calculadora': {
+      id: '/calculadora'
+      path: '/calculadora'
+      fullPath: '/calculadora'
+      preLoaderRoute: typeof CalculadoraRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/vendas': {
       id: '/vendas'
       path: '/vendas'
@@ -88,6 +105,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnunciosRoute: AnunciosRoute,
+  CalculadoraRoute: CalculadoraRoute,
   VendasRoute: VendasRoute,
 }
 export const routeTree = rootRouteImport
