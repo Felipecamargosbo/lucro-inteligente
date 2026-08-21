@@ -7,7 +7,7 @@ import { notificacoesService } from "@/services";
 export function BarraSuperior({ aoAbrirNotificacoes }: { aoAbrirNotificacoes: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const item =
-    MENU.find((m) => (m.url === "/" ? pathname === "/" : pathname.startsWith(m.url))) ?? MENU[0];
+    MENU.find((m) => (m.url === "/" ? pathname === "/" : pathname.startsWith(m.url))) ?? MENU[0]!;
   const naoLidas = notificacoesService.listar().filter((n) => !n.lida).length;
 
   return (
