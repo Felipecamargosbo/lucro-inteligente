@@ -143,8 +143,8 @@ function gerarPedidos(): Pedido[] {
     );
 
     for (let i = 0; i < qtdPedidos; i++) {
-      const produto = PRODUTOS[Math.floor(rand() * PRODUTOS.length)];
-      const marketplace = MARKETPLACES[Math.floor(rand() * 3)];
+      const produto = PRODUTOS[Math.floor(rand() * PRODUTOS.length)]!;
+      const marketplace = MARKETPLACES[Math.floor(rand() * 3)]!;
       const quantidade = rand() > 0.82 ? 2 : 1;
       const desconto = rand() > 0.7 ? Math.round(produto.preco * 0.05 * 100) / 100 : 0;
       const precoUnitario = Math.round((produto.preco - desconto) * 100) / 100;
@@ -157,7 +157,7 @@ function gerarPedidos(): Pedido[] {
       const lucroLiquido =
         Math.round((faturamento - cmv - comissao - taxaFixa - impostos - outrosCustos) * 100) /
         100;
-      const status = STATUS[Math.floor(rand() * STATUS.length)];
+      const status = STATUS[Math.floor(rand() * STATUS.length)]!;
       const clienteIdx = Math.floor(rand() * CLIENTES.length);
       const ddd = 11 + Math.floor(rand() * 78);
 
@@ -184,7 +184,7 @@ function gerarPedidos(): Pedido[] {
         lucroLiquido,
         margem: faturamento ? lucroLiquido / faturamento : 0,
         status,
-        cliente: CLIENTES[clienteIdx],
+        cliente: CLIENTES[clienteIdx]!,
         telefone: `(${ddd}) 9${Math.floor(1000 + rand() * 8999)}-${Math.floor(1000 + rand() * 8999)}`,
       });
     }
@@ -286,7 +286,7 @@ export const PROMOCOES: Promocao[] = PRODUTOS.slice(0, 7).map((produto, i) => {
 export const ESTOQUE: ItemEstoque[] = PRODUTOS.map((produto, i) => ({
   sku: produto.sku,
   produto: produto.nome,
-  marketplaceId: MARKETPLACES[i % 3].id,
+  marketplaceId: MARKETPLACES[i % 3]!.id,
   estoqueAtual: [12, 320, 145, 60, 45, 18, 210, 95, 33, 410, 78, 640][i] ?? 100,
   estoqueFulfillment: [4, 180, 60, 22, 12, 6, 120, 40, 15, 260, 30, 380][i] ?? 50,
 }));
@@ -422,7 +422,7 @@ export const EMPRESA = {
   endereco: "Av. Paulista, 1578 — São Paulo/SP",
 };
 
-export const USUARIO_ATUAL = USUARIOS[0];
+export const USUARIO_ATUAL = USUARIOS[0]!;
 
 export const REGRAS_FINANCEIRAS = {
   impostoPercentual: IMPOSTO_PADRAO,

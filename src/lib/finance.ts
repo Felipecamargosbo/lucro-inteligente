@@ -202,7 +202,10 @@ export function projetarMes(pedidos: Pedido[], hoje = new Date()): Projecao {
   });
 
   const porDia = new Array(diasNoMes).fill(0) as number[];
-  for (const p of doMes) porDia[new Date(p.data).getDate() - 1] += p.faturamento;
+  for (const p of doMes) {
+    const idx = new Date(p.data).getDate() - 1;
+    porDia[idx] = (porDia[idx] ?? 0) + p.faturamento;
+  }
 
   let acumulado = 0;
   const realizadoAcumulado = porDia.map((v, i) => {
@@ -218,7 +221,7 @@ export function projetarMes(pedidos: Pedido[], hoje = new Date()): Projecao {
     const dia = `${`${i + 1}`.padStart(2, "0")}/${`${mes + 1}`.padStart(2, "0")}`;
     const projetado =
       i + 1 >= diasDecorridos ? Math.round(mediaDiaria * (i + 1) * 100) / 100 : null;
-    return { dia, realizado: realizadoAcumulado[i], projetado };
+    return { dia, realizado: realizadoAcumulado[i] ?? null, projetado };
   });
 
   return {

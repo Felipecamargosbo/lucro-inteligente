@@ -24,7 +24,7 @@ export function ExportarDados({
       toast.info("Não há dados para exportar neste período.");
       return;
     }
-    const colunas = Object.keys(linhas[0]);
+    const colunas = Object.keys(linhas[0]!);
     const csv = [
       colunas.join(";"),
       ...linhas.map((l) => colunas.map((c) => `"${String(l[c] ?? "")}"`).join(";")),
