@@ -44,6 +44,7 @@ const PADRAO = {
   precoVenda: "150,00",
   cmv: "65,00",
   imposto: "9,00",
+  taxaFixa: "0,00",
   embalagem: "3,50",
   ads: "10,00",
   margemDesejada: "20,00",
@@ -61,13 +62,14 @@ function simular(entrada: {
   taxaAds: number;
   valorFrete: number;
   valorEmbalagem: number;
+  valorTaxaFixa: number;
 }) {
   const impostos = entrada.preco * entrada.taxaImposto;
   const comissaoValor = entrada.preco * entrada.taxaComissao;
   const adsValor = entrada.preco * entrada.taxaAds;
   const freteEmbalagem = entrada.valorFrete + entrada.valorEmbalagem;
   const custoTotal =
-    entrada.custoProduto + impostos + comissaoValor + freteEmbalagem + adsValor;
+    entrada.custoProduto + impostos + comissaoValor + freteEmbalagem + adsValor + entrada.valorTaxaFixa;
   const lucroLiquido = entrada.preco - custoTotal;
   return {
     preco: entrada.preco,
@@ -76,6 +78,7 @@ function simular(entrada: {
     comissaoValor,
     adsValor,
     freteEmbalagem,
+    taxaFixa: entrada.valorTaxaFixa,
     custoTotal,
     lucroLiquido,
     margem: entrada.preco > 0 ? lucroLiquido / entrada.preco : 0,
@@ -87,6 +90,7 @@ function Calculadora() {
   const [precoVenda, setPrecoVenda] = useState(PADRAO.precoVenda);
   const [cmv, setCmv] = useState(PADRAO.cmv);
   const [imposto, setImposto] = useState(PADRAO.imposto);
+  const [taxaFixa, setTaxaFixa] = useState(PADRAO.taxaFixa);
   const [comissao, setComissao] = useState(CANAIS[0]!.comissao);
   const [frete, setFrete] = useState(CANAIS[0]!.frete);
   const [embalagem, setEmbalagem] = useState(PADRAO.embalagem);
@@ -111,8 +115,9 @@ function Calculadora() {
       taxaImposto: paraNumero(imposto) / 100,
       taxaAds: paraNumero(ads) / 100,
       valorEmbalagem: paraNumero(embalagem),
+      valorTaxaFixa: paraNumero(taxaFixa),
     }),
-    [precoVenda, cmv, imposto, ads, embalagem],
+    [precoVenda, cmv, imposto, ads, embalagem, taxaFixa],
   );
 
   const simulacao = useMemo(
@@ -143,13 +148,14 @@ function Calculadora() {
     const divisor =
       1 - base.taxaImposto - paraNumero(comissao) / 100 - base.taxaAds - margem;
     if (divisor <= 0) return 0;
-    return (base.custoProduto + paraNumero(frete) + base.valorEmbalagem) / divisor;
+    return (base.custoProduto + paraNumero(frete) + base.valorEmbalagem + base.valorTaxaFixa) / divisor;
   }, [margemDesejada, base, comissao, frete]);
 
   const resetar = () => {
     setPrecoVenda(PADRAO.precoVenda);
     setCmv(PADRAO.cmv);
     setImposto(PADRAO.imposto);
+    setTaxaFixa(PADRAO.taxaFixa);
     setEmbalagem(PADRAO.embalagem);
     setAds(PADRAO.ads);
     setMargemDesejada(PADRAO.margemDesejada);
@@ -160,6 +166,7 @@ function Calculadora() {
     { rotulo: "CMV", valor: simulacao.custoProduto, cor: "bg-loss" },
     { rotulo: "Impostos", valor: simulacao.impostos, cor: "bg-warning" },
     { rotulo: "Comissão", valor: simulacao.comissaoValor, cor: "bg-info" },
+    { rotulo: "Taxa fixa", valor: simulacao.taxaFixa, cor: "bg-secondary" },
     { rotulo: "Frete + embalagem", valor: simulacao.freteEmbalagem, cor: "bg-primary" },
     { rotulo: "ADS", valor: simulacao.adsValor, cor: "bg-brand" },
   ];
