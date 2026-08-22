@@ -215,7 +215,7 @@ function Calculadora() {
             titulo="Dados da simulação"
             descricao="Custos reais do produto e do canal de venda"
           >
-            <div className="grid gap-3 p-5 sm:grid-cols-2">
+            <div className="grid grid-cols-2 gap-3 p-5">
               <Campo
                 rotulo="Preço de venda desejado"
                 valor={precoVenda}
@@ -271,7 +271,6 @@ function Calculadora() {
                 aoAlterar={setAds}
                 prefixo="%"
                 exemplo="10,00"
-                span
               />
             </div>
           </Painel>
