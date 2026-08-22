@@ -231,13 +231,6 @@ function Calculadora() {
                 exemplo="65,00"
               />
               <Campo
-                rotulo="Imposto"
-                valor={imposto}
-                aoAlterar={setImposto}
-                prefixo="%"
-                exemplo="9,00"
-              />
-              <Campo
                 rotulo="Comissão do marketplace"
                 valor={comissao}
                 aoAlterar={setComissao}
@@ -245,11 +238,25 @@ function Calculadora() {
                 exemplo="16,00"
               />
               <Campo
+                rotulo="Taxa fixa"
+                valor={taxaFixa}
+                aoAlterar={setTaxaFixa}
+                prefixo="R$"
+                exemplo="0,00"
+              />
+              <Campo
                 rotulo="Frete médio"
                 valor={frete}
                 aoAlterar={setFrete}
                 prefixo="R$"
                 exemplo="8,00"
+              />
+              <Campo
+                rotulo="Imposto"
+                valor={imposto}
+                aoAlterar={setImposto}
+                prefixo="%"
+                exemplo="9,00"
               />
               <Campo
                 rotulo="Embalagem / operacional"
