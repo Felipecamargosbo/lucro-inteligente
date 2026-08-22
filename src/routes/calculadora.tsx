@@ -304,7 +304,7 @@ function Calculadora() {
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">Como funciona o cálculo</p>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      O preço sugerido cobre CMV, frete, embalagem, impostos, comissão e ADS,
+                      O preço sugerido cobre CMV, frete, embalagem, taxa fixa, impostos, comissão e ADS,
                       garantindo a margem definida. Se ficar acima do mercado, reveja custos
                       fixos ou o canal escolhido.
                     </p>
@@ -374,6 +374,7 @@ function Calculadora() {
                 <div className="space-y-1.5">
                   <LinhaDre rotulo="(-) Impostos" valor={simulacao.impostos} />
                   <LinhaDre rotulo="(-) Comissões" valor={simulacao.comissaoValor} />
+                  <LinhaDre rotulo="(-) Taxa fixa" valor={simulacao.taxaFixa} />
                   <LinhaDre rotulo="(-) Frete e embalagem" valor={simulacao.freteEmbalagem} />
                   <LinhaDre rotulo="(-) Custo do produto (CMV)" valor={simulacao.custoProduto} />
                   <LinhaDre rotulo="(-) Investimento em ADS" valor={simulacao.adsValor} />
