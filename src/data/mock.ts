@@ -5,14 +5,19 @@
 import type {
   AlteracaoPreco,
   Anuncio,
+  CanalNotificacao,
+  CanalRecuperacao,
   ItemEstoque,
   LogAlteracao,
   Marketplace,
   MarketplaceId,
   Notificacao,
+  OportunidadeRecuperacao,
   Pedido,
   Promocao,
+  StatusOportunidadeRecuperacao,
   StatusPedido,
+  TipoOportunidadeRecuperacao,
   Usuario,
 } from "@/types";
 
