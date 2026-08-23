@@ -115,8 +115,8 @@ function Recuperacao() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <CardKpi
           titulo="Vendas a recuperar"
-          valor={formatBRL(totalRecuperar - recuperadoMes)}
-          detalhe={`Total em aberto: ${formatBRL(totalRecuperar)}`}
+          valor={formatBRL(totalRecuperar)}
+          detalhe={`Em aberto: ${formatBRL(totalRecuperar - recuperadoMes)}`}
         />
         <CardKpi
           titulo="Total recuperado no mês"
