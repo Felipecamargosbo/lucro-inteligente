@@ -4,11 +4,13 @@
 
 import {
   ANUNCIOS,
+  CANAIS_NOTIFICACAO,
   ESTOQUE,
   HISTORICO_PRECOS,
   LOGS,
   MARKETPLACES,
   NOTIFICACOES,
+  OPORTUNIDADES_RECUPERACAO,
   PEDIDOS,
   PROMOCOES,
   USUARIOS,
@@ -47,4 +49,9 @@ export const usuariosService = {
 
 export const logsService = {
   listar: () => LOGS,
+};
+
+export const recuperacaoService = {
+  listar: () => OPORTUNIDADES_RECUPERACAO,
+  listarCanais: () => CANAIS_NOTIFICACAO,
 };

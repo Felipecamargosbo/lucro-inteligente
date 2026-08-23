@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnunciosRouteImport } from './routes/anuncios'
 import { Route as CalculadoraRouteImport } from './routes/calculadora'
 import { Route as PromocoesRouteImport } from './routes/promocoes'
+import { Route as RecuperacaoRouteImport } from './routes/recuperacao'
 import { Route as VendasRouteImport } from './routes/vendas'
 
 const IndexRoute = IndexRouteImport.update({
@@ -35,6 +36,11 @@ const PromocoesRoute = PromocoesRouteImport.update({
   path: '/promocoes',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RecuperacaoRoute = RecuperacaoRouteImport.update({
+  id: '/recuperacao',
+  path: '/recuperacao',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const VendasRoute = VendasRouteImport.update({
   id: '/vendas',
   path: '/vendas',
@@ -46,6 +52,7 @@ export interface FileRoutesByFullPath {
   '/anuncios': typeof AnunciosRoute
   '/calculadora': typeof CalculadoraRoute
   '/promocoes': typeof PromocoesRoute
+  '/recuperacao': typeof RecuperacaoRoute
   '/vendas': typeof VendasRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/anuncios': typeof AnunciosRoute
   '/calculadora': typeof CalculadoraRoute
   '/promocoes': typeof PromocoesRoute
+  '/recuperacao': typeof RecuperacaoRoute
   '/vendas': typeof VendasRoute
 }
 export interface FileRoutesById {
@@ -61,14 +69,34 @@ export interface FileRoutesById {
   '/anuncios': typeof AnunciosRoute
   '/calculadora': typeof CalculadoraRoute
   '/promocoes': typeof PromocoesRoute
+  '/recuperacao': typeof RecuperacaoRoute
   '/vendas': typeof VendasRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/anuncios' | '/calculadora' | '/promocoes' | '/vendas'
+  fullPaths:
+    | '/'
+    | '/anuncios'
+    | '/calculadora'
+    | '/promocoes'
+    | '/recuperacao'
+    | '/vendas'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/anuncios' | '/calculadora' | '/promocoes' | '/vendas'
-  id: '__root__' | '/' | '/anuncios' | '/calculadora' | '/promocoes' | '/vendas'
+  to:
+    | '/'
+    | '/anuncios'
+    | '/calculadora'
+    | '/promocoes'
+    | '/recuperacao'
+    | '/vendas'
+  id:
+    | '__root__'
+    | '/'
+    | '/anuncios'
+    | '/calculadora'
+    | '/promocoes'
+    | '/recuperacao'
+    | '/vendas'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,6 +104,7 @@ export interface RootRouteChildren {
   AnunciosRoute: typeof AnunciosRoute
   CalculadoraRoute: typeof CalculadoraRoute
   PromocoesRoute: typeof PromocoesRoute
+  RecuperacaoRoute: typeof RecuperacaoRoute
   VendasRoute: typeof VendasRoute
 }
 
@@ -109,6 +138,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PromocoesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/recuperacao': {
+      id: '/recuperacao'
+      path: '/recuperacao'
+      fullPath: '/recuperacao'
+      preLoaderRoute: typeof RecuperacaoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/vendas': {
       id: '/vendas'
       path: '/vendas'
@@ -124,6 +160,7 @@ const rootRouteChildren: RootRouteChildren = {
   AnunciosRoute: AnunciosRoute,
   CalculadoraRoute: CalculadoraRoute,
   PromocoesRoute: PromocoesRoute,
+  RecuperacaoRoute: RecuperacaoRoute,
   VendasRoute: VendasRoute,
 }
 export const routeTree = rootRouteImport

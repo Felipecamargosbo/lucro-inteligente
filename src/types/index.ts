@@ -138,3 +138,41 @@ export interface Periodo {
   fim: Date;
   rotulo: string;
 }
+
+export type TipoOportunidadeRecuperacao =
+  | "boleto-pendente"
+  | "pix-nao-pago"
+  | "cancelamento-solicitado";
+
+export type StatusOportunidadeRecuperacao =
+  | "aguardando-acao"
+  | "mensagem-enviada"
+  | "recuperado";
+
+export type CanalRecuperacao = "whatsapp" | "email" | "sms";
+
+export interface OportunidadeRecuperacao {
+  id: string;
+  cliente: string;
+  pedidoId: string;
+  marketplaceId: MarketplaceId;
+  valor: number;
+  tipo: TipoOportunidadeRecuperacao;
+  tempoRestante: string;
+  status: StatusOportunidadeRecuperacao;
+  canal: CanalRecuperacao;
+  dataCriacao: string; // ISO
+  dataUltimoContato: string | null; // ISO
+}
+
+export interface CanalNotificacao {
+  id: CanalRecuperacao;
+  nome: string;
+  icone: string; // lucide icon name
+  conectado: boolean;
+  disparosAutomaticos: boolean;
+  ultimoDisparo: string | null; // ISO
+  taxaAbertura: number; // 0-1
+  custoEstimado: number; // R$ por disparo
+}
+
