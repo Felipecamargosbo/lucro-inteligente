@@ -50,3 +50,8 @@ export const usuariosService = {
 export const logsService = {
   listar: () => LOGS,
 };
+
+export const recuperacaoService = {
+  listar: () => OPORTUNIDADES_RECUPERACAO,
+  listarCanais: () => CANAIS_NOTIFICACAO,
+};
