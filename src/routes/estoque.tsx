@@ -6,6 +6,8 @@ import { formatBRL, formatNumero } from "@/lib/format";
 import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ItemEstoqueDetalhado } from "@/types";
 
