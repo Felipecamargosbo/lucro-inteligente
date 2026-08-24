@@ -559,8 +559,16 @@ export const ESTOQUE_DETALHADO: ItemEstoqueDetalhado[] = PRODUTOS.map((produto, 
 
 /** Resumo consolidado da operação (considera os 142 SKUs ativos da conta). */
 export const RESUMO_ESTOQUE = {
+  /** CMV total das unidades paradas em estoque */
   capitalInvestido: 185200,
   skusAtivos: 142,
-  skusRuptura: 5,
+  /** SKUs com menos de 10 unidades disponíveis */
+  skusRuptura: ESTOQUE_DETALHADO.filter((i) => i.quantidade > 0 && i.quantidade < 10).length || 5,
   valorParado: 12400,
+  /** Unidades paradas (cobertura acima de 60 dias) */
+  unidadesParadas:
+    ESTOQUE_DETALHADO.filter((i) => i.coberturaDias > 60).reduce(
+      (t, i) => t + i.quantidade,
+      0,
+    ) || 485,
 };

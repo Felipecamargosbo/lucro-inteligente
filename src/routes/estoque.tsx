@@ -6,6 +6,8 @@ import { formatBRL, formatNumero } from "@/lib/format";
 import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ItemEstoqueDetalhado } from "@/types";
 
@@ -31,21 +33,22 @@ export const Route = createFileRoute("/estoque")({
   component: Estoque,
 });
 
-type Aba = "todos" | "repor" | "sem-giro" | "esgotados";
+type Aba = "todos" | "ativos" | "ruptura" | "sem-giro" | "esgotados";
 
 const ABAS: { id: Aba; rotulo: string }[] = [
   { id: "todos", rotulo: "Todos" },
-  { id: "repor", rotulo: "Precisando repor" },
-  { id: "sem-giro", rotulo: "Sem giro / Queima" },
+  { id: "ativos", rotulo: "Ativos" },
+  { id: "ruptura", rotulo: "Alerta de Ruptura (<10 un)" },
+  { id: "sem-giro", rotulo: "Sem Giro (>60 dias)" },
   { id: "esgotados", rotulo: "Esgotados" },
 ];
 
 function statusEstoque(item: ItemEstoqueDetalhado) {
   if (item.quantidade === 0)
     return { texto: "Esgotado", cor: "bg-loss-soft text-loss", acao: "Repor agora" };
-  if (item.coberturaDias < 7)
+  if (item.quantidade < 10)
     return {
-      texto: "Ruptura iminente",
+      texto: "Ruptura (<10 un)",
       cor: "bg-loss-soft text-loss",
       acao: "Comprar estoque",
     };
@@ -64,14 +67,23 @@ function Estoque() {
   const itens = estoqueService.listarDetalhado();
   const resumo = estoqueService.resumo();
   const [aba, setAba] = useState<Aba>("todos");
+  const [busca, setBusca] = useState("");
 
   const filtrados = useMemo(() => {
-    if (aba === "repor")
-      return itens.filter((i) => i.quantidade > 0 && i.coberturaDias < 15);
-    if (aba === "sem-giro") return itens.filter((i) => i.coberturaDias > 60);
-    if (aba === "esgotados") return itens.filter((i) => i.quantidade === 0);
-    return itens;
-  }, [itens, aba]);
+    const termo = busca.trim().toLowerCase();
+    let lista = itens;
+    if (aba === "ativos") lista = lista.filter((i) => i.quantidade > 0);
+    if (aba === "ruptura")
+      lista = lista.filter((i) => i.quantidade > 0 && i.quantidade < 10);
+    if (aba === "sem-giro") lista = lista.filter((i) => i.coberturaDias > 60);
+    if (aba === "esgotados") lista = lista.filter((i) => i.quantidade === 0);
+    if (termo)
+      lista = lista.filter(
+        (i) =>
+          i.sku.toLowerCase().includes(termo) || i.produto.toLowerCase().includes(termo),
+      );
+    return lista;
+  }, [itens, aba, busca]);
 
   const linhasExport = filtrados.map((i) => ({
     SKU: i.sku,
@@ -100,12 +112,13 @@ function Estoque() {
         <CardKpi
           titulo="SKUs em alerta de ruptura"
           valor={`${resumo.skusRuptura} itens`}
-          detalhe="Cobertura menor que 7 dias de venda"
+          detalhe="Produtos com menos de 10 unidades em estoque"
+          dica="Estoque baixo: risco de perder vendas por falta de produto."
         />
         <CardKpi
           titulo="Estoque parado / sem giro"
-          valor={formatBRL(resumo.valorParado)}
-          detalhe="Produtos com mais de 60 dias de cobertura"
+          valor={`${formatNumero(resumo.unidadesParadas)} un`}
+          detalhe="Unidades com mais de 60 dias de cobertura"
         />
       </div>
 
@@ -114,7 +127,16 @@ function Estoque() {
         descricao="Quantos dias de venda ainda cabem no estoque atual"
         acoes={<ExportarDados nomeArquivo="estoque" linhas={linhasExport} />}
       >
-        <div className="flex flex-wrap gap-2 border-b px-5 py-3">
+        <div className="flex flex-wrap items-center gap-2 border-b px-5 py-3">
+          <div className="relative w-full sm:w-80">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por SKU ou Nome do Produto..."
+              className="h-8 pl-8 text-xs"
+            />
+          </div>
           {ABAS.map((a) => (
             <button
               key={a.id}
