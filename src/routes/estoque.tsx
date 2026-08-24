@@ -110,12 +110,13 @@ function Estoque() {
         <CardKpi
           titulo="SKUs em alerta de ruptura"
           valor={`${resumo.skusRuptura} itens`}
-          detalhe="Cobertura menor que 7 dias de venda"
+          detalhe="Produtos com menos de 10 unidades em estoque"
+          dica="Estoque baixo: risco de perder vendas por falta de produto."
         />
         <CardKpi
           titulo="Estoque parado / sem giro"
-          valor={formatBRL(resumo.valorParado)}
-          detalhe="Produtos com mais de 60 dias de cobertura"
+          valor={`${formatNumero(resumo.unidadesParadas)} un`}
+          detalhe="Unidades com mais de 60 dias de cobertura"
         />
       </div>
 
