@@ -65,14 +65,23 @@ function Estoque() {
   const itens = estoqueService.listarDetalhado();
   const resumo = estoqueService.resumo();
   const [aba, setAba] = useState<Aba>("todos");
+  const [busca, setBusca] = useState("");
 
   const filtrados = useMemo(() => {
-    if (aba === "repor")
-      return itens.filter((i) => i.quantidade > 0 && i.coberturaDias < 15);
-    if (aba === "sem-giro") return itens.filter((i) => i.coberturaDias > 60);
-    if (aba === "esgotados") return itens.filter((i) => i.quantidade === 0);
-    return itens;
-  }, [itens, aba]);
+    const termo = busca.trim().toLowerCase();
+    let lista = itens;
+    if (aba === "ativos") lista = lista.filter((i) => i.quantidade > 0);
+    if (aba === "ruptura")
+      lista = lista.filter((i) => i.quantidade > 0 && i.quantidade < 10);
+    if (aba === "sem-giro") lista = lista.filter((i) => i.coberturaDias > 60);
+    if (aba === "esgotados") lista = lista.filter((i) => i.quantidade === 0);
+    if (termo)
+      lista = lista.filter(
+        (i) =>
+          i.sku.toLowerCase().includes(termo) || i.produto.toLowerCase().includes(termo),
+      );
+    return lista;
+  }, [itens, aba, busca]);
 
   const linhasExport = filtrados.map((i) => ({
     SKU: i.sku,
