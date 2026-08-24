@@ -176,3 +176,14 @@ export interface CanalNotificacao {
   custoEstimado: number; // R$ por disparo
 }
 
+
+export interface ItemEstoqueDetalhado {
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  quantidade: number;
+  vendasDia: number;
+  coberturaDias: number;
+  custoUnitario: number;
+  valorEstoque: number;
+}

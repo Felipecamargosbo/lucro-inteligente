@@ -8,6 +8,7 @@ import type {
   CanalNotificacao,
   CanalRecuperacao,
   ItemEstoque,
+  ItemEstoqueDetalhado,
   LogAlteracao,
   Marketplace,
   MarketplaceId,
@@ -532,3 +533,34 @@ export const CANAIS_NOTIFICACAO: CanalNotificacao[] = [
   },
 ];
 
+
+// ---------------------------------------------------------------------------
+// Estoque detalhado (cobertura em dias). Dados fictícios com números realistas.
+// ---------------------------------------------------------------------------
+
+const ESTOQUE_QTD = [8, 320, 145, 0, 45, 18, 210, 95, 0, 410, 78, 640];
+const ESTOQUE_VENDAS_DIA = [2.4, 4.1, 9.8, 1.2, 6.5, 0.4, 7.2, 2.1, 1.8, 3.4, 0.9, 12.5];
+
+export const ESTOQUE_DETALHADO: ItemEstoqueDetalhado[] = PRODUTOS.map((produto, i) => {
+  const quantidade = ESTOQUE_QTD[i] ?? 100;
+  const vendasDia = ESTOQUE_VENDAS_DIA[i] ?? 2;
+  const cobertura = vendasDia > 0 ? Math.round(quantidade / vendasDia) : 0;
+  return {
+    sku: produto.sku,
+    produto: produto.nome,
+    marketplaceId: MARKETPLACES[i % 3]!.id,
+    quantidade,
+    vendasDia,
+    coberturaDias: cobertura,
+    custoUnitario: produto.cmv,
+    valorEstoque: Math.round(quantidade * produto.cmv * 100) / 100,
+  };
+});
+
+/** Resumo consolidado da operação (considera os 142 SKUs ativos da conta). */
+export const RESUMO_ESTOQUE = {
+  capitalInvestido: 185200,
+  skusAtivos: 142,
+  skusRuptura: 5,
+  valorParado: 12400,
+};
