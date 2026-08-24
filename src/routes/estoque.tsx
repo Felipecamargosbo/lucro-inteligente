@@ -31,21 +31,22 @@ export const Route = createFileRoute("/estoque")({
   component: Estoque,
 });
 
-type Aba = "todos" | "repor" | "sem-giro" | "esgotados";
+type Aba = "todos" | "ativos" | "ruptura" | "sem-giro" | "esgotados";
 
 const ABAS: { id: Aba; rotulo: string }[] = [
   { id: "todos", rotulo: "Todos" },
-  { id: "repor", rotulo: "Precisando repor" },
-  { id: "sem-giro", rotulo: "Sem giro / Queima" },
+  { id: "ativos", rotulo: "Ativos" },
+  { id: "ruptura", rotulo: "Alerta de Ruptura (<10 un)" },
+  { id: "sem-giro", rotulo: "Sem Giro (>60 dias)" },
   { id: "esgotados", rotulo: "Esgotados" },
 ];
 
 function statusEstoque(item: ItemEstoqueDetalhado) {
   if (item.quantidade === 0)
     return { texto: "Esgotado", cor: "bg-loss-soft text-loss", acao: "Repor agora" };
-  if (item.coberturaDias < 7)
+  if (item.quantidade < 10)
     return {
-      texto: "Ruptura iminente",
+      texto: "Ruptura (<10 un)",
       cor: "bg-loss-soft text-loss",
       acao: "Comprar estoque",
     };
