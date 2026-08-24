@@ -6,6 +6,8 @@ import {
   ANUNCIOS,
   CANAIS_NOTIFICACAO,
   ESTOQUE,
+  ESTOQUE_DETALHADO,
+  RESUMO_ESTOQUE,
   HISTORICO_PRECOS,
   LOGS,
   MARKETPLACES,
@@ -33,6 +35,8 @@ export const promocoesService = {
 
 export const estoqueService = {
   listar: () => ESTOQUE,
+  listarDetalhado: () => ESTOQUE_DETALHADO,
+  resumo: () => RESUMO_ESTOQUE,
 };
 
 export const marketplacesService = {
