@@ -125,7 +125,16 @@ function Estoque() {
         descricao="Quantos dias de venda ainda cabem no estoque atual"
         acoes={<ExportarDados nomeArquivo="estoque" linhas={linhasExport} />}
       >
-        <div className="flex flex-wrap gap-2 border-b px-5 py-3">
+        <div className="flex flex-wrap items-center gap-2 border-b px-5 py-3">
+          <div className="relative w-full sm:w-80">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por SKU ou Nome do Produto..."
+              className="h-8 pl-8 text-xs"
+            />
+          </div>
           {ABAS.map((a) => (
             <button
               key={a.id}
