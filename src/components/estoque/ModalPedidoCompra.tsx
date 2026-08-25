@@ -48,26 +48,20 @@ export function ModalPedidoCompra({
   onFechar: () => void;
 }) {
   const [emailFornecedor, setEmailFornecedor] = useState("compras@fornecedor.com");
-  const [quantidade, setQuantidade] = useState(0);
   const [mensagem, setMensagem] = useState("");
 
-  // Recalcula sugestão e texto sempre que outro produto for selecionado.
+  const qtdSugerida = useMemo(() => (item ? quantidadeSugerida(item) : 0), [item]);
+
+  // Recalcula o texto sempre que outro produto for selecionado.
   useEffect(() => {
     if (!item) return;
-    const qtd = quantidadeSugerida(item);
-    setQuantidade(qtd);
-    setMensagem(montarEmail(item, qtd));
-  }, [item]);
+    setMensagem(montarEmail(item, qtdSugerida));
+  }, [item, qtdSugerida]);
 
   const assunto = useMemo(
     () => (item ? `Pedido de compra - ${item.produto} (${item.sku})` : ""),
     [item],
   );
-
-  const aoAlterarQuantidade = (valor: number) => {
-    setQuantidade(valor);
-    if (item) setMensagem(montarEmail(item, valor));
-  };
 
   const enviarEmail = () => {
     if (!item) return;
@@ -76,7 +70,7 @@ export function ModalPedidoCompra({
     )}&body=${encodeURIComponent(mensagem)}`;
     window.location.href = link;
     toast.success("Pedido de compra preparado no seu e-mail", {
-      description: `${item.produto} • ${formatNumero(quantidade)} un para ${emailFornecedor}`,
+      description: `${item.produto} • ${formatNumero(qtdSugerida)} un para ${emailFornecedor}`,
     });
     onFechar();
   };

@@ -65,8 +65,7 @@ const OPCOES_SEM_GIRO = [
 type StatusOficial = {
   texto: "Atenção" | "Esgotado" | "Estoque Saudável" | "Sem Giro";
   cor: string;
-  acao: string;
-  tipo: "compra" | "promocao" | "monitorar";
+  acao: "Comprar Estoque" | "Estoque Baixo" | "Suficiente";
 };
 
 /** Os 4 status oficiais do estoque, em ordem de prioridade. */
@@ -75,28 +74,24 @@ function statusEstoque(item: ItemEstoqueDetalhado): StatusOficial {
     return {
       texto: "Esgotado",
       cor: "bg-loss-soft text-loss",
-      acao: "Repor agora",
-      tipo: "compra",
+      acao: "Comprar Estoque",
     };
   if (item.quantidade < 10 || item.coberturaDias < 10)
     return {
       texto: "Atenção",
       cor: "bg-warning-soft text-foreground",
-      acao: "Comprar estoque",
-      tipo: "compra",
+      acao: "Estoque Baixo",
     };
   if (item.coberturaDias > 60)
     return {
       texto: "Sem Giro",
       cor: "bg-warning text-foreground",
-      acao: "Criar promoção",
-      tipo: "promocao",
+      acao: "Suficiente",
     };
   return {
     texto: "Estoque Saudável",
     cor: "bg-profit-soft text-profit",
-    acao: "Monitorar",
-    tipo: "monitorar",
+    acao: "Suficiente",
   };
 }
 
@@ -140,17 +135,8 @@ function Estoque() {
     Status: statusEstoque(i).texto,
   }));
 
-  const aoClicarAcao = (item: ItemEstoqueDetalhado, s: StatusOficial) => {
-    if (s.tipo === "compra") {
-      setItemPedido(item);
-      return;
-    }
-    toast.info(`${s.acao}: ${item.produto}`, {
-      description:
-        s.tipo === "promocao"
-          ? "No protótipo esta ação apenas registra a intenção. Com o backend ela cria uma campanha para dar giro ao estoque."
-          : "Produto saudável: nenhuma ação necessária no momento.",
-    });
+  const aoClicarAcao = (item: ItemEstoqueDetalhado) => {
+    setItemPedido(item);
   };
 
   return (
