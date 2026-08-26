@@ -300,12 +300,8 @@ function Estoque() {
                     <td className="px-4 py-3 text-right">
                       <Button
                         size="sm"
-                        variant={s.tipo === "compra" ? "default" : "outline"}
-                        className={cn(
-                          "h-7 text-[11px]",
-                          s.tipo === "compra" && "bg-brand hover:bg-brand/90",
-                        )}
-                        onClick={() => aoClicarAcao(i, s)}
+                        className="h-7 bg-brand text-[11px] text-brand-foreground hover:bg-brand/90"
+                        onClick={() => aoClicarAcao(i)}
                       >
                         {s.acao}
                       </Button>

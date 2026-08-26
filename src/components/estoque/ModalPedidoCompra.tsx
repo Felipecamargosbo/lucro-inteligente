@@ -96,7 +96,7 @@ export function ModalPedidoCompra({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <div className="space-y-4 py-2">
               <div className="space-y-1.5">
                 <Label htmlFor="email-fornecedor" className="text-xs">
                   E-mail do fornecedor responsável
@@ -108,23 +108,6 @@ export function ModalPedidoCompra({
                   onChange={(e) => setEmailFornecedor(e.target.value)}
                   className="h-9 text-xs"
                 />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="qtd-reposicao" className="text-xs">
-                  Quantidade sugerida de reposição
-                </Label>
-                <Input
-                  id="qtd-reposicao"
-                  type="number"
-                  min={1}
-                  value={quantidade}
-                  onChange={(e) => aoAlterarQuantidade(Number(e.target.value) || 0)}
-                  className="num h-9 text-xs"
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  Sugestão para ~30 dias de cobertura ({formatNumero(item.quantidade)} un em
-                  estoque hoje)
-                </p>
               </div>
             </div>
 
