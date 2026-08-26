@@ -8,6 +8,8 @@ import {
   ESTOQUE,
   ESTOQUE_DETALHADO,
   RESUMO_ESTOQUE,
+  FULFILLMENT_DETALHADO,
+  RESUMO_FULFILLMENT,
   HISTORICO_PRECOS,
   LOGS,
   MARKETPLACES,
@@ -37,6 +39,11 @@ export const estoqueService = {
   listar: () => ESTOQUE,
   listarDetalhado: () => ESTOQUE_DETALHADO,
   resumo: () => RESUMO_ESTOQUE,
+};
+
+export const fulfillmentService = {
+  listarDetalhado: () => FULFILLMENT_DETALHADO,
+  resumo: () => RESUMO_FULFILLMENT,
 };
 
 export const marketplacesService = {
