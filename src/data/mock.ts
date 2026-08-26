@@ -572,3 +572,42 @@ export const RESUMO_ESTOQUE = {
       0,
     ) || 485,
 };
+
+// ---------------------------------------------------------------------------
+// Fulfillment (estoque alocado nos galpões dos marketplaces). Dados fictícios.
+// ---------------------------------------------------------------------------
+
+const FULL_QTD = [4, 180, 60, 0, 12, 6, 120, 40, 0, 260, 30, 380];
+const FULL_VENDAS_DIA = [1.8, 3.2, 7.4, 0.9, 5.1, 0.3, 6.0, 1.6, 1.2, 2.6, 0.5, 9.8];
+
+export const FULFILLMENT_DETALHADO: ItemEstoqueDetalhado[] = PRODUTOS.map((produto, i) => {
+  const quantidade = FULL_QTD[i] ?? 40;
+  const vendasDia = FULL_VENDAS_DIA[i] ?? 1.5;
+  const cobertura = vendasDia > 0 ? Math.round(quantidade / vendasDia) : 0;
+  return {
+    sku: produto.sku,
+    produto: produto.nome,
+    marketplaceId: MARKETPLACES[i % 3]!.id,
+    quantidade,
+    vendasDia,
+    coberturaDias: cobertura,
+    custoUnitario: produto.cmv,
+    valorEstoque: Math.round(quantidade * produto.cmv * 100) / 100,
+  };
+});
+
+/** Resumo consolidado do fulfillment. */
+export const RESUMO_FULFILLMENT = {
+  /** CMV total das unidades alocadas nos galpões */
+  capitalInvestido: 92400,
+  /** SKUs com estoque alocado em fulfillment */
+  skusFull: FULFILLMENT_DETALHADO.filter((i) => i.quantidade > 0).length,
+  /** SKUs com menos de 10 unidades no galpão */
+  skusRuptura: FULFILLMENT_DETALHADO.filter((i) => i.quantidade > 0 && i.quantidade < 10).length,
+  /** Unidades paradas (cobertura acima de 60 dias) */
+  unidadesParadas:
+    FULFILLMENT_DETALHADO.filter((i) => i.coberturaDias > 60).reduce(
+      (t, i) => t + i.quantidade,
+      0,
+    ) || 320,
+};
