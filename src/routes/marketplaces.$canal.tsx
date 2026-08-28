@@ -8,6 +8,9 @@ import { formatNumero, formatPercentual, tempoRelativo } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
 import { DashboardCanal } from "@/components/marketplaces/DashboardCanal";
 import { RaioXAnuncios } from "@/components/marketplaces/RaioXAnuncios";
+import { PromocoesCanal } from "@/components/marketplaces/PromocoesCanal";
+import { ReputacaoCanal } from "@/components/marketplaces/ReputacaoCanal";
+import { PendenciasCanal } from "@/components/marketplaces/PendenciasCanal";
 import { cn } from "@/lib/utils";
 import type { Marketplace } from "@/types";
 
@@ -69,25 +72,6 @@ function StatusConexao({ m }: { m: Marketplace }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Conteúdo temporário das abas ainda não construídas                 */
-/* ------------------------------------------------------------------ */
-
-function EmConstrucao({ titulo, descricao }: { titulo: string; descricao: string }) {
-  return (
-    <Painel titulo={titulo} descricao={descricao}>
-      <div className="px-5 py-10 text-center">
-        <p className="text-sm text-muted-foreground">
-          Esta aba ainda não foi construída.
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          A navegação já está pronta; o conteúdo entra nas próximas etapas.
-        </p>
-      </div>
-    </Painel>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /* Página                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -117,7 +101,6 @@ function PaginaCanal() {
   }
 
   const desconectado = marketplace.statusConexao === "desconectado";
-  const abaAtual = ABAS_CANAL.find((a) => a.id === abaAtiva)!;
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-5">
@@ -205,8 +188,12 @@ function PaginaCanal() {
         <DashboardCanal marketplace={marketplace} />
       ) : abaAtiva === "raio-x" ? (
         <RaioXAnuncios marketplace={marketplace} />
+      ) : abaAtiva === "promocoes" ? (
+        <PromocoesCanal marketplace={marketplace} />
+      ) : abaAtiva === "reputacao" ? (
+        <ReputacaoCanal marketplace={marketplace} />
       ) : (
-        <EmConstrucao titulo={abaAtual.titulo} descricao={abaAtual.descricao} />
+        <PendenciasCanal marketplace={marketplace} />
       )}
     </div>
   );
