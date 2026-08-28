@@ -52,7 +52,7 @@ function statusOferta(margem: number) {
 function resultadoComPreco(a: Anuncio | Promocao, preco: number) {
   return calcularResultado({
     precoVenda: preco,
-    cmv: a.cmv,
+    cmv: a.cmv ?? 0,
     impostoPercentual: a.impostoPercentual,
     comissaoPercentual: a.comissaoPercentual,
     taxaFixa: a.taxaFixa,

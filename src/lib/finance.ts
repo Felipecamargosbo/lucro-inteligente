@@ -2,7 +2,15 @@
 // Tudo aqui é puro (entra número, sai número) para no futuro funcionar
 // igual com dados reais vindos das APIs.
 
-import type { Anuncio, Pedido, Periodo, Promocao } from "@/types";
+import type {
+  Anuncio,
+  FaixaSaudeMargem,
+  MetasMargem,
+  OrigemValor,
+  Pedido,
+  Periodo,
+  Promocao,
+} from "@/types";
 import { dentroDoPeriodo, inicioDoDia, listarDias } from "./period";
 
 export interface ResultadoVenda {
@@ -78,12 +86,154 @@ export function precoParaLucro(entrada: {
 export function resultadoAnuncio(a: Anuncio, preco = a.precoAtual) {
   return calcularResultado({
     precoVenda: preco,
-    cmv: a.cmv,
+    // Anúncio sem custo cadastrado não tem margem real; aqui tratamos como 0
+    // apenas para não quebrar o cálculo. Use raioXAnuncio() para saber disso.
+    cmv: a.cmv ?? 0,
     impostoPercentual: a.impostoPercentual,
     comissaoPercentual: a.comissaoPercentual,
     taxaFixa: a.taxaFixa,
-    outrosCustos: 0,
+    outrosCustos: a.freteUnitario + a.custoMidiaUnitario + a.custoAfiliadoUnitario,
   });
+}
+
+/**
+ * Breakdown completo de um anúncio, com cada taxa isolada e a faixa de saúde
+ * relativa às metas do canal. É o que a Tabela Raio-X consome.
+ */
+export interface RaioXAnuncio {
+  precoVenda: number;
+  precoCheio: number | null;
+  cmv: number;
+  /** true = custo não cadastrado; lucro e margem abaixo NÃO são confiáveis */
+  semCusto: boolean;
+  impostos: number;
+  comissao: number;
+  taxaFixa: number;
+  frete: number;
+  midia: number;
+  afiliados: number;
+  /** Tudo que sai do preço menos o CMV (taxas do canal + imposto + mídia) */
+  totalDescontos: number;
+  /** CMV + totalDescontos */
+  custoTotal: number;
+  lucroLiquido: number;
+  margem: number;
+  faixa: FaixaSaudeMargem;
+  origemTaxas: OrigemValor;
+}
+
+export function classificarFaixa(
+  margem: number,
+  metas: MetasMargem | null,
+  semCusto: boolean,
+): FaixaSaudeMargem {
+  if (semCusto) return "sem-custo";
+  if (margem < 0) return "prejuizo";
+  if (!metas) return "sem-meta";
+  if (margem < metas.margemMinima) return "abaixo-da-minima";
+  if (margem < metas.margemIdeal) return "entre-minima-e-ideal";
+  return "saudavel";
+}
+
+export function raioXAnuncio(
+  a: Anuncio,
+  metas: MetasMargem | null,
+  preco = a.precoAtual,
+): RaioXAnuncio {
+  const semCusto = a.cmv === null;
+  const cmv = a.cmv ?? 0;
+
+  const impostos = preco * a.impostoPercentual;
+  const comissao = preco * a.comissaoPercentual;
+  const totalDescontos =
+    impostos +
+    comissao +
+    a.taxaFixa +
+    a.freteUnitario +
+    a.custoMidiaUnitario +
+    a.custoAfiliadoUnitario;
+
+  const custoTotal = cmv + totalDescontos;
+  const lucroLiquido = preco - custoTotal;
+  const margem = preco > 0 ? lucroLiquido / preco : 0;
+
+  return {
+    precoVenda: preco,
+    precoCheio: a.precoCheio,
+    cmv,
+    semCusto,
+    impostos,
+    comissao,
+    taxaFixa: a.taxaFixa,
+    frete: a.freteUnitario,
+    midia: a.custoMidiaUnitario,
+    afiliados: a.custoAfiliadoUnitario,
+    totalDescontos,
+    custoTotal,
+    lucroLiquido,
+    margem,
+    faixa: classificarFaixa(margem, metas, semCusto),
+    origemTaxas: a.origemTaxas,
+  };
+}
+
+/** Cobertura de dados: sem isso, a margem exibida é uma promessa vazia. */
+export interface CoberturaDados {
+  total: number;
+  comCusto: number;
+  semCusto: number;
+  semVinculo: number;
+  /** 0-1 — fração do catálogo com margem realmente calculável */
+  percentualCalculavel: number;
+  /** Anúncios cujas taxas ainda são projeção, não liquidação do canal */
+  comTaxaEstimada: number;
+}
+
+export function calcularCobertura(anuncios: Anuncio[]): CoberturaDados {
+  const total = anuncios.length;
+  const comCusto = anuncios.filter((a) => a.cmv !== null).length;
+  const semVinculo = anuncios.filter((a) => !a.produtoVinculado).length;
+  const comTaxaEstimada = anuncios.filter((a) => a.origemTaxas === "estimado").length;
+  return {
+    total,
+    comCusto,
+    semCusto: total - comCusto,
+    semVinculo,
+    percentualCalculavel: total > 0 ? comCusto / total : 0,
+    comTaxaEstimada,
+  };
+}
+
+/**
+ * Curva ABC por faturamento: A = até 80% acumulado, B = até 95%, C = o resto.
+ * Mostra onde vale gastar atenção num catálogo de centenas de anúncios.
+ */
+export interface ItemCurvaABC {
+  anuncio: Anuncio;
+  faturamento: number;
+  participacao: number; // 0-1
+  acumulado: number; // 0-1
+  classe: "A" | "B" | "C";
+}
+
+export function curvaABC(anuncios: Anuncio[]): ItemCurvaABC[] {
+  const comFaturamento = anuncios.map((a) => ({
+    anuncio: a,
+    faturamento: a.precoAtual * a.unidadesVendidas,
+  }));
+  const total = comFaturamento.reduce((s, i) => s + i.faturamento, 0);
+  if (total <= 0) return [];
+
+  let acumulado = 0;
+  return comFaturamento
+    .sort((a, b) => b.faturamento - a.faturamento)
+    .map((item) => {
+      const participacao = item.faturamento / total;
+      acumulado += participacao;
+      const classe: "A" | "B" | "C" =
+        acumulado <= 0.8 ? "A" : acumulado <= 0.95 ? "B" : "C";
+      return { ...item, participacao, acumulado, classe };
+    });
 }
 
 export function resultadoPromocao(p: Promocao) {

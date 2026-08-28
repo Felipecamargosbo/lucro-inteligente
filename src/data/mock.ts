@@ -43,6 +43,17 @@ export const MARKETPLACES: Marketplace[] = [
     comissaoPercentual: 0.16,
     taxaFixa: 6.75,
     freteMedio: 22.9,
+    metas: { margemMinima: 0.12, margemIdeal: 0.22 },
+    reputacao: {
+      nivel: "excelente",
+      rotuloCanal: "MercadoLíder Platinum",
+      taxaAtraso: 0.008,
+      taxaCancelamento: 0.004,
+      taxaReclamacao: 0.006,
+      limiteAtraso: 0.15,
+      limiteCancelamento: 0.02,
+      alerta: null,
+    },
   },
   {
     id: "shopee",
@@ -55,6 +66,17 @@ export const MARKETPLACES: Marketplace[] = [
     comissaoPercentual: 0.2,
     taxaFixa: 4,
     freteMedio: 18.5,
+    metas: { margemMinima: 0.1, margemIdeal: 0.2 },
+    reputacao: {
+      nivel: "bom",
+      rotuloCanal: "Loja Preferida",
+      taxaAtraso: 0.031,
+      taxaCancelamento: 0.011,
+      taxaReclamacao: 0.014,
+      limiteAtraso: 0.05,
+      limiteCancelamento: 0.02,
+      alerta: null,
+    },
   },
   {
     id: "amazon",
@@ -67,6 +89,17 @@ export const MARKETPLACES: Marketplace[] = [
     comissaoPercentual: 0.15,
     taxaFixa: 5.5,
     freteMedio: 19.9,
+    metas: { margemMinima: 0.14, margemIdeal: 0.25 },
+    reputacao: {
+      nivel: "regular",
+      rotuloCanal: null,
+      taxaAtraso: 0.038,
+      taxaCancelamento: 0.019,
+      taxaReclamacao: 0.021,
+      limiteAtraso: 0.04,
+      limiteCancelamento: 0.025,
+      alerta: "Taxa de atraso a 0,2 p.p. do limite da conta.",
+    },
   },
   {
     id: "magalu",
@@ -79,6 +112,17 @@ export const MARKETPLACES: Marketplace[] = [
     comissaoPercentual: 0.18,
     taxaFixa: 5,
     freteMedio: 20,
+    metas: null,
+    reputacao: {
+      nivel: "em-risco",
+      rotuloCanal: "Selo Prata",
+      taxaAtraso: 0.062,
+      taxaCancelamento: 0.028,
+      taxaReclamacao: 0.033,
+      limiteAtraso: 0.05,
+      limiteCancelamento: 0.02,
+      alerta: "Atraso e cancelamento acima do limite — risco de perda do selo.",
+    },
   },
   {
     id: "tiktok-shop",
@@ -91,6 +135,8 @@ export const MARKETPLACES: Marketplace[] = [
     comissaoPercentual: 0.14,
     taxaFixa: 3.5,
     freteMedio: 15,
+    metas: { margemMinima: 0.08, margemIdeal: 0.18 },
+    reputacao: null,
   },
   {
     id: "shein",
@@ -103,6 +149,8 @@ export const MARKETPLACES: Marketplace[] = [
     comissaoPercentual: 0.16,
     taxaFixa: 3,
     freteMedio: 12,
+    metas: null,
+    reputacao: null,
   },
 ];
 
@@ -225,27 +273,79 @@ function gerarPedidos(): Pedido[] {
 
 export const PEDIDOS: Pedido[] = gerarPedidos();
 
+/**
+ * Gera anúncios deliberadamente imperfeitos: alguns sem custo cadastrado,
+ * alguns sem vínculo com produto, alguns no prejuízo, alguns com taxa ainda
+ * estimada. Um catálogo real é assim — e a interface precisa aguentar isso.
+ */
 function gerarAnuncios(): Anuncio[] {
   const rand = criarRandom(777);
   const anuncios: Anuncio[] = [];
+
   for (const produto of PRODUTOS) {
-    for (const marketplace of MARKETPLACES.slice(0, 3)) {
-      const ajuste = 1 + (rand() - 0.4) * 0.12;
+    for (const marketplace of MARKETPLACES.slice(0, 4)) {
+      const sorteio = rand();
+
+      // ~18% do catálogo sem produto vinculado -> sem CMV -> sem margem real
+      const produtoVinculado = sorteio > 0.18;
+      const cmv = produtoVinculado ? produto.cmv : null;
+
+      // Alguns anúncios com preço agressivo demais para caírem no vermelho
+      const agressivo = rand() > 0.82;
+      const ajuste = agressivo ? 0.72 + rand() * 0.1 : 1 + (rand() - 0.4) * 0.12;
+      const precoAtual = Math.round(produto.preco * ajuste * 100) / 100;
+
+      const emPromocao = rand() > 0.7;
+      const precoCheio = emPromocao
+        ? Math.round(precoAtual * (1.12 + rand() * 0.15) * 100) / 100
+        : null;
+
+      // Frete: só é custo do seller acima do limiar de frete grátis do canal
+      const temFreteSubsidiado = precoAtual >= 79;
+      const freteUnitario = temFreteSubsidiado
+        ? Math.round(marketplace.freteMedio * (0.6 + rand() * 0.6) * 100) / 100
+        : 0;
+
+      // ADS: só uma parte do catálogo é impulsionada
+      const investeMidia = rand() > 0.6;
+      const custoMidiaUnitario = investeMidia
+        ? Math.round(precoAtual * (0.02 + rand() * 0.09) * 100) / 100
+        : 0;
+
+      // Afiliados: praticamente só no TikTok Shop (lives e criadores)
+      const custoAfiliadoUnitario =
+        marketplace.id === "tiktok-shop" && rand() > 0.35
+          ? Math.round(precoAtual * (0.05 + rand() * 0.1) * 100) / 100
+          : 0;
+
       anuncios.push({
         id: `${marketplace.id}-${produto.sku}`,
         marketplaceId: marketplace.id,
         sku: produto.sku,
         produto: produto.nome,
-        precoAtual: Math.round(produto.preco * ajuste * 100) / 100,
-        cmv: produto.cmv,
+        precoAtual,
+        precoCheio,
+        emPromocao,
+        cmv,
         impostoPercentual: IMPOSTO_PADRAO,
         comissaoPercentual: marketplace.comissaoPercentual,
         taxaFixa: marketplace.taxaFixa,
+        freteUnitario,
+        custoMidiaUnitario,
+        custoAfiliadoUnitario,
+        // Canal recém-conectado ainda não liquidou taxas
+        origemTaxas:
+          marketplace.statusConexao === "conectado" && rand() > 0.35
+            ? "liquidado"
+            : "estimado",
+        produtoVinculado,
         status: rand() > 0.9 ? "pausado" : rand() > 0.95 ? "sem-estoque" : "ativo",
         elegivelPromocao: rand() > 0.55,
+        unidadesVendidas: Math.floor(rand() * rand() * 90),
       });
     }
   }
+
   return anuncios;
 }
 
