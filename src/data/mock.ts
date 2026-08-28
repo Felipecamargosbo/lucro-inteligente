@@ -36,49 +36,73 @@ export const MARKETPLACES: Marketplace[] = [
     id: "mercado-livre",
     nome: "Mercado Livre",
     conectado: true,
+    statusConexao: "conectado",
     ultimaSincronizacao: new Date(Date.now() - 8 * 60000).toISOString(),
+    skusAtivos: 342,
+    vendasHoje: 18420.5,
     comissaoPercentual: 0.16,
     taxaFixa: 6.75,
+    freteMedio: 22.9,
   },
   {
     id: "shopee",
     nome: "Shopee",
     conectado: true,
+    statusConexao: "conectado",
     ultimaSincronizacao: new Date(Date.now() - 52 * 60000).toISOString(),
+    skusAtivos: 298,
+    vendasHoje: 9870,
     comissaoPercentual: 0.2,
     taxaFixa: 4,
+    freteMedio: 18.5,
   },
   {
     id: "amazon",
     nome: "Amazon",
     conectado: true,
+    statusConexao: "conectado",
     ultimaSincronizacao: new Date(Date.now() - 21 * 60000).toISOString(),
+    skusAtivos: 210,
+    vendasHoje: 11230,
     comissaoPercentual: 0.15,
     taxaFixa: 5.5,
+    freteMedio: 19.9,
   },
   {
     id: "magalu",
     nome: "Magalu",
-    conectado: false,
-    ultimaSincronizacao: null,
+    conectado: true,
+    statusConexao: "token-expirando",
+    ultimaSincronizacao: new Date(Date.now() - 3 * 3600000).toISOString(),
+    skusAtivos: 156,
+    vendasHoje: 4120,
     comissaoPercentual: 0.18,
     taxaFixa: 5,
+    freteMedio: 20,
   },
   {
     id: "tiktok-shop",
     nome: "TikTok Shop",
     conectado: false,
+    statusConexao: "desconectado",
     ultimaSincronizacao: null,
+    skusAtivos: 0,
+    vendasHoje: 0,
     comissaoPercentual: 0.14,
     taxaFixa: 3.5,
+    freteMedio: 15,
   },
   {
     id: "shein",
     nome: "Shein",
     conectado: false,
+    statusConexao: "desconectado",
     ultimaSincronizacao: null,
+    skusAtivos: 0,
+    vendasHoje: 0,
     comissaoPercentual: 0.16,
     taxaFixa: 3,
+    freteMedio: 12,
   },
 ];
 
@@ -344,270 +368,4 @@ export const USUARIOS: Usuario[] = [
   {
     id: "u1",
     nome: "Felipe Camargo",
-    email: "felipe@nexuscommerce.com.br",
-    papel: "administrador",
-    ativo: true,
-    ultimoAcesso: new Date(Date.now() - 20 * 60000).toISOString(),
-  },
-  {
-    id: "u2",
-    nome: "Marina Alves",
-    email: "marina@nexuscommerce.com.br",
-    papel: "analista",
-    ativo: true,
-    ultimoAcesso: new Date(Date.now() - 4 * 3600000).toISOString(),
-  },
-  {
-    id: "u3",
-    nome: "Rodrigo Peixoto",
-    email: "rodrigo@nexuscommerce.com.br",
-    papel: "operacional",
-    ativo: true,
-    ultimoAcesso: new Date(Date.now() - 28 * 3600000).toISOString(),
-  },
-  {
-    id: "u4",
-    nome: "Camila Duarte",
-    email: "camila@nexuscommerce.com.br",
-    papel: "operacional",
-    ativo: false,
-    ultimoAcesso: new Date(Date.now() - 20 * 24 * 3600000).toISOString(),
-  },
-];
-
-export const LOGS: LogAlteracao[] = [
-  {
-    id: "l1",
-    data: new Date(Date.now() - 3 * 3600000).toISOString(),
-    usuario: "Felipe Camargo",
-    acao: "Alteração de preço — SW-X-BLK-001",
-    valorAnterior: "R$ 479,90",
-    valorNovo: "R$ 499,90",
-  },
-  {
-    id: "l2",
-    data: new Date(Date.now() - 26 * 3600000).toISOString(),
-    usuario: "Marina Alves",
-    acao: "Alteração de preço — PEL-IP15-PM",
-    valorAnterior: "R$ 44,90",
-    valorNovo: "R$ 39,90",
-  },
-  {
-    id: "l3",
-    data: new Date(Date.now() - 30 * 3600000).toISOString(),
-    usuario: "Felipe Camargo",
-    acao: "Regra financeira — Alíquota de imposto",
-    valorAnterior: "8%",
-    valorNovo: "10%",
-  },
-  {
-    id: "l4",
-    data: new Date(Date.now() - 54 * 3600000).toISOString(),
-    usuario: "Rodrigo Peixoto",
-    acao: "Permissão de usuário — Camila Duarte",
-    valorAnterior: "Analista",
-    valorNovo: "Operacional",
-  },
-  {
-    id: "l5",
-    data: new Date(Date.now() - 100 * 3600000).toISOString(),
-    usuario: "Felipe Camargo",
-    acao: "Margem desejada padrão",
-    valorAnterior: "18%",
-    valorNovo: "22%",
-  },
-];
-
-export const EMPRESA = {
-  nome: "Nexus Commerce LTDA",
-  cnpj: "42.918.774/0001-06",
-  regime: "Simples Nacional",
-  plano: "Plano Enterprise",
-  email: "financeiro@nexuscommerce.com.br",
-  telefone: "(11) 4002-8922",
-  endereco: "Av. Paulista, 1578 — São Paulo/SP",
-};
-
-export const USUARIO_ATUAL = USUARIOS[0]!;
-
-export const REGRAS_FINANCEIRAS = {
-  impostoPercentual: IMPOSTO_PADRAO,
-  margemDesejada: 0.22,
-  outrosCustosPadrao: 0,
-};
-
-const TIPOS_RECUPERACAO: TipoOportunidadeRecuperacao[] = [
-  "boleto-pendente",
-  "pix-nao-pago",
-  "cancelamento-solicitado",
-];
-const CANAIS_RECUPERACAO: CanalRecuperacao[] = ["whatsapp", "email", "sms"];
-
-function gerarOportunidadesRecuperacao(): OportunidadeRecuperacao[] {
-  const rand = criarRandom(20260915);
-  const alvos = { total: 38450, recuperado: 14210 };
-
-  const oportunidades: OportunidadeRecuperacao[] = [];
-  for (let i = 0; i < 67; i++) {
-    const recuperado = i < 25;
-    const status: StatusOportunidadeRecuperacao = recuperado
-      ? "recuperado"
-      : i < 55
-        ? "aguardando-acao"
-        : "mensagem-enviada";
-    const tipo = TIPOS_RECUPERACAO[Math.floor(rand() * TIPOS_RECUPERACAO.length)]!;
-    const canal = CANAIS_RECUPERACAO[Math.floor(rand() * CANAIS_RECUPERACAO.length)]!;
-    const marketplace = MARKETPLACES[Math.floor(rand() * 3)]!;
-    const produto = PRODUTOS[Math.floor(rand() * PRODUTOS.length)]!;
-    const cliente = CLIENTES[Math.floor(rand() * CLIENTES.length)]!;
-    const valor = Math.round((200 + rand() * 800) * 100) / 100;
-    const horas = Math.floor(1 + rand() * 47);
-
-    oportunidades.push({
-      id: `REC-${1000 + i}`,
-      cliente,
-      pedidoId: `${marketplace.id.slice(0, 3).toUpperCase()}-${(100000 + Math.floor(rand() * 899999)).toString()}`,
-      marketplaceId: marketplace.id,
-      valor,
-      tipo,
-      tempoRestante: recuperado ? "—" : `${horas}h`,
-      status,
-      canal,
-      dataCriacao: new Date(Date.now() - Math.floor(rand() * 10 * 24 * 3600000)).toISOString(),
-      dataUltimoContato: recuperado
-        ? new Date(Date.now() - Math.floor(rand() * 5 * 24 * 3600000)).toISOString()
-        : null,
-    });
-  }
-
-  const somaTotal = oportunidades.reduce((acc, o) => acc + o.valor, 0);
-  const somaRecuperado = oportunidades
-    .filter((o) => o.status === "recuperado")
-    .reduce((acc, o) => acc + o.valor, 0);
-  const somaPendente = somaTotal - somaRecuperado;
-
-  const fatorRecuperado = alvos.recuperado / somaRecuperado;
-  const fatorPendente = (alvos.total - alvos.recuperado) / somaPendente;
-
-  for (const o of oportunidades) {
-    const fator = o.status === "recuperado" ? fatorRecuperado : fatorPendente;
-    o.valor = Math.round(o.valor * fator * 100) / 100;
-  }
-
-  return oportunidades.sort((a, b) => +new Date(b.dataCriacao) - +new Date(a.dataCriacao));
-}
-
-export const OPORTUNIDADES_RECUPERACAO: OportunidadeRecuperacao[] =
-  gerarOportunidadesRecuperacao();
-
-export const CANAIS_NOTIFICACAO: CanalNotificacao[] = [
-  {
-    id: "whatsapp",
-    nome: "WhatsApp",
-    icone: "MessageCircle",
-    conectado: true,
-    disparosAutomaticos: true,
-    ultimoDisparo: new Date(Date.now() - 12 * 60000).toISOString(),
-    taxaAbertura: 0.78,
-    custoEstimado: 0.08,
-  },
-  {
-    id: "email",
-    nome: "E-mail",
-    icone: "Mail",
-    conectado: true,
-    disparosAutomaticos: false,
-    ultimoDisparo: new Date(Date.now() - 3 * 3600000).toISOString(),
-    taxaAbertura: 0.42,
-    custoEstimado: 0.02,
-  },
-  {
-    id: "sms",
-    nome: "SMS",
-    icone: "Smartphone",
-    conectado: false,
-    disparosAutomaticos: false,
-    ultimoDisparo: new Date(Date.now() - 2 * 24 * 3600000).toISOString(),
-    taxaAbertura: 0.65,
-    custoEstimado: 0.12,
-  },
-];
-
-
-// ---------------------------------------------------------------------------
-// Estoque detalhado (cobertura em dias). Dados fictícios com números realistas.
-// ---------------------------------------------------------------------------
-
-const ESTOQUE_QTD = [8, 320, 145, 0, 45, 18, 210, 95, 0, 410, 78, 640];
-const ESTOQUE_VENDAS_DIA = [2.4, 4.1, 9.8, 1.2, 6.5, 0.4, 7.2, 2.1, 1.8, 3.4, 0.9, 12.5];
-
-export const ESTOQUE_DETALHADO: ItemEstoqueDetalhado[] = PRODUTOS.map((produto, i) => {
-  const quantidade = ESTOQUE_QTD[i] ?? 100;
-  const vendasDia = ESTOQUE_VENDAS_DIA[i] ?? 2;
-  const cobertura = vendasDia > 0 ? Math.round(quantidade / vendasDia) : 0;
-  return {
-    sku: produto.sku,
-    produto: produto.nome,
-    marketplaceId: MARKETPLACES[i % 3]!.id,
-    quantidade,
-    vendasDia,
-    coberturaDias: cobertura,
-    custoUnitario: produto.cmv,
-    valorEstoque: Math.round(quantidade * produto.cmv * 100) / 100,
-  };
-});
-
-/** Resumo consolidado da operação (considera os 142 SKUs ativos da conta). */
-export const RESUMO_ESTOQUE = {
-  /** CMV total das unidades paradas em estoque */
-  capitalInvestido: 185200,
-  skusAtivos: 142,
-  /** SKUs com menos de 10 unidades disponíveis */
-  skusRuptura: ESTOQUE_DETALHADO.filter((i) => i.quantidade > 0 && i.quantidade < 10).length || 5,
-  valorParado: 12400,
-  /** Unidades paradas (cobertura acima de 60 dias) */
-  unidadesParadas:
-    ESTOQUE_DETALHADO.filter((i) => i.coberturaDias > 60).reduce(
-      (t, i) => t + i.quantidade,
-      0,
-    ) || 485,
-};
-
-// ---------------------------------------------------------------------------
-// Fulfillment (estoque alocado nos galpões dos marketplaces). Dados fictícios.
-// ---------------------------------------------------------------------------
-
-const FULL_QTD = [4, 180, 60, 0, 12, 6, 120, 40, 0, 260, 30, 380];
-const FULL_VENDAS_DIA = [1.8, 3.2, 7.4, 0.9, 5.1, 0.3, 6.0, 1.6, 1.2, 2.6, 0.5, 9.8];
-
-export const FULFILLMENT_DETALHADO: ItemEstoqueDetalhado[] = PRODUTOS.map((produto, i) => {
-  const quantidade = FULL_QTD[i] ?? 40;
-  const vendasDia = FULL_VENDAS_DIA[i] ?? 1.5;
-  const cobertura = vendasDia > 0 ? Math.round(quantidade / vendasDia) : 0;
-  return {
-    sku: produto.sku,
-    produto: produto.nome,
-    marketplaceId: MARKETPLACES[i % 3]!.id,
-    quantidade,
-    vendasDia,
-    coberturaDias: cobertura,
-    custoUnitario: produto.cmv,
-    valorEstoque: Math.round(quantidade * produto.cmv * 100) / 100,
-  };
-});
-
-/** Resumo consolidado do fulfillment. */
-export const RESUMO_FULFILLMENT = {
-  /** CMV total das unidades alocadas nos galpões */
-  capitalInvestido: 92400,
-  /** SKUs com estoque alocado em fulfillment */
-  skusFull: FULFILLMENT_DETALHADO.filter((i) => i.quantidade > 0).length,
-  /** SKUs com menos de 10 unidades no galpão */
-  skusRuptura: FULFILLMENT_DETALHADO.filter((i) => i.quantidade > 0 && i.quantidade < 10).length,
-  /** Unidades paradas (cobertura acima de 60 dias) */
-  unidadesParadas:
-    FULFILLMENT_DETALHADO.filter((i) => i.coberturaDias > 60).reduce(
-      (t, i) => t + i.quantidade,
-      0,
-    ) || 320,
-};
+    email:
