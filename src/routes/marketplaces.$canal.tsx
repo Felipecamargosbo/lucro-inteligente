@@ -6,6 +6,7 @@ import { marketplacesService, anunciosService } from "@/services";
 import { calcularCobertura } from "@/lib/finance";
 import { formatNumero, formatPercentual, tempoRelativo } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
+import { DashboardCanal } from "@/components/marketplaces/DashboardCanal";
 import { cn } from "@/lib/utils";
 import type { Marketplace } from "@/types";
 
@@ -199,7 +200,11 @@ function PaginaCanal() {
       </div>
 
       {/* Conteúdo da aba */}
-      <EmConstrucao titulo={abaAtual.titulo} descricao={abaAtual.descricao} />
+      {abaAtiva === "dashboard" ? (
+        <DashboardCanal marketplace={marketplace} />
+      ) : (
+        <EmConstrucao titulo={abaAtual.titulo} descricao={abaAtual.descricao} />
+      )}
     </div>
   );
 }
