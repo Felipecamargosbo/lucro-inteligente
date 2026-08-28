@@ -11,6 +11,8 @@ import {
   Store,
 } from "lucide-react";
 
+import type { MarketplaceId } from "@/types";
+
 export interface ItemMenu {
   titulo: string;
   url: string;
@@ -104,3 +106,70 @@ export const MENU: ItemMenu[] = [
 ];
 
 export const GRUPOS = ["Análise", "Operação", "Configuração"] as const;
+
+/* ------------------------------------------------------------------ */
+/* Navegação por canal                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Canais que aparecem como sub-itens do grupo "Gestão de Marketplaces".
+ * O slug é o que vai na URL (/marketplaces/mercado-livre).
+ */
+export interface CanalMenu {
+  id: MarketplaceId;
+  slug: string;
+  titulo: string;
+}
+
+export const CANAIS: CanalMenu[] = [
+  { id: "mercado-livre", slug: "mercado-livre", titulo: "Mercado Livre" },
+  { id: "shopee", slug: "shopee", titulo: "Shopee" },
+  { id: "amazon", slug: "amazon", titulo: "Amazon" },
+  { id: "magalu", slug: "magalu", titulo: "Magalu" },
+  { id: "tiktok-shop", slug: "tiktok-shop", titulo: "TikTok Shop" },
+  { id: "shein", slug: "shein", titulo: "Shein" },
+];
+
+export const getCanalPorSlug = (slug: string) => CANAIS.find((c) => c.slug === slug);
+
+/** Abas internas de cada canal. */
+export type AbaCanal =
+  | "dashboard"
+  | "raio-x"
+  | "promocoes"
+  | "reputacao"
+  | "pendencias";
+
+export interface AbaCanalDef {
+  id: AbaCanal;
+  titulo: string;
+  descricao: string;
+}
+
+export const ABAS_CANAL: AbaCanalDef[] = [
+  {
+    id: "dashboard",
+    titulo: "Dashboard",
+    descricao: "Faturamento, pedidos e composição das taxas do canal",
+  },
+  {
+    id: "raio-x",
+    titulo: "Raio-X de Anúncios",
+    descricao: "Cada taxa exposta na linha, com o que sobra no bolso",
+  },
+  {
+    id: "promocoes",
+    titulo: "Promoções",
+    descricao: "Campanhas do canal e se elas compensam",
+  },
+  {
+    id: "reputacao",
+    titulo: "Reputação",
+    descricao: "Atraso, cancelamento e risco de perda de medalha",
+  },
+  {
+    id: "pendencias",
+    titulo: "Pendências",
+    descricao: "O que impede o cálculo de margem confiável",
+  },
+];

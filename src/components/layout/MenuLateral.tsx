@@ -1,10 +1,117 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ChevronsLeft, ChevronsRight, LogOut } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { GRUPOS, MENU } from "@/config/navegacao";
-import { EMPRESA, USUARIO_ATUAL } from "@/data/mock";
+import { CANAIS, GRUPOS, MENU, type ItemMenu } from "@/config/navegacao";
+import { EMPRESA, USUARIO_ATUAL, getMarketplace } from "@/data/mock";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+/** Bolinha de status da conexão do canal, para leitura num relance. */
+function PontoStatus({ id }: { id: (typeof CANAIS)[number]["id"] }) {
+  const m = getMarketplace(id);
+  const cor =
+    m.statusConexao === "conectado"
+      ? "bg-profit"
+      : m.statusConexao === "token-expirando"
+        ? "bg-warning"
+        : "bg-loss";
+  return <span className={cn("size-1.5 shrink-0 rounded-full", cor)} />;
+}
+
+/**
+ * "Gestão de Marketplaces": abre a visão geral e lista cada canal.
+ * Fica expandido por padrão quando o usuário já está dentro de /marketplaces.
+ */
+function GrupoMarketplaces({
+  item,
+  recolhido,
+  pathname,
+}: {
+  item: ItemMenu;
+  recolhido: boolean;
+  pathname: string;
+}) {
+  const dentroDeMarketplaces = pathname.startsWith("/marketplaces");
+  const [aberto, setAberto] = useState(dentroDeMarketplaces);
+
+  // Recolhido: vira só o ícone, com tooltip, sem sub-itens.
+  if (recolhido) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            to="/marketplaces"
+            className={cn(
+              "flex items-center justify-center rounded-lg px-0 py-2 text-sm font-medium transition-colors",
+              dentroDeMarketplaces
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+            )}
+          >
+            <item.icone className="size-4 shrink-0" />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="right">Gestão de Marketplaces</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <div>
+      <button
+        onClick={() => setAberto((v) => !v)}
+        className={cn(
+          "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+          dentroDeMarketplaces
+            ? "text-sidebar-foreground"
+            : "text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+        )}
+      >
+        <item.icone className="size-4 shrink-0" />
+        <span className="flex-1 truncate text-left">Gestão de Marketplaces</span>
+        {aberto ? (
+          <ChevronDown className="size-3.5 shrink-0" />
+        ) : (
+          <ChevronRight className="size-3.5 shrink-0" />
+        )}
+      </button>
+
+      {aberto && (
+        <div className="mt-0.5 space-y-0.5">
+          <Link
+            to="/marketplaces"
+            className={cn(
+              "flex items-center gap-2 rounded-lg py-1.5 pl-10 pr-3 text-[13px] transition-colors",
+              pathname === "/marketplaces"
+                ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                : "text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+            )}
+          >
+            Visão geral &amp; conexões
+          </Link>
+
+          {CANAIS.map((canal) => (
+            <Link
+              key={canal.slug}
+              to="/marketplaces/$canal"
+              params={{ canal: canal.slug }}
+              className={cn(
+                "flex items-center gap-2 rounded-lg py-1.5 pl-10 pr-3 text-[13px] transition-colors",
+                pathname.startsWith(`/marketplaces/${canal.slug}`)
+                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                  : "text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+              )}
+            >
+              <PontoStatus id={canal.id} />
+              <span className="truncate">{canal.titulo}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function MenuLateral({
   recolhido,
@@ -48,6 +155,19 @@ export function MenuLateral({
               </p>
             )}
             {MENU.filter((item) => item.grupo === grupo).map((item) => {
+              // "Marketplaces" não é um link simples: é um grupo que abre
+              // a lista de canais conectados.
+              if (item.url === "/marketplaces") {
+                return (
+                  <GrupoMarketplaces
+                    key={item.url}
+                    item={item}
+                    recolhido={recolhido}
+                    pathname={pathname}
+                  />
+                );
+              }
+
               const link = (
                 <Link
                   key={item.url}

@@ -1,14 +1,27 @@
 import { Bell } from "lucide-react";
 import { useRouterState } from "@tanstack/react-router";
-import { MENU } from "@/config/navegacao";
+import { MENU, getCanalPorSlug } from "@/config/navegacao";
 import { SeletorPeriodo } from "@/components/comum/SeletorPeriodo";
 import { notificacoesService } from "@/services";
 
 export function BarraSuperior({ aoAbrirNotificacoes }: { aoAbrirNotificacoes: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const item =
-    MENU.find((m) => (m.url === "/" ? pathname === "/" : pathname.startsWith(m.url))) ?? MENU[0]!;
   const naoLidas = notificacoesService.listar().filter((n) => !n.lida).length;
+
+  // Páginas de canal (/marketplaces/<slug>) têm título próprio e usam período.
+  const slugCanal = pathname.startsWith("/marketplaces/")
+    ? pathname.split("/")[2]
+    : undefined;
+  const canal = slugCanal ? getCanalPorSlug(slugCanal) : undefined;
+
+  const item = canal
+    ? {
+        titulo: canal.titulo,
+        descricao: "Resultado, taxas e saúde da conta neste canal",
+        usaPeriodo: true,
+      }
+    : (MENU.find((m) => (m.url === "/" ? pathname === "/" : pathname.startsWith(m.url))) ??
+      MENU[0]!);
 
   return (
     <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-4 border-b bg-card px-6">
