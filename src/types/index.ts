@@ -9,14 +9,23 @@ export type MarketplaceId =
   | "tiktok-shop"
   | "shein";
 
+export type StatusConexaoMarketplace =
+  | "conectado"
+  | "token-expirando"
+  | "desconectado";
+
 export interface Marketplace {
   id: MarketplaceId;
   nome: string;
   conectado: boolean;
+  statusConexao: StatusConexaoMarketplace;
   ultimaSincronizacao: string | null; // ISO
+  skusAtivos: number;
+  vendasHoje: number;
   /** Regras usadas nos cálculos enquanto não há API real */
   comissaoPercentual: number;
   taxaFixa: number;
+  freteMedio: number;
 }
 
 export type StatusPedido =
