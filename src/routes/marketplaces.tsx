@@ -36,10 +36,7 @@ export const Route = createFileRoute("/marketplaces")({
   component: Marketplaces,
 });
 
-const STATUS_META: Record
-  StatusConexaoMarketplace,
-  { texto: string; cor: string; Icone: typeof CheckCircle2 }
-> = {
+const STATUS_META = {
   conectado: { texto: "Conectado", cor: "bg-profit-soft text-profit", Icone: CheckCircle2 },
   "token-expirando": {
     texto: "Token Expirando",
@@ -47,7 +44,7 @@ const STATUS_META: Record
     Icone: AlertTriangle,
   },
   desconectado: { texto: "Desconectado", cor: "bg-loss-soft text-loss", Icone: XCircle },
-};
+} satisfies Record<StatusConexaoMarketplace, { texto: string; cor: string; Icone: typeof CheckCircle2 }>;
 
 function Marketplaces() {
   const [lista, setLista] = useState<Marketplace[]>(() => marketplacesService.listar());
