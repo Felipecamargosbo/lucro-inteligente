@@ -7,6 +7,7 @@ import { calcularCobertura } from "@/lib/finance";
 import { formatNumero, formatPercentual, tempoRelativo } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
 import { DashboardCanal } from "@/components/marketplaces/DashboardCanal";
+import { RaioXAnuncios } from "@/components/marketplaces/RaioXAnuncios";
 import { cn } from "@/lib/utils";
 import type { Marketplace } from "@/types";
 
@@ -202,6 +203,8 @@ function PaginaCanal() {
       {/* Conteúdo da aba */}
       {abaAtiva === "dashboard" ? (
         <DashboardCanal marketplace={marketplace} />
+      ) : abaAtiva === "raio-x" ? (
+        <RaioXAnuncios marketplace={marketplace} />
       ) : (
         <EmConstrucao titulo={abaAtual.titulo} descricao={abaAtual.descricao} />
       )}
