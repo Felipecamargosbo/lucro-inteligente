@@ -45,6 +45,12 @@ const CORES_FATIA = [
 
 export function DashboardCanal({ marketplace }: { marketplace: Marketplace }) {
   const { periodo } = usePeriodo();
+  const { metasPorCanal, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
+  const metas = metasPorCanal[marketplace.id] ?? null;
+  const opcoes = (preco: number) => ({
+    aliquotaImposto: fiscal.aliquota,
+    custosOperacionais: custoOperacionalDetalhado(preco),
+  });
 
   const dados = useMemo(() => {
     const pedidosCanal = vendasService
@@ -74,7 +80,7 @@ export function DashboardCanal({ marketplace }: { marketplace: Marketplace }) {
     for (const a of anuncios) {
       const un = a.unidadesVendidas;
       if (un <= 0) continue;
-      const r = raioXAnuncio(a, marketplace.metas);
+      const r = raioXAnuncio(a, metas, a.precoAtual, opcoes(a.precoAtual));
       acumulado.receita += r.precoVenda * un;
       acumulado.comissao += r.comissao * un;
       acumulado.taxaFixa += r.taxaFixa * un;
@@ -97,7 +103,7 @@ export function DashboardCanal({ marketplace }: { marketplace: Marketplace }) {
       acumulado,
       anuncios,
     };
-  }, [marketplace, periodo]);
+  }, [marketplace, periodo, metas, fiscal, custoOperacionalDetalhado]);
 
   const { resumo, serie, abc, acumulado } = dados;
 
@@ -378,7 +384,7 @@ export function DashboardCanal({ marketplace }: { marketplace: Marketplace }) {
               </thead>
               <tbody>
                 {topProdutos.map((item) => {
-                  const r = raioXAnuncio(item.anuncio, marketplace.metas);
+                  const r = raioXAnuncio(item.anuncio, metas, item.anuncio.precoAtual, opcoes(item.anuncio.precoAtual));
                   const lucroTotal = r.lucroLiquido * item.anuncio.unidadesVendidas;
                   return (
                     <tr key={item.anuncio.id} className="border-b last:border-0">

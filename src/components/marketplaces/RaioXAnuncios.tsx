@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 import { RefreshCw, Search, TriangleAlert } from "lucide-react";
 import { anunciosService } from "@/services";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { raioXAnuncio, calcularCobertura, type RaioXAnuncio } from "@/lib/finance";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { Anuncio, FaixaSaudeMargem, Marketplace } from "@/types";
+import type { Anuncio, FaixaSaudeMargem, Marketplace, MetasMargem } from "@/types";
 
 /* ------------------------------------------------------------------ */
 /* Faixas de saúde — sempre relativas às metas do canal               */
@@ -79,6 +80,7 @@ function BarraComposicao({ r }: { r: RaioXAnuncio }) {
     { rotulo: "Frete", valor: r.frete, cor: "bg-info" },
     { rotulo: "Mídia", valor: r.midia, cor: "bg-warning" },
     { rotulo: "Afiliados", valor: r.afiliados, cor: "bg-primary" },
+    { rotulo: "Custos op.", valor: r.custosOperacionais, cor: "bg-muted-foreground/70" },
     {
       rotulo: "Sobra",
       valor: r.semCusto ? 0 : Math.max(r.lucroLiquido, 0),
@@ -114,15 +116,23 @@ function BarraComposicao({ r }: { r: RaioXAnuncio }) {
 function LinhaAnuncio({
   anuncio,
   marketplace,
+  metas,
 }: {
   anuncio: Anuncio;
   marketplace: Marketplace;
+  metas: MetasMargem | null;
 }) {
+  const { fiscal, custoOperacionalDetalhado } = useConfiguracoes();
   const [precoSimulado, setPrecoSimulado] = useState<number | null>(null);
   const precoEmUso = precoSimulado ?? anuncio.precoAtual;
 
-  const atual = raioXAnuncio(anuncio, marketplace.metas);
-  const r = raioXAnuncio(anuncio, marketplace.metas, precoEmUso);
+  const opcoes = (preco: number) => ({
+    aliquotaImposto: fiscal.aliquota,
+    custosOperacionais: custoOperacionalDetalhado(preco),
+  });
+
+  const atual = raioXAnuncio(anuncio, metas, anuncio.precoAtual, opcoes(anuncio.precoAtual));
+  const r = raioXAnuncio(anuncio, metas, precoEmUso, opcoes(precoEmUso));
   const simulando = precoSimulado !== null && precoSimulado !== anuncio.precoAtual;
   const deltaLucro = r.lucroLiquido - atual.lucroLiquido;
 
@@ -181,7 +191,7 @@ function LinhaAnuncio({
         {/* Imposto */}
         <td className={celulaCusto}>
           − {formatBRL(r.impostos)}
-          <span className="block text-[9px]">{formatPercentual(anuncio.impostoPercentual)}</span>
+          <span className="block text-[9px]">{formatPercentual(fiscal.aliquota)}</span>
         </td>
 
         {/* Comissão */}
@@ -208,6 +218,25 @@ function LinhaAnuncio({
         {/* Afiliados */}
         <td className={celulaCusto}>
           {r.afiliados > 0 ? `− ${formatBRL(r.afiliados)}` : "—"}
+        </td>
+
+        {/* Custos operacionais do seller */}
+        <td className={celulaCusto}>
+          {r.custosOperacionais > 0 ? (
+            <>
+              − {formatBRL(r.custosOperacionais)}
+              <span className="block text-[9px] leading-tight">
+                {r.custosOperacionaisDetalhe
+                  .slice(0, 3)
+                  .map((c) => `${c.nome} ${c.valor.toFixed(2)}`)
+                  .join(" · ")}
+                {r.custosOperacionaisDetalhe.length > 3 &&
+                  ` · +${r.custosOperacionaisDetalhe.length - 3}`}
+              </span>
+            </>
+          ) : (
+            "—"
+          )}
         </td>
 
         {/* Total de descontos */}
@@ -270,7 +299,7 @@ function LinhaAnuncio({
 
       {/* Barra de composição: leitura do preço num relance */}
       <tr className="bg-muted/10">
-        <td colSpan={12} className="px-4 pb-3">
+        <td colSpan={13} className="px-4 pb-3">
           <BarraComposicao r={r} />
         </td>
       </tr>
@@ -283,6 +312,8 @@ function LinhaAnuncio({
 /* ------------------------------------------------------------------ */
 
 export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
+  const { metasPorCanal, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
+  const metas = metasPorCanal[marketplace.id] ?? null;
   const [busca, setBusca] = useState("");
   const [faixaFiltro, setFaixaFiltro] = useState<FaixaSaudeMargem | "todos">("todos");
 
@@ -296,11 +327,14 @@ export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
   const contagemPorFaixa = useMemo(() => {
     const mapa = new Map<FaixaSaudeMargem, number>();
     for (const a of anuncios) {
-      const f = raioXAnuncio(a, marketplace.metas).faixa;
+      const f = raioXAnuncio(a, metas, a.precoAtual, {
+        aliquotaImposto: fiscal.aliquota,
+        custosOperacionais: custoOperacionalDetalhado(a.precoAtual),
+      }).faixa;
       mapa.set(f, (mapa.get(f) ?? 0) + 1);
     }
     return mapa;
-  }, [anuncios, marketplace.metas]);
+  }, [anuncios, metas, fiscal, custoOperacionalDetalhado]);
 
   const filtrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -311,10 +345,13 @@ export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
         a.sku.toLowerCase().includes(termo);
       const casaFaixa =
         faixaFiltro === "todos" ||
-        raioXAnuncio(a, marketplace.metas).faixa === faixaFiltro;
+        raioXAnuncio(a, metas, a.precoAtual, {
+          aliquotaImposto: fiscal.aliquota,
+          custosOperacionais: custoOperacionalDetalhado(a.precoAtual),
+        }).faixa === faixaFiltro;
       return casaBusca && casaFaixa;
     });
-  }, [anuncios, busca, faixaFiltro, marketplace.metas]);
+  }, [anuncios, busca, faixaFiltro, metas, fiscal, custoOperacionalDetalhado]);
 
   const colunas = [
     "Produto / Anúncio",
@@ -326,6 +363,7 @@ export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
     "Frete",
     "Mídia / ADS",
     "Afiliados",
+    "Custos operacionais",
     "Total descontos",
     "Sobra no bolso",
     "Simular",
@@ -399,7 +437,10 @@ export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
           <ExportarDados
             nomeArquivo={`raio-x-${marketplace.id}`}
             linhas={filtrados.map((a) => {
-              const r = raioXAnuncio(a, marketplace.metas);
+              const r = raioXAnuncio(a, metas, a.precoAtual, {
+                aliquotaImposto: fiscal.aliquota,
+                custosOperacionais: custoOperacionalDetalhado(a.precoAtual),
+              });
               return {
                 SKU: a.sku,
                 Produto: a.produto,
@@ -411,6 +452,7 @@ export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
                 Frete: r.frete.toFixed(2),
                 "Mídia/ADS": r.midia.toFixed(2),
                 Afiliados: r.afiliados.toFixed(2),
+                "Custos operacionais": r.custosOperacionais.toFixed(2),
                 "Total descontos": r.totalDescontos.toFixed(2),
                 "Sobra no bolso": r.semCusto ? "sem cálculo" : r.lucroLiquido.toFixed(2),
                 Margem: r.semCusto ? "sem cálculo" : formatPercentual(r.margem),
@@ -422,7 +464,7 @@ export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
         }
       >
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1180px] text-left">
+          <table className="w-full min-w-[1320px] text-left">
             <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
                 {colunas.map((c, i) => (
@@ -431,7 +473,7 @@ export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
                     className={cn(
                       "px-3 py-2 font-medium",
                       i === 0 && "px-4",
-                      i > 0 && i < 11 && "text-right",
+                      i > 0 && i < 12 && "text-right",
                     )}
                   >
                     {c}
@@ -441,11 +483,11 @@ export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
             </thead>
             <tbody>
               {filtrados.map((a) => (
-                <LinhaAnuncio key={a.id} anuncio={a} marketplace={marketplace} />
+                <LinhaAnuncio key={a.id} anuncio={a} marketplace={marketplace} metas={metas} />
               ))}
               {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-xs text-muted-foreground">
+                  <td colSpan={13} className="px-4 py-12 text-center text-xs text-muted-foreground">
                     Nenhum anúncio encontrado com esses filtros.
                   </td>
                 </tr>
@@ -455,7 +497,7 @@ export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
         </div>
       </Painel>
 
-      {!marketplace.metas && (
+      {!metas && (
         <p className="text-[11px] text-muted-foreground">
           Sem meta de margem para este canal, só o prejuízo é sinalizado. Defina a margem mínima e
           a ideal para que o sistema classifique o que está apenas apertado.

@@ -4,6 +4,7 @@ import { anunciosService } from "@/services";
 import { raioXAnuncio } from "@/lib/finance";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { Marketplace } from "@/types";
@@ -15,6 +16,12 @@ import type { Marketplace } from "@/types";
 export function PromocoesCanal({ marketplace }: { marketplace: Marketplace }) {
   // Desconto aplicado na simulação em massa, em % sobre o preço atual.
   const [desconto, setDesconto] = useState(10);
+  const { metasPorCanal, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
+  const metas = metasPorCanal[marketplace.id] ?? null;
+  const opcoes = (preco: number) => ({
+    aliquotaImposto: fiscal.aliquota,
+    custosOperacionais: custoOperacionalDetalhado(preco),
+  });
 
   const elegiveis = useMemo(
     () =>
@@ -28,16 +35,13 @@ export function PromocoesCanal({ marketplace }: { marketplace: Marketplace }) {
     const fator = 1 - desconto / 100;
     return elegiveis
       .map((a) => {
-        const atual = raioXAnuncio(a, marketplace.metas);
-        const comDesconto = raioXAnuncio(
-          a,
-          marketplace.metas,
-          Math.round(a.precoAtual * fator * 100) / 100,
-        );
+        const atual = raioXAnuncio(a, metas, a.precoAtual, opcoes(a.precoAtual));
+        const precoPromo = Math.round(a.precoAtual * fator * 100) / 100;
+        const comDesconto = raioXAnuncio(a, metas, precoPromo, opcoes(precoPromo));
         return { anuncio: a, atual, comDesconto };
       })
       .sort((x, y) => x.comDesconto.margem - y.comDesconto.margem);
-  }, [elegiveis, desconto, marketplace.metas]);
+  }, [elegiveis, desconto, metas, fiscal, custoOperacionalDetalhado]);
 
   const calculaveis = linhas.filter((l) => !l.comDesconto.semCusto);
   const viraPrejuizo = calculaveis.filter(

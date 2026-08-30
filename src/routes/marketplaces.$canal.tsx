@@ -7,6 +7,7 @@ import { calcularCobertura } from "@/lib/finance";
 import { formatNumero, formatPercentual, tempoRelativo } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
 import { DashboardCanal } from "@/components/marketplaces/DashboardCanal";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { RaioXAnuncios } from "@/components/marketplaces/RaioXAnuncios";
 import { PromocoesCanal } from "@/components/marketplaces/PromocoesCanal";
 import { ReputacaoCanal } from "@/components/marketplaces/ReputacaoCanal";
@@ -78,6 +79,7 @@ function StatusConexao({ m }: { m: Marketplace }) {
 function PaginaCanal() {
   const { canal } = Route.useLoaderData();
   const [abaAtiva, setAbaAtiva] = useState<AbaCanal>("dashboard");
+  const { metasPorCanal } = useConfiguracoes();
 
   const marketplace = marketplacesService
     .listar()
@@ -157,7 +159,7 @@ function PaginaCanal() {
               podem mudar até a liquidação do canal.
             </p>
           )}
-          {!marketplace.metas && (
+          {!metasPorCanal[canal.id] && (
             <p className="rounded-lg bg-muted px-3 py-2 text-[11px] font-medium text-muted-foreground">
               Sem meta de margem definida para este canal — sem ela, só o prejuízo é sinalizado.
             </p>

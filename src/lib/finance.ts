@@ -112,6 +112,10 @@ export interface RaioXAnuncio {
   frete: number;
   midia: number;
   afiliados: number;
+  /** Custos do próprio seller (embalagem, fita...), somados */
+  custosOperacionais: number;
+  /** Cada custo operacional com o nome que o seller deu */
+  custosOperacionaisDetalhe: { nome: string; valor: number }[];
   /** Tudo que sai do preço menos o CMV (taxas do canal + imposto + mídia) */
   totalDescontos: number;
   /** CMV + totalDescontos */
@@ -135,15 +139,31 @@ export function classificarFaixa(
   return "saudavel";
 }
 
+/** Opções que vêm das configurações do seller. */
+export interface OpcoesRaioX {
+  /** Alíquota de imposto configurada; sem ela usa a do próprio anúncio */
+  aliquotaImposto?: number;
+  /** Custos operacionais já resolvidos para este preço */
+  custosOperacionais?: { nome: string; valor: number }[];
+}
+
 export function raioXAnuncio(
   a: Anuncio,
   metas: MetasMargem | null,
   preco = a.precoAtual,
+  opcoes: OpcoesRaioX = {},
 ): RaioXAnuncio {
   const semCusto = a.cmv === null;
   const cmv = a.cmv ?? 0;
 
-  const impostos = preco * a.impostoPercentual;
+  const aliquota = opcoes.aliquotaImposto ?? a.impostoPercentual;
+  const custosOperacionaisDetalhe = opcoes.custosOperacionais ?? [];
+  const custosOperacionais = custosOperacionaisDetalhe.reduce(
+    (s, c) => s + c.valor,
+    0,
+  );
+
+  const impostos = preco * aliquota;
   const comissao = preco * a.comissaoPercentual;
   const totalDescontos =
     impostos +
@@ -151,7 +171,8 @@ export function raioXAnuncio(
     a.taxaFixa +
     a.freteUnitario +
     a.custoMidiaUnitario +
-    a.custoAfiliadoUnitario;
+    a.custoAfiliadoUnitario +
+    custosOperacionais;
 
   const custoTotal = cmv + totalDescontos;
   const lucroLiquido = preco - custoTotal;
@@ -168,6 +189,8 @@ export function raioXAnuncio(
     frete: a.freteUnitario,
     midia: a.custoMidiaUnitario,
     afiliados: a.custoAfiliadoUnitario,
+    custosOperacionais,
+    custosOperacionaisDetalhe,
     totalDescontos,
     custoTotal,
     lucroLiquido,

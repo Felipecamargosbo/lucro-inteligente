@@ -222,6 +222,49 @@ export interface LogAlteracao {
   valorNovo: string;
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Custos operacionais do seller                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Custo que o seller tem por venda e que o marketplace não cobra dele:
+ * embalagem, fita, etiqueta, plástico bolha. Sem isso o "lucro real" é
+ * lucro antes de embalar.
+ */
+export interface CustoOperacional {
+  id: string;
+  /** Nome dado pelo próprio seller — aparece no Raio-X como ele escreveu */
+  nome: string;
+  /** "fixo" = R$ por unidade vendida; "percentual" = % sobre o preço */
+  tipo: "fixo" | "percentual";
+  /** Reais quando fixo; fração 0-1 quando percentual */
+  valor: number;
+  ativo: boolean;
+}
+
+export type RegimeTributario =
+  | "simples-nacional"
+  | "lucro-presumido"
+  | "lucro-real";
+
+export interface DadosEmpresa {
+  nome: string;
+  cnpj: string;
+  nomeFantasia: string;
+  email: string;
+  telefone: string;
+  endereco: string;
+  /** Para onde saem as cotações de reposição */
+  emailFornecedor: string;
+}
+
+export interface ConfiguracaoFiscal {
+  regime: RegimeTributario;
+  /** Fração 0-1 aplicada sobre o faturamento */
+  aliquota: number;
+}
+
 export interface Periodo {
   inicio: Date;
   fim: Date;

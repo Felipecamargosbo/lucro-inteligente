@@ -4,6 +4,7 @@ import { anunciosService } from "@/services";
 import { calcularCobertura, raioXAnuncio } from "@/lib/finance";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { cn } from "@/lib/utils";
 import type { Anuncio, Marketplace } from "@/types";
 
@@ -46,6 +47,8 @@ function classificar(a: Anuncio): TipoPendencia[] {
 
 export function PendenciasCanal({ marketplace }: { marketplace: Marketplace }) {
   const [filtro, setFiltro] = useState<TipoPendencia | "todas">("todas");
+  const { metasPorCanal, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
+  const metas = metasPorCanal[marketplace.id] ?? null;
 
   const anuncios = useMemo(
     () => anunciosService.listar().filter((a) => a.marketplaceId === marketplace.id),
@@ -196,7 +199,10 @@ export function PendenciasCanal({ marketplace }: { marketplace: Marketplace }) {
             </thead>
             <tbody>
               {pendentes.map(({ anuncio, tipos }) => {
-                const r = raioXAnuncio(anuncio, marketplace.metas);
+                const r = raioXAnuncio(anuncio, metas, anuncio.precoAtual, {
+                  aliquotaImposto: fiscal.aliquota,
+                  custosOperacionais: custoOperacionalDetalhado(anuncio.precoAtual),
+                });
                 const faturamento = anuncio.precoAtual * anuncio.unidadesVendidas;
                 return (
                   <tr key={anuncio.id} className="border-b last:border-0 hover:bg-muted/30">

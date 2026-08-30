@@ -20,7 +20,7 @@ function PontoStatus({ id }: { id: (typeof CANAIS)[number]["id"] }) {
 }
 
 /**
- * "Gestão de Marketplaces": abre a visão geral e lista cada canal.
+ * "Marketplaces": abre a visão geral e lista cada canal.
  * Fica expandido por padrão quando o usuário já está dentro de /marketplaces.
  */
 function GrupoMarketplaces({
@@ -52,7 +52,7 @@ function GrupoMarketplaces({
             <item.icone className="size-4 shrink-0" />
           </Link>
         </TooltipTrigger>
-        <TooltipContent side="right">Gestão de Marketplaces</TooltipContent>
+        <TooltipContent side="right">Marketplaces</TooltipContent>
       </Tooltip>
     );
   }
@@ -69,7 +69,7 @@ function GrupoMarketplaces({
         )}
       >
         <item.icone className="size-4 shrink-0" />
-        <span className="flex-1 truncate text-left">Gestão de Marketplaces</span>
+        <span className="flex-1 truncate text-left">Marketplaces</span>
         {aberto ? (
           <ChevronDown className="size-3.5 shrink-0" />
         ) : (
