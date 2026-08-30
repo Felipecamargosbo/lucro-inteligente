@@ -29,6 +29,7 @@ import {
   formatPercentual,
 } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { cn } from "@/lib/utils";
 import type { Marketplace } from "@/types";
 
