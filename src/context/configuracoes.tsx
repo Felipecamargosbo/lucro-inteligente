@@ -51,7 +51,13 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
     nomeFantasia: "NEXO",
     email: EMPRESA.email,
     telefone: EMPRESA.telefone,
-    endereco: EMPRESA.endereco,
+    cep: "01310-200",
+    rua: "Av. Paulista",
+    numero: "1578",
+    complemento: "Conj. 142",
+    bairro: "Bela Vista",
+    cidade: "São Paulo",
+    estado: "SP",
     emailFornecedor: "compras@fornecedor.com.br",
   });
 

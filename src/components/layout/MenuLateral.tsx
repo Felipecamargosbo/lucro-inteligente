@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { CANAIS, GRUPOS, MENU, type ItemMenu } from "@/config/navegacao";
 import { EMPRESA, USUARIO_ATUAL, getMarketplace } from "@/data/mock";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 
 /** Bolinha de status da conexão do canal, para leitura num relance. */
 function PontoStatus({ id }: { id: (typeof CANAIS)[number]["id"] }) {
@@ -103,8 +104,9 @@ function GrupoMarketplaces({
                   : "text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
               )}
             >
+              <LogoMarketplace id={canal.id} tamanho="xs" />
+              <span className="flex-1 truncate">{canal.titulo}</span>
               <PontoStatus id={canal.id} />
-              <span className="truncate">{canal.titulo}</span>
             </Link>
           ))}
         </div>

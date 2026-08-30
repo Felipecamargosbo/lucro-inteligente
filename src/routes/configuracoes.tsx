@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   Building2,
@@ -13,8 +13,9 @@ import {
 } from "lucide-react";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { marketplacesService, logsService } from "@/services";
-import { formatBRL, formatData, formatPercentual } from "@/lib/format";
+import { formatBRL, formatData, formatDataHora, formatPercentual } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
+import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -142,12 +143,42 @@ function AbaEmpresa() {
             valor={form.telefone}
             onChange={campo("telefone")}
           />
-          <Campo
-            id="endereco"
-            rotulo="Endereço"
-            valor={form.endereco}
-            onChange={campo("endereco")}
-          />
+        </div>
+      </Painel>
+
+      <Painel titulo="Endereço" descricao="Usado em documentos fiscais e etiquetas de envio">
+        <div className="grid gap-4 p-5 sm:grid-cols-6">
+          <div className="sm:col-span-2">
+            <Campo id="cep" rotulo="CEP" valor={form.cep} onChange={campo("cep")} />
+          </div>
+          <div className="sm:col-span-3">
+            <Campo id="rua" rotulo="Rua / Avenida" valor={form.rua} onChange={campo("rua")} />
+          </div>
+          <div className="sm:col-span-1">
+            <Campo id="numero" rotulo="Número" valor={form.numero} onChange={campo("numero")} />
+          </div>
+          <div className="sm:col-span-3">
+            <Campo
+              id="complemento"
+              rotulo="Complemento"
+              valor={form.complemento}
+              onChange={campo("complemento")}
+            />
+          </div>
+          <div className="sm:col-span-3">
+            <Campo id="bairro" rotulo="Bairro" valor={form.bairro} onChange={campo("bairro")} />
+          </div>
+          <div className="sm:col-span-4">
+            <Campo id="cidade" rotulo="Cidade" valor={form.cidade} onChange={campo("cidade")} />
+          </div>
+          <div className="sm:col-span-2">
+            <Campo
+              id="estado"
+              rotulo="Estado (UF)"
+              valor={form.estado}
+              onChange={(v) => campo("estado")(v.toUpperCase().slice(0, 2))}
+            />
+          </div>
         </div>
       </Painel>
 
@@ -558,9 +589,7 @@ function AbaIntegracoes() {
                   : "Desconectado";
             return (
               <div key={c.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-[10px] font-bold uppercase text-muted-foreground">
-                  {c.nome.slice(0, 2)}
-                </div>
+<LogoMarketplace id={c.id} tamanho="md" />
                 <p className="min-w-0 flex-1 truncate text-xs font-medium">{c.nome}</p>
                 <span
                   className={cn(
@@ -597,48 +626,115 @@ function AbaIntegracoes() {
 
 function AbaHistorico() {
   const logs = logsService.listar();
+  const [dataFiltro, setDataFiltro] = useState("");
+
+  // Datas que realmente têm alteração, para o seller saber onde procurar.
+  const diasComAlteracao = useMemo(() => {
+    const mapa = new Map<string, number>();
+    for (const l of logs) {
+      const dia = l.data.slice(0, 10); // YYYY-MM-DD
+      mapa.set(dia, (mapa.get(dia) ?? 0) + 1);
+    }
+    return [...mapa.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [logs]);
+
+  const filtrados = dataFiltro
+    ? logs.filter((l) => l.data.slice(0, 10) === dataFiltro)
+    : logs;
 
   return (
-    <Painel
-      titulo="Histórico de alterações"
-      descricao="Quando a margem cair, a primeira pergunta é o que mudou e quando"
-    >
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-left">
-          <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th className="px-4 py-2 font-medium">Quando</th>
-              <th className="px-3 py-2 font-medium">Alteração</th>
-              <th className="px-3 py-2 text-right font-medium">De</th>
-              <th className="px-3 py-2 text-right font-medium">Para</th>
-            </tr>
-          </thead>
-          <tbody>
-            {logs.map((l) => (
-              <tr key={l.id} className="border-b last:border-0">
-                <td className="whitespace-nowrap px-4 py-3 text-[11px] text-muted-foreground">
-                  {formatData(l.data)}
-                </td>
-                <td className="px-3 py-3 text-xs">{l.acao}</td>
-                <td className="num whitespace-nowrap px-3 py-3 text-right text-[11px] text-muted-foreground line-through">
-                  {l.valorAnterior}
-                </td>
-                <td className="num whitespace-nowrap px-3 py-3 text-right text-[11px] font-semibold">
-                  {l.valorNovo}
-                </td>
-              </tr>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-4 rounded-xl border bg-card p-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="filtro-data" className="text-xs">
+            Ver alterações de um dia
+          </Label>
+          <Input
+            id="filtro-data"
+            type="date"
+            value={dataFiltro}
+            onChange={(e) => setDataFiltro(e.target.value)}
+            className="h-9 w-44 text-xs"
+          />
+        </div>
+
+        {dataFiltro && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 text-xs"
+            onClick={() => setDataFiltro("")}
+          >
+            Limpar filtro
+          </Button>
+        )}
+
+        <div className="min-w-0 flex-1">
+          <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+            Dias com alteração
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {diasComAlteracao.map(([dia, qtd]) => (
+              <button
+                key={dia}
+                onClick={() => setDataFiltro(dia === dataFiltro ? "" : dia)}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  dataFiltro === dia
+                    ? "border-brand bg-brand-soft text-brand"
+                    : "text-muted-foreground hover:bg-muted",
+                )}
+              >
+                {formatData(dia)} ({qtd})
+              </button>
             ))}
-            {logs.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-4 py-10 text-center text-xs text-muted-foreground">
-                  Nenhuma alteração registrada.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+          </div>
+        </div>
       </div>
-    </Painel>
+
+      <Painel
+        titulo="Histórico de alterações"
+        descricao="Quando a margem cair, a primeira pergunta é o que mudou e quando"
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left">
+            <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-4 py-2 font-medium">Quando</th>
+                <th className="px-3 py-2 font-medium">Alteração</th>
+                <th className="px-3 py-2 text-right font-medium">De</th>
+                <th className="px-3 py-2 text-right font-medium">Para</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.map((l) => (
+                <tr key={l.id} className="border-b last:border-0">
+                  <td className="whitespace-nowrap px-4 py-3 text-[11px] text-muted-foreground">
+                    {formatDataHora(l.data)}
+                  </td>
+                  <td className="px-3 py-3 text-xs">{l.acao}</td>
+                  <td className="num whitespace-nowrap px-3 py-3 text-right text-[11px] text-muted-foreground line-through">
+                    {l.valorAnterior}
+                  </td>
+                  <td className="num whitespace-nowrap px-3 py-3 text-right text-[11px] font-semibold">
+                    {l.valorNovo}
+                  </td>
+                </tr>
+              ))}
+              {filtrados.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                    {dataFiltro
+                      ? "Nenhuma alteração nesta data."
+                      : "Nenhuma alteração registrada."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Painel>
+    </div>
   );
 }
 

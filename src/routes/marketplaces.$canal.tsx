@@ -6,6 +6,7 @@ import { marketplacesService, anunciosService } from "@/services";
 import { calcularCobertura } from "@/lib/finance";
 import { formatNumero, formatPercentual, tempoRelativo } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
+import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { DashboardCanal } from "@/components/marketplaces/DashboardCanal";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { RaioXAnuncios } from "@/components/marketplaces/RaioXAnuncios";
@@ -117,9 +118,7 @@ function PaginaCanal() {
         </Link>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted text-xs font-bold uppercase text-muted-foreground">
-            {marketplace.nome.slice(0, 2)}
-          </div>
+<LogoMarketplace id={marketplace.id} tamanho="lg" />
           <div className="min-w-0">
             <h2 className="truncate text-lg font-semibold">{marketplace.nome}</h2>
             <p className="truncate text-xs text-muted-foreground">

@@ -7,6 +7,7 @@ import { filtrarPorPeriodo, resumir } from "@/lib/finance";
 import { resolverPeriodo } from "@/lib/period";
 import { formatBRL, formatNumero, formatPercentual, tempoRelativo } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
+import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -138,9 +139,7 @@ function Marketplaces() {
             return (
               <div key={m.id} className="flex flex-col rounded-xl border p-4">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-[11px] font-bold uppercase text-muted-foreground">
-                    {m.nome.slice(0, 2)}
-                  </div>
+<LogoMarketplace id={m.id} tamanho="md" />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">{m.nome}</p>
                     <p className="truncate text-[11px] text-muted-foreground">

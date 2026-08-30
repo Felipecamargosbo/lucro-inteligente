@@ -254,7 +254,14 @@ export interface DadosEmpresa {
   nomeFantasia: string;
   email: string;
   telefone: string;
-  endereco: string;
+  /** Endereço separado — CEP, rua, número, complemento, bairro, cidade, UF */
+  cep: string;
+  rua: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
   /** Para onde saem as cotações de reposição */
   emailFornecedor: string;
 }
