@@ -698,6 +698,7 @@ function gerarOportunidadesRecuperacao(): OportunidadeRecuperacao[] {
       cliente,
       pedidoId: `${conta.marketplaceId.slice(0, 3).toUpperCase()}-${(100000 + Math.floor(rand() * 899999)).toString()}`,
       marketplaceId: conta.marketplaceId,
+      contaId: conta.id,
       valor,
       tipo,
       tempoRestante: recuperado ? "—" : `${horas}h`,

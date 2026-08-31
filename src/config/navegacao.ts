@@ -20,6 +20,8 @@ export interface ItemMenu {
   grupo: "Análise" | "Operação" | "Gestão" | "Configuração";
   descricao: string;
   usaPeriodo: boolean;
+  /** Mostra o filtro global de contas (canal/conta) no topo desta página */
+  usaFiltroContas: boolean;
 }
 
 export const MENU: ItemMenu[] = [
@@ -30,6 +32,7 @@ export const MENU: ItemMenu[] = [
     grupo: "Análise",
     descricao: "Visão executiva do seu resultado",
     usaPeriodo: true,
+    usaFiltroContas: true,
   },
   {
     titulo: "Vendas",
@@ -38,6 +41,7 @@ export const MENU: ItemMenu[] = [
     grupo: "Análise",
     descricao: "Cada pedido, do preço de venda ao lucro",
     usaPeriodo: true,
+    usaFiltroContas: true,
   },
   {
     titulo: "Anúncios",
@@ -46,6 +50,7 @@ export const MENU: ItemMenu[] = [
     grupo: "Análise",
     descricao: "Preço atual e lucro estimado por anúncio",
     usaPeriodo: false,
+    usaFiltroContas: false,
   },
   {
     titulo: "Calculadora",
@@ -54,6 +59,7 @@ export const MENU: ItemMenu[] = [
     grupo: "Análise",
     descricao: "Descubra o preço ideal de venda",
     usaPeriodo: false,
+    usaFiltroContas: false,
   },
   {
     titulo: "Promoções",
@@ -62,6 +68,7 @@ export const MENU: ItemMenu[] = [
     grupo: "Análise",
     descricao: "Oportunidades dos marketplaces — você decide",
     usaPeriodo: false,
+    usaFiltroContas: false,
   },
   {
     titulo: "Recuperação de vendas",
@@ -70,6 +77,7 @@ export const MENU: ItemMenu[] = [
     grupo: "Análise",
     descricao: "Pedidos cancelados que podem ser retomados",
     usaPeriodo: true,
+    usaFiltroContas: true,
   },
   {
     titulo: "Estoque",
@@ -78,6 +86,7 @@ export const MENU: ItemMenu[] = [
     grupo: "Operação",
     descricao: "Cobertura de estoque em dias",
     usaPeriodo: true,
+    usaFiltroContas: false,
   },
   {
     titulo: "Fulfillment",
@@ -86,6 +95,7 @@ export const MENU: ItemMenu[] = [
     grupo: "Operação",
     descricao: "Estoque nos centros de distribuição",
     usaPeriodo: true,
+    usaFiltroContas: false,
   },
   {
     titulo: "Marketplaces",
@@ -94,6 +104,7 @@ export const MENU: ItemMenu[] = [
     grupo: "Gestão",
     descricao: "Canais conectados",
     usaPeriodo: false,
+    usaFiltroContas: false,
   },
   {
     titulo: "Configurações",
@@ -102,6 +113,7 @@ export const MENU: ItemMenu[] = [
     grupo: "Configuração",
     descricao: "Empresa, regime fiscal, margens e custos",
     usaPeriodo: false,
+    usaFiltroContas: false,
   },
 ];
 

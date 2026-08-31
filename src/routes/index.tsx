@@ -15,6 +15,7 @@ import {
   YAxis,
 } from "recharts";
 import { usePeriodo } from "@/context/periodo";
+import { useSelecaoContas } from "@/context/selecao-contas";
 import { vendasService } from "@/services";
 import {
   filtrarPorPeriodo,
@@ -55,7 +56,8 @@ export const Route = createFileRoute("/")({
 
 function Dashboard() {
   const { periodo } = usePeriodo();
-  const pedidos = vendasService.listar();
+  const { filtrarPorSelecao } = useSelecaoContas();
+  const pedidos = filtrarPorSelecao(vendasService.listar());
 
   const dados = useMemo(() => {
     const atuais = filtrarPorPeriodo(pedidos, periodo);

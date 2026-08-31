@@ -317,6 +317,7 @@ export interface OportunidadeRecuperacao {
   cliente: string;
   pedidoId: string;
   marketplaceId: MarketplaceId;
+  contaId: string;
   valor: number;
   tipo: TipoOportunidadeRecuperacao;
   tempoRestante: string;

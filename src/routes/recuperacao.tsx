@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Mail, MessageCircle, Send, Smartphone } from "lucide-react";
 import { recuperacaoService } from "@/services";
+import { useSelecaoContas } from "@/context/selecao-contas";
 import { MARKETPLACES } from "@/data/mock";
 import { formatBRL, formatDataHora, formatPercentual, tempoRelativo } from "@/lib/format";
 import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
@@ -66,7 +67,8 @@ const ICONE_CANAL: Record<CanalRecuperacao, React.ElementType> = {
 };
 
 function Recuperacao() {
-  const oportunidadesBase = recuperacaoService.listar();
+  const { filtrarPorSelecao } = useSelecaoContas();
+  const oportunidadesBase = filtrarPorSelecao(recuperacaoService.listar());
   const canaisBase = recuperacaoService.listarCanais();
 
   const [status, setStatus] = useState<"todos" | StatusOportunidadeRecuperacao>("todos");
@@ -80,7 +82,7 @@ function Recuperacao() {
   const oportunidades = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     return oportunidadesBase.filter((o) => {
-      if (status !== "todos" && estados[o.id] !== status) return false;
+      if (status !== "todos" && (estados[o.id] ?? o.status) !== status) return false;
       if (tipo !== "todos" && o.tipo !== tipo) return false;
       if (
         termo &&
@@ -93,11 +95,14 @@ function Recuperacao() {
 
   const totalRecuperar = oportunidadesBase.reduce((acc, o) => acc + o.valor, 0);
   const recuperadoMes = oportunidadesBase
-    .filter((o) => estados[o.id] === "recuperado")
+    .filter((o) => (estados[o.id] ?? o.status) === "recuperado")
     .reduce((acc, o) => acc + o.valor, 0);
   const taxaConversao = totalRecuperar ? recuperadoMes / totalRecuperar : 0;
   const pendentes = oportunidadesBase.filter(
-    (o) => estados[o.id] === "aguardando-acao" || estados[o.id] === "mensagem-enviada",
+    (o) => {
+      const st = estados[o.id] ?? o.status;
+      return st === "aguardando-acao" || st === "mensagem-enviada";
+    },
   ).length;
 
   const enviarLembrete = (o: OportunidadeRecuperacao) => {
@@ -127,7 +132,7 @@ function Recuperacao() {
         <CardKpi
           titulo="Taxa de conversão de recuperação"
           valor={formatPercentual(taxaConversao)}
-          detalhe={`${oportunidadesBase.filter((o) => estados[o.id] === "recuperado").length} de ${oportunidadesBase.length} oportunidades`}
+          detalhe={`${oportunidadesBase.filter((o) => (estados[o.id] ?? o.status) === "recuperado").length} de ${oportunidadesBase.length} oportunidades`}
         />
         <CardKpi
           titulo="Pedidos pendentes"

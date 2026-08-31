@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppShell } from "@/components/layout/AppShell";
 import { PeriodoProvider } from "@/context/periodo";
 import { ConfiguracoesProvider } from "@/context/configuracoes";
+import { SelecaoContasProvider } from "@/context/selecao-contas";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -129,12 +130,14 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={150}>
         <ConfiguracoesProvider>
+        <SelecaoContasProvider>
         <PeriodoProvider>
           <AppShell>
             {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
             <Outlet />
           </AppShell>
         </PeriodoProvider>
+        </SelecaoContasProvider>
         </ConfiguracoesProvider>
         <Toaster />
       </TooltipProvider>

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { usePeriodo } from "@/context/periodo";
+import { useSelecaoContas } from "@/context/selecao-contas";
 import { vendasService } from "@/services";
 import { MARKETPLACES } from "@/data/mock";
 import { filtrarPorPeriodo, resumir } from "@/lib/finance";
@@ -51,6 +52,7 @@ export const Route = createFileRoute("/vendas")({
 
 function Vendas() {
   const { periodo } = usePeriodo();
+  const { filtrarPorSelecao } = useSelecaoContas();
   const [marketplace, setMarketplace] = useState("todos");
   const [status, setStatus] = useState("todos");
   const [busca, setBusca] = useState("");
@@ -58,7 +60,8 @@ function Vendas() {
 
   const pedidos = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    return filtrarPorPeriodo(vendasService.listar(), periodo).filter((p) => {
+    const doPeriodo = filtrarPorPeriodo(filtrarPorSelecao(vendasService.listar()), periodo);
+    return doPeriodo.filter((p) => {
       if (marketplace !== "todos" && p.marketplaceId !== marketplace) return false;
       if (status !== "todos" && p.status !== status) return false;
       if (
@@ -68,7 +71,7 @@ function Vendas() {
         return false;
       return true;
     });
-  }, [periodo, marketplace, status, busca]);
+  }, [periodo, marketplace, status, busca, filtrarPorSelecao]);
 
   const resumo = resumir(pedidos);
   const visiveis = pedidos.slice(0, 100);

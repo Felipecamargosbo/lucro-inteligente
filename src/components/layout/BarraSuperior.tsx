@@ -2,6 +2,7 @@ import { Bell } from "lucide-react";
 import { useRouterState } from "@tanstack/react-router";
 import { MENU, getCanalPorSlug } from "@/config/navegacao";
 import { SeletorPeriodo } from "@/components/comum/SeletorPeriodo";
+import { FiltroContas } from "@/components/comum/FiltroContas";
 import { notificacoesService } from "@/services";
 
 export function BarraSuperior({ aoAbrirNotificacoes }: { aoAbrirNotificacoes: () => void }) {
@@ -11,7 +12,8 @@ export function BarraSuperior({ aoAbrirNotificacoes }: { aoAbrirNotificacoes: ()
   // Páginas de canal (/marketplaces/<slug>[/<conta>]) têm título próprio.
   // O período só faz sentido quando uma conta específica está selecionada
   // (3º segmento presente) — na tela de escolher a conta, ainda não há
-  // resultado nenhum pra filtrar por data.
+  // resultado nenhum pra filtrar por data. O filtro de contas não aparece
+  // aqui: a própria página já é sobre uma conta (ou canal) específica.
   const segmentos = pathname.split("/").filter(Boolean); // ["marketplaces", "<slug>", "<conta>"?]
   const dentroDeMarketplaces = segmentos[0] === "marketplaces" && !!segmentos[1];
   const canal = dentroDeMarketplaces ? getCanalPorSlug(segmentos[1]!) : undefined;
@@ -21,6 +23,7 @@ export function BarraSuperior({ aoAbrirNotificacoes }: { aoAbrirNotificacoes: ()
         titulo: canal.titulo,
         descricao: "Resultado, taxas e saúde da conta neste canal",
         usaPeriodo: segmentos.length >= 3,
+        usaFiltroContas: false,
       }
     : (MENU.find((m) => (m.url === "/" ? pathname === "/" : pathname.startsWith(m.url))) ??
       MENU[0]!);
@@ -32,12 +35,11 @@ export function BarraSuperior({ aoAbrirNotificacoes }: { aoAbrirNotificacoes: ()
           <h1 className="truncate text-base font-semibold">{item.titulo}</h1>
           <p className="truncate text-[11px] text-muted-foreground">{item.descricao}</p>
         </div>
-        {item.usaPeriodo && (
-          <>
-            <div className="h-8 w-px bg-border" />
-            <SeletorPeriodo />
-          </>
+        {(item.usaPeriodo || item.usaFiltroContas) && (
+          <div className="h-8 w-px bg-border" />
         )}
+        {item.usaFiltroContas && <FiltroContas />}
+        {item.usaPeriodo && <SeletorPeriodo />}
       </div>
 
       <button
