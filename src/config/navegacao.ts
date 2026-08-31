@@ -17,7 +17,7 @@ export interface ItemMenu {
   titulo: string;
   url: string;
   icone: typeof LayoutDashboard;
-  grupo: "Análise" | "Operação" | "Configuração";
+  grupo: "Análise" | "Operação" | "Gestão" | "Configuração";
   descricao: string;
   usaPeriodo: boolean;
 }
@@ -91,7 +91,7 @@ export const MENU: ItemMenu[] = [
     titulo: "Marketplaces",
     url: "/marketplaces",
     icone: Store,
-    grupo: "Configuração",
+    grupo: "Gestão",
     descricao: "Canais conectados",
     usaPeriodo: false,
   },
@@ -100,12 +100,12 @@ export const MENU: ItemMenu[] = [
     url: "/configuracoes",
     icone: Settings,
     grupo: "Configuração",
-    descricao: "Empresa, usuários, regras financeiras e logs",
+    descricao: "Empresa, regime fiscal, margens e custos",
     usaPeriodo: false,
   },
 ];
 
-export const GRUPOS = ["Análise", "Operação", "Configuração"] as const;
+export const GRUPOS = ["Análise", "Operação", "Gestão", "Configuração"] as const;
 
 /* ------------------------------------------------------------------ */
 /* Navegação por canal                                                */
