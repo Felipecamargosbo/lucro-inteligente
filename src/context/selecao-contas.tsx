@@ -29,6 +29,7 @@ interface SelecaoContasContexto {
   alternarCanal: (marketplaceId: MarketplaceId) => void;
 
   selecionarTodas: () => void;
+  limparSelecao: () => void;
 
   /** Filtra qualquer lista que tenha contaId (Pedido[], Anuncio[]...) pela seleção atual */
   filtrarPorSelecao: <T extends { contaId: string }>(itens: T[]) => T[];
@@ -134,6 +135,7 @@ export function SelecaoContasProvider({ children }: { children: ReactNode }) {
         }),
 
       selecionarTodas: () => setSelecionadas(new Set(contas.map((c) => c.id))),
+      limparSelecao: () => setSelecionadas(new Set()),
 
       filtrarPorSelecao: (itens) => itens.filter((i) => selecionadas.has(i.contaId)),
     };

@@ -22,6 +22,7 @@ export function FiltroContas() {
     estadoCanal,
     alternarCanal,
     selecionarTodas,
+    limparSelecao,
   } = useSelecaoContas();
 
   return (
@@ -33,16 +34,24 @@ export function FiltroContas() {
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-2">
-        <button
-          onClick={selecionarTodas}
-          className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
-            todasSelecionadas
-              ? "bg-brand-soft font-semibold text-brand"
-              : "text-muted-foreground hover:bg-muted"
-          }`}
-        >
-          Todas as contas
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={selecionarTodas}
+            className={`flex-1 rounded-md px-3 py-2 text-left text-sm transition-colors ${
+              todasSelecionadas
+                ? "bg-brand-soft font-semibold text-brand"
+                : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            Todas as contas
+          </button>
+          <button
+            onClick={limparSelecao}
+            className="shrink-0 rounded-md px-2.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            Limpar tudo
+          </button>
+        </div>
 
         <div className="mt-1 max-h-80 space-y-0.5 overflow-y-auto border-t pt-1">
           {CANAIS.map((canal) => {
