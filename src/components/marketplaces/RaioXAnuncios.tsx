@@ -8,7 +8,7 @@ import { Painel } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { Anuncio, FaixaSaudeMargem, Marketplace, MetasMargem } from "@/types";
+import type { Anuncio, FaixaSaudeMargem, ContaMarketplace, MetasMargem } from "@/types";
 
 /* ------------------------------------------------------------------ */
 /* Faixas de saúde — sempre relativas às metas do canal               */
@@ -115,11 +115,11 @@ function BarraComposicao({ r }: { r: RaioXAnuncio }) {
 
 function LinhaAnuncio({
   anuncio,
-  marketplace,
+  conta,
   metas,
 }: {
   anuncio: Anuncio;
-  marketplace: Marketplace;
+  conta: ContaMarketplace;
   metas: MetasMargem | null;
 }) {
   const { fiscal, custoOperacionalDetalhado } = useConfiguracoes();
@@ -311,15 +311,15 @@ function LinhaAnuncio({
 /* Tabela                                                             */
 /* ------------------------------------------------------------------ */
 
-export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
-  const { metasPorCanal, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
-  const metas = metasPorCanal[marketplace.id] ?? null;
+export function RaioXAnuncios({ conta }: { conta: ContaMarketplace }) {
+  const { metasPorConta, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
+  const metas = metasPorConta[conta.id] ?? null;
   const [busca, setBusca] = useState("");
   const [faixaFiltro, setFaixaFiltro] = useState<FaixaSaudeMargem | "todos">("todos");
 
   const anuncios = useMemo(
-    () => anunciosService.listar().filter((a) => a.marketplaceId === marketplace.id),
-    [marketplace.id],
+    () => anunciosService.listar().filter((a) => a.contaId === conta.id),
+    [conta.id],
   );
 
   const cobertura = calcularCobertura(anuncios);
@@ -435,7 +435,7 @@ export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
         descricao="Cada taxa exposta na linha — sem gaveta, sem clique escondido"
         acoes={
           <ExportarDados
-            nomeArquivo={`raio-x-${marketplace.id}`}
+            nomeArquivo={`raio-x-${conta.id}`}
             linhas={filtrados.map((a) => {
               const r = raioXAnuncio(a, metas, a.precoAtual, {
                 aliquotaImposto: fiscal.aliquota,
@@ -483,7 +483,7 @@ export function RaioXAnuncios({ marketplace }: { marketplace: Marketplace }) {
             </thead>
             <tbody>
               {filtrados.map((a) => (
-                <LinhaAnuncio key={a.id} anuncio={a} marketplace={marketplace} metas={metas} />
+                <LinhaAnuncio key={a.id} anuncio={a} conta={conta} metas={metas} />
               ))}
               {filtrados.length === 0 && (
                 <tr>

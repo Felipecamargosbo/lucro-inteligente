@@ -41,9 +41,9 @@ export interface ReputacaoConta {
 }
 
 /**
- * Metas de margem do seller para este canal. As faixas verde/amarelo/vermelho
- * são relativas a estes números, não a percentuais fixos: 8% pode ser ótimo
- * num canal e péssimo em outro.
+ * Metas de margem do seller. As faixas verde/amarelo/vermelho são relativas
+ * a estes números, não a percentuais fixos: 8% pode ser ótimo num canal e
+ * péssimo em outro.
  */
 export interface MetasMargem {
   /** Abaixo disso o anúncio está fora do aceitável (0-1) */
@@ -52,10 +52,28 @@ export interface MetasMargem {
   margemIdeal: number;
 }
 
+/**
+ * O canal de venda em si (Mercado Livre, Shopee...). Guarda só a identidade:
+ * tudo que varia — credencial, taxas, reputação, resultado — pertence à conta.
+ */
 export interface Marketplace {
   id: MarketplaceId;
   nome: string;
-  conectado: boolean;
+}
+
+/**
+ * Uma conta de vendedor dentro de um canal. Um mesmo seller pode ter várias
+ * contas no mesmo marketplace (loja oficial, outlet, outro CNPJ), cada uma
+ * com credencial, taxas negociadas e reputação próprias — por isso é aqui,
+ * e não no Marketplace, que essas informações vivem.
+ */
+export interface ContaMarketplace {
+  id: string;
+  marketplaceId: MarketplaceId;
+  /** Nome dado pelo seller: "Loja Oficial", "Outlet" */
+  nome: string;
+  cnpj: string;
+  conectada: boolean;
   statusConexao: StatusConexaoMarketplace;
   ultimaSincronizacao: string | null; // ISO
   skusAtivos: number;
@@ -64,7 +82,7 @@ export interface Marketplace {
   comissaoPercentual: number;
   taxaFixa: number;
   freteMedio: number;
-  /** null enquanto o seller não definiu metas para o canal */
+  /** null enquanto o seller não definiu metas para a conta */
   metas: MetasMargem | null;
   reputacao: ReputacaoConta | null;
 }
@@ -79,6 +97,8 @@ export interface Pedido {
   id: string;
   data: string; // ISO
   marketplaceId: MarketplaceId;
+  /** Conta que realizou a venda */
+  contaId: string;
   sku: string;
   produto: string;
   quantidade: number;
@@ -122,6 +142,8 @@ export type FaixaSaudeMargem =
 export interface Anuncio {
   id: string;
   marketplaceId: MarketplaceId;
+  /** Conta em que o anúncio está publicado */
+  contaId: string;
   sku: string;
   produto: string;
   precoAtual: number;

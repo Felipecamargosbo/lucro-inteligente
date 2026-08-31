@@ -6,7 +6,7 @@ import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { cn } from "@/lib/utils";
-import type { Anuncio, Marketplace } from "@/types";
+import type { Anuncio, ContaMarketplace } from "@/types";
 
 type TipoPendencia = "sem-custo" | "sem-vinculo" | "taxa-estimada";
 
@@ -45,14 +45,14 @@ function classificar(a: Anuncio): TipoPendencia[] {
   return lista;
 }
 
-export function PendenciasCanal({ marketplace }: { marketplace: Marketplace }) {
+export function PendenciasCanal({ conta }: { conta: ContaMarketplace }) {
   const [filtro, setFiltro] = useState<TipoPendencia | "todas">("todas");
-  const { metasPorCanal, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
-  const metas = metasPorCanal[marketplace.id] ?? null;
+  const { metasPorConta, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
+  const metas = metasPorConta[conta.id] ?? null;
 
   const anuncios = useMemo(
-    () => anunciosService.listar().filter((a) => a.marketplaceId === marketplace.id),
-    [marketplace.id],
+    () => anunciosService.listar().filter((a) => a.contaId === conta.id),
+    [conta.id],
   );
 
   const cobertura = calcularCobertura(anuncios);

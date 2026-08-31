@@ -1,10 +1,10 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { EMPRESA, MARKETPLACES, REGRAS_FINANCEIRAS } from "@/data/mock";
+import { CONTAS, EMPRESA, REGRAS_FINANCEIRAS } from "@/data/mock";
 import type {
   ConfiguracaoFiscal,
+  ContaMarketplace,
   CustoOperacional,
   DadosEmpresa,
-  MarketplaceId,
   MetasMargem,
 } from "@/types";
 
@@ -12,6 +12,11 @@ import type {
  * Estado das configurações do seller. Enquanto não há banco de dados, isto
  * vive na memória da sessão: recarregar a página volta aos valores iniciais.
  * A leitura é feita por todo o sistema, então mudar aqui muda o cálculo lá.
+ *
+ * As CONTAS (nome, taxas, status de conexão) também vivem aqui, e não como
+ * estado local de cada tela: o nome que o seller dá a uma conta em
+ * Configurações → Integrações precisa aparecer igual no menu, no Hub e no
+ * cabeçalho da conta — um estado só, lido de vários lugares.
  */
 interface ConfiguracoesContexto {
   empresa: DadosEmpresa;
@@ -20,9 +25,12 @@ interface ConfiguracoesContexto {
   fiscal: ConfiguracaoFiscal;
   salvarFiscal: (dados: ConfiguracaoFiscal) => void;
 
-  /** Metas de margem por canal — dão as cores do Raio-X */
-  metasPorCanal: Record<MarketplaceId, MetasMargem | null>;
-  salvarMetas: (id: MarketplaceId, metas: MetasMargem | null) => void;
+  contas: ContaMarketplace[];
+  atualizarConta: (id: string, dados: Partial<ContaMarketplace>) => void;
+
+  /** Metas de margem por CONTA — dão as cores do Raio-X daquela conta específica */
+  metasPorConta: Record<string, MetasMargem | null>;
+  salvarMetas: (contaId: string, metas: MetasMargem | null) => void;
 
   custos: CustoOperacional[];
   adicionarCusto: (custo: Omit<CustoOperacional, "id">) => void;
@@ -66,11 +74,13 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
     aliquota: REGRAS_FINANCEIRAS.impostoPercentual,
   });
 
-  const [metasPorCanal, setMetasPorCanal] = useState<
-    Record<MarketplaceId, MetasMargem | null>
+  const [contas, setContas] = useState<ContaMarketplace[]>(CONTAS);
+
+  const [metasPorConta, setMetasPorConta] = useState<
+    Record<string, MetasMargem | null>
   >(() => {
-    const inicial = {} as Record<MarketplaceId, MetasMargem | null>;
-    for (const m of MARKETPLACES) inicial[m.id] = m.metas;
+    const inicial: Record<string, MetasMargem | null> = {};
+    for (const c of CONTAS) inicial[c.id] = c.metas;
     return inicial;
   });
 
@@ -92,9 +102,15 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
       fiscal,
       salvarFiscal: setFiscal,
 
-      metasPorCanal,
-      salvarMetas: (id, metas) =>
-        setMetasPorCanal((atual) => ({ ...atual, [id]: metas })),
+      contas,
+      atualizarConta: (id, dados) =>
+        setContas((atual) =>
+          atual.map((c) => (c.id === id ? { ...c, ...dados } : c)),
+        ),
+
+      metasPorConta,
+      salvarMetas: (contaId, metas) =>
+        setMetasPorConta((atual) => ({ ...atual, [contaId]: metas })),
 
       custos,
       adicionarCusto: (custo) =>
@@ -112,7 +128,7 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
         detalhar(precoVenda).reduce((s, i) => s + i.valor, 0),
       custoOperacionalDetalhado: detalhar,
     };
-  }, [empresa, fiscal, metasPorCanal, custos]);
+  }, [empresa, fiscal, contas, metasPorConta, custos]);
 
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }

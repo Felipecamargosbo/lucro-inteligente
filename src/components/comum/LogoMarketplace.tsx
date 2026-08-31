@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { MarketplaceId } from "@/types";
 
@@ -68,6 +69,8 @@ export function LogoMarketplace({
   className?: string;
 }) {
   const marca = MARCA[id];
+  // Só sabemos se o logo existe depois de tentar carregá-lo.
+  const [temLogo, setTemLogo] = useState(false);
 
   return (
     <span
@@ -76,17 +79,27 @@ export function LogoMarketplace({
         TAMANHOS[tamanho],
         className,
       )}
-      style={{ backgroundColor: marca.fundo, color: marca.texto }}
+      style={
+        // Com logo real, fundo escuro neutro: funciona tanto para marcas
+        // claras (o "a" branco da Amazon) quanto para as coloridas.
+        temLogo
+          ? { backgroundColor: "var(--color-sidebar)" }
+          : { backgroundColor: marca.fundo, color: marca.texto }
+      }
     >
       {/* As iniciais ficam por baixo; se o logo existir, ele cobre. */}
-      {marca.sigla}
+      {!temLogo && marca.sigla}
       <img
         src={marca.arquivo}
         alt=""
         aria-hidden="true"
         loading="lazy"
-        className="absolute inset-0 size-full object-contain"
-        // Sem o arquivo, remove a imagem e deixa as iniciais aparecerem.
+        className={cn(
+          "absolute inset-0 size-full object-contain p-[8%]",
+          !temLogo && "opacity-0",
+        )}
+        onLoad={() => setTemLogo(true)}
+        // Sem o arquivo, some com a imagem e deixa as iniciais aparecerem.
         onError={(e) => {
           e.currentTarget.remove();
         }}

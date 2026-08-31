@@ -4,19 +4,24 @@ import { ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, LogOut } from "
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CANAIS, GRUPOS, MENU, type ItemMenu } from "@/config/navegacao";
-import { EMPRESA, USUARIO_ATUAL, getMarketplace } from "@/data/mock";
+import { EMPRESA, USUARIO_ATUAL } from "@/data/mock";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 
-/** Bolinha de status da conexão do canal, para leitura num relance. */
+/**
+ * Bolinha de status do canal, para leitura num relance. Um canal pode ter
+ * várias contas — a bolinha mostra o pior caso entre elas: se alguma
+ * expirou o token, avisa; só fica verde quando todas estão bem.
+ */
 function PontoStatus({ id }: { id: (typeof CANAIS)[number]["id"] }) {
-  const m = getMarketplace(id);
-  const cor =
-    m.statusConexao === "conectado"
+  const { contas } = useConfiguracoes();
+  const doCanal = contas.filter((c) => c.marketplaceId === id);
+  const cor = doCanal.some((c) => c.statusConexao === "token-expirando")
+    ? "bg-warning"
+    : doCanal.some((c) => c.statusConexao === "conectado")
       ? "bg-profit"
-      : m.statusConexao === "token-expirando"
-        ? "bg-warning"
-        : "bg-loss";
+      : "bg-loss";
   return <span className={cn("size-1.5 shrink-0 rounded-full", cor)} />;
 }
 

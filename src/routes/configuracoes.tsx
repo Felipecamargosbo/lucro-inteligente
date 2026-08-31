@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   Building2,
@@ -295,7 +295,8 @@ function AbaFiscal() {
 
 function AbaMargens() {
   const {
-    metasPorCanal,
+    contas,
+    metasPorConta,
     salvarMetas,
     custos,
     adicionarCusto,
@@ -333,66 +334,84 @@ function AbaMargens() {
   return (
     <div className="space-y-5">
       <Painel
-        titulo="Metas de margem por canal"
+        titulo="Metas de margem por conta"
         descricao="É o que define as cores do Raio-X: abaixo da mínima, entre mínima e ideal, ou saudável"
       >
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] text-left">
+          <table className="w-full min-w-[560px] text-left">
             <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="px-4 py-2 font-medium">Canal</th>
+                <th className="px-4 py-2 font-medium">Conta</th>
                 <th className="px-3 py-2 font-medium">Margem mínima (%)</th>
                 <th className="px-3 py-2 font-medium">Margem ideal (%)</th>
               </tr>
             </thead>
             <tbody>
-              {canais.map((c) => {
-                const metas = metasPorCanal[c.id];
+              {canais.map((canal) => {
+                const contasDoCanal = contas.filter((c) => c.marketplaceId === canal.id);
+                if (contasDoCanal.length === 0) return null;
                 return (
-                  <tr key={c.id} className="border-b last:border-0">
-                    <td className="px-4 py-2.5">
-                      <p className="text-xs font-medium">{c.nome}</p>
-                      {!metas && (
-                        <p className="text-[10px] text-muted-foreground">
-                          Sem meta — só o prejuízo é sinalizado
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Input
-                        type="number"
-                        step="0.5"
-                        placeholder="—"
-                        value={metas ? String(metas.margemMinima * 100) : ""}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v === "") return salvarMetas(c.id, null);
-                          salvarMetas(c.id, {
-                            margemMinima: Number(v) / 100,
-                            margemIdeal: metas?.margemIdeal ?? Number(v) / 100,
-                          });
-                        }}
-                        className="num h-8 w-24 text-xs"
-                      />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Input
-                        type="number"
-                        step="0.5"
-                        placeholder="—"
-                        value={metas ? String(metas.margemIdeal * 100) : ""}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v === "") return;
-                          salvarMetas(c.id, {
-                            margemMinima: metas?.margemMinima ?? 0,
-                            margemIdeal: Number(v) / 100,
-                          });
-                        }}
-                        className="num h-8 w-24 text-xs"
-                      />
-                    </td>
-                  </tr>
+                  <Fragment key={canal.id}>
+                    <tr className="bg-muted/20">
+                      <td colSpan={3} className="px-4 py-1.5">
+                        <div className="flex items-center gap-2">
+                          <LogoMarketplace id={canal.id} tamanho="xs" />
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            {canal.nome}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    {contasDoCanal.map((c) => {
+                      const metas = metasPorConta[c.id];
+                      return (
+                        <tr key={c.id} className="border-b last:border-0">
+                          <td className="px-4 py-2.5 pl-9">
+                            <p className="text-xs font-medium">{c.nome}</p>
+                            {!metas && (
+                              <p className="text-[10px] text-muted-foreground">
+                                Sem meta — só o prejuízo é sinalizado
+                              </p>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <Input
+                              type="number"
+                              step="0.5"
+                              placeholder="—"
+                              value={metas ? String(metas.margemMinima * 100) : ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (v === "") return salvarMetas(c.id, null);
+                                salvarMetas(c.id, {
+                                  margemMinima: Number(v) / 100,
+                                  margemIdeal: metas?.margemIdeal ?? Number(v) / 100,
+                                });
+                              }}
+                              className="num h-8 w-24 text-xs"
+                            />
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <Input
+                              type="number"
+                              step="0.5"
+                              placeholder="—"
+                              value={metas ? String(metas.margemIdeal * 100) : ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (v === "") return;
+                                salvarMetas(c.id, {
+                                  margemMinima: metas?.margemMinima ?? 0,
+                                  margemIdeal: Number(v) / 100,
+                                });
+                              }}
+                              className="num h-8 w-24 text-xs"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -557,6 +576,15 @@ function AbaMargens() {
 
 function AbaIntegracoes() {
   const canais = marketplacesService.listar();
+  const { contas, atualizarConta } = useConfiguracoes();
+  const [editando, setEditando] = useState<Record<string, string>>({});
+
+  const salvarNome = (id: string, nomeAtual: string) => {
+    const novoNome = (editando[id] ?? nomeAtual).trim();
+    if (!novoNome || novoNome === nomeAtual) return;
+    atualizarConta(id, { nome: novoNome });
+    toast.success("Nome da conta atualizado");
+  };
 
   return (
     <div className="space-y-5">
@@ -565,40 +593,67 @@ function AbaIntegracoes() {
         <p className="text-[11px] leading-relaxed">
           As chaves de API ainda <strong>não são armazenadas</strong>. Guardar credencial exige
           banco de dados e criptografia, que este sistema ainda não tem — e uma chave vazada dá
-          acesso à sua conta de vendas. Até lá, esta tela mostra o estado das conexões.
+          acesso à sua conta de vendas. Até lá, esta tela mostra o estado das conexões e deixa
+          você nomear cada conta.
         </p>
       </div>
 
       <Painel
-        titulo="Canais de venda"
-        descricao="Status de cada integração — as chaves ficam no botão Configurar de cada canal"
+        titulo="Contas conectadas"
+        descricao="Um canal pode ter mais de uma conta — dê um nome a cada uma para identificá-las"
       >
         <div className="divide-y">
-          {canais.map((c) => {
-            const cor =
-              c.statusConexao === "conectado"
-                ? "bg-profit-soft text-profit"
-                : c.statusConexao === "token-expirando"
-                  ? "bg-warning-soft text-foreground"
-                  : "bg-loss-soft text-loss";
-            const texto =
-              c.statusConexao === "conectado"
-                ? "Conectado"
-                : c.statusConexao === "token-expirando"
-                  ? "Token expirando"
-                  : "Desconectado";
+          {canais.map((canal) => {
+            const contasDoCanal = contas.filter((c) => c.marketplaceId === canal.id);
+            if (contasDoCanal.length === 0) return null;
             return (
-              <div key={c.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
-<LogoMarketplace id={c.id} tamanho="md" />
-                <p className="min-w-0 flex-1 truncate text-xs font-medium">{c.nome}</p>
-                <span
-                  className={cn(
-                    "rounded-full px-2.5 py-1 text-[10px] font-semibold",
-                    cor,
-                  )}
-                >
-                  {texto}
-                </span>
+              <div key={canal.id} className="px-5 py-4">
+                <div className="mb-3 flex items-center gap-2.5">
+                  <LogoMarketplace id={canal.id} tamanho="sm" />
+                  <p className="text-xs font-semibold">{canal.nome}</p>
+                  <span className="text-[10px] text-muted-foreground">
+                    {contasDoCanal.length} conta{contasDoCanal.length > 1 ? "s" : ""}
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {contasDoCanal.map((c) => {
+                    const cor =
+                      c.statusConexao === "conectado"
+                        ? "bg-profit-soft text-profit"
+                        : c.statusConexao === "token-expirando"
+                          ? "bg-warning-soft text-foreground"
+                          : "bg-loss-soft text-loss";
+                    const texto =
+                      c.statusConexao === "conectado"
+                        ? "Conectado"
+                        : c.statusConexao === "token-expirando"
+                          ? "Token expirando"
+                          : "Desconectado";
+                    return (
+                      <div key={c.id} className="flex flex-wrap items-center gap-2 pl-1">
+                        <Input
+                          value={editando[c.id] ?? c.nome}
+                          onChange={(e) =>
+                            setEditando((atual) => ({ ...atual, [c.id]: e.target.value }))
+                          }
+                          onBlur={() => salvarNome(c.id, c.nome)}
+                          className="h-8 w-52 text-xs"
+                          aria-label={`Nome da conta ${c.nome}`}
+                        />
+                        <span
+                          className={cn(
+                            "rounded-full px-2.5 py-1 text-[10px] font-semibold",
+                            cor,
+                          )}
+                        >
+                          {texto}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">{c.cnpj}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             );
           })}

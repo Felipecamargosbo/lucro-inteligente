@@ -2,7 +2,7 @@ import { AlertTriangle, CheckCircle2, ShieldQuestion } from "lucide-react";
 import { formatPercentual } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
 import { cn } from "@/lib/utils";
-import type { Marketplace, NivelReputacao } from "@/types";
+import type { ContaMarketplace, NivelReputacao } from "@/types";
 
 const NIVEIS: Record<NivelReputacao, { rotulo: string; texto: string; fundo: string }> = {
   excelente: { rotulo: "Excelente", texto: "text-profit", fundo: "bg-profit-soft" },
@@ -80,8 +80,8 @@ function Termometro({
   );
 }
 
-export function ReputacaoCanal({ marketplace }: { marketplace: Marketplace }) {
-  const r = marketplace.reputacao;
+export function ReputacaoCanal({ conta }: { conta: ContaMarketplace }) {
+  const r = conta.reputacao;
 
   if (!r) {
     return (

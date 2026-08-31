@@ -5,6 +5,8 @@
 import {
   ANUNCIOS,
   CANAIS_NOTIFICACAO,
+  CONTAS,
+  CONTAS_ATIVAS,
   ESTOQUE,
   ESTOQUE_DETALHADO,
   RESUMO_ESTOQUE,
@@ -18,7 +20,10 @@ import {
   PEDIDOS,
   PROMOCOES,
   USUARIOS,
+  contasDoCanal,
+  getConta,
 } from "@/data/mock";
+import type { MarketplaceId } from "@/types";
 
 export const vendasService = {
   listar: () => PEDIDOS,
@@ -46,8 +51,21 @@ export const fulfillmentService = {
   resumo: () => RESUMO_FULFILLMENT,
 };
 
+/** Canais de venda (Mercado Livre, Shopee...) — só a identidade do canal. */
 export const marketplacesService = {
   listar: () => MARKETPLACES,
+};
+
+/**
+ * Contas do seller dentro de cada canal. Um canal pode ter uma ou várias
+ * contas (loja oficial, outlet, outro CNPJ) — é aqui que moram credencial,
+ * taxas, reputação e resultado de cada uma.
+ */
+export const contasService = {
+  listar: () => CONTAS,
+  ativas: () => CONTAS_ATIVAS,
+  doCanal: (id: MarketplaceId) => contasDoCanal(id),
+  buscar: (id: string) => getConta(id),
 };
 
 export const notificacoesService = {

@@ -7,17 +7,17 @@ import { Painel } from "@/components/comum/Indicadores";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { Marketplace } from "@/types";
+import type { ContaMarketplace } from "@/types";
 
 /**
  * Promoções do canal. A pergunta que a tela responde não é "quanto desconto
  * dar", é "com esse desconto ainda sobra alguma coisa?".
  */
-export function PromocoesCanal({ marketplace }: { marketplace: Marketplace }) {
+export function PromocoesCanal({ conta }: { conta: ContaMarketplace }) {
   // Desconto aplicado na simulação em massa, em % sobre o preço atual.
   const [desconto, setDesconto] = useState(10);
-  const { metasPorCanal, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
-  const metas = metasPorCanal[marketplace.id] ?? null;
+  const { metasPorConta, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
+  const metas = metasPorConta[conta.id] ?? null;
   const opcoes = (preco: number) => ({
     aliquotaImposto: fiscal.aliquota,
     custosOperacionais: custoOperacionalDetalhado(preco),
@@ -27,8 +27,8 @@ export function PromocoesCanal({ marketplace }: { marketplace: Marketplace }) {
     () =>
       anunciosService
         .listar()
-        .filter((a) => a.marketplaceId === marketplace.id && a.elegivelPromocao),
-    [marketplace.id],
+        .filter((a) => a.contaId === conta.id && a.elegivelPromocao),
+    [conta.id],
   );
 
   const linhas = useMemo(() => {

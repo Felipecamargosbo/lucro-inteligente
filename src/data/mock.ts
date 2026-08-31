@@ -4,6 +4,7 @@
 
 import type {
   AlteracaoPreco,
+  ContaMarketplace,
   Anuncio,
   CanalNotificacao,
   CanalRecuperacao,
@@ -32,10 +33,26 @@ function criarRandom(semente: number) {
 }
 
 export const MARKETPLACES: Marketplace[] = [
+  { id: "mercado-livre", nome: "Mercado Livre" },
+  { id: "shopee", nome: "Shopee" },
+  { id: "amazon", nome: "Amazon" },
+  { id: "magalu", nome: "Magalu" },
+  { id: "tiktok-shop", nome: "TikTok Shop" },
+  { id: "shein", nome: "Shein" },
+];
+
+/**
+ * Contas do seller. O Mercado Livre aparece com três contas de propósito:
+ * é o caso real de quem tem loja oficial, outlet e um CNPJ separado, e é
+ * onde a maioria das ferramentas falha ao somar tudo como se fosse um só.
+ */
+export const CONTAS: ContaMarketplace[] = [
   {
-    id: "mercado-livre",
-    nome: "Mercado Livre",
-    conectado: true,
+    id: "ml-oficial",
+    marketplaceId: "mercado-livre",
+    nome: "Loja Oficial",
+    cnpj: "42.918.774/0001-06",
+    conectada: true,
     statusConexao: "conectado",
     ultimaSincronizacao: new Date(Date.now() - 8 * 60000).toISOString(),
     skusAtivos: 342,
@@ -56,9 +73,61 @@ export const MARKETPLACES: Marketplace[] = [
     },
   },
   {
-    id: "shopee",
-    nome: "Shopee",
-    conectado: true,
+    id: "ml-outlet",
+    marketplaceId: "mercado-livre",
+    nome: "Outlet",
+    cnpj: "42.918.774/0001-06",
+    conectada: true,
+    statusConexao: "conectado",
+    ultimaSincronizacao: new Date(Date.now() - 34 * 60000).toISOString(),
+    skusAtivos: 118,
+    vendasHoje: 4310,
+    comissaoPercentual: 0.16,
+    taxaFixa: 6.75,
+    freteMedio: 21.5,
+    metas: { margemMinima: 0.06, margemIdeal: 0.14 },
+    reputacao: {
+      nivel: "bom",
+      rotuloCanal: "MercadoLíder",
+      taxaAtraso: 0.019,
+      taxaCancelamento: 0.009,
+      taxaReclamacao: 0.012,
+      limiteAtraso: 0.15,
+      limiteCancelamento: 0.02,
+      alerta: null,
+    },
+  },
+  {
+    id: "ml-pecas",
+    marketplaceId: "mercado-livre",
+    nome: "Peças e Acessórios",
+    cnpj: "51.207.663/0001-40",
+    conectada: true,
+    statusConexao: "token-expirando",
+    ultimaSincronizacao: new Date(Date.now() - 5 * 3600000).toISOString(),
+    skusAtivos: 87,
+    vendasHoje: 1980,
+    comissaoPercentual: 0.185,
+    taxaFixa: 6.75,
+    freteMedio: 19.4,
+    metas: null,
+    reputacao: {
+      nivel: "regular",
+      rotuloCanal: null,
+      taxaAtraso: 0.041,
+      taxaCancelamento: 0.017,
+      taxaReclamacao: 0.023,
+      limiteAtraso: 0.15,
+      limiteCancelamento: 0.02,
+      alerta: "Token expira em 2 dias — renove para não perder a sincronização.",
+    },
+  },
+  {
+    id: "shopee-principal",
+    marketplaceId: "shopee",
+    nome: "Loja Principal",
+    cnpj: "42.918.774/0001-06",
+    conectada: true,
     statusConexao: "conectado",
     ultimaSincronizacao: new Date(Date.now() - 52 * 60000).toISOString(),
     skusAtivos: 298,
@@ -79,9 +148,11 @@ export const MARKETPLACES: Marketplace[] = [
     },
   },
   {
-    id: "amazon",
-    nome: "Amazon",
-    conectado: true,
+    id: "amazon-br",
+    marketplaceId: "amazon",
+    nome: "Nexus BR",
+    cnpj: "42.918.774/0001-06",
+    conectada: true,
     statusConexao: "conectado",
     ultimaSincronizacao: new Date(Date.now() - 21 * 60000).toISOString(),
     skusAtivos: 210,
@@ -102,9 +173,11 @@ export const MARKETPLACES: Marketplace[] = [
     },
   },
   {
-    id: "magalu",
-    nome: "Magalu",
-    conectado: true,
+    id: "magalu-principal",
+    marketplaceId: "magalu",
+    nome: "Loja Magalu",
+    cnpj: "42.918.774/0001-06",
+    conectada: true,
     statusConexao: "token-expirando",
     ultimaSincronizacao: new Date(Date.now() - 3 * 3600000).toISOString(),
     skusAtivos: 156,
@@ -125,9 +198,11 @@ export const MARKETPLACES: Marketplace[] = [
     },
   },
   {
-    id: "tiktok-shop",
-    nome: "TikTok Shop",
-    conectado: false,
+    id: "tiktok-principal",
+    marketplaceId: "tiktok-shop",
+    nome: "Nexus Live",
+    cnpj: "42.918.774/0001-06",
+    conectada: false,
     statusConexao: "desconectado",
     ultimaSincronizacao: null,
     skusAtivos: 0,
@@ -139,9 +214,11 @@ export const MARKETPLACES: Marketplace[] = [
     reputacao: null,
   },
   {
-    id: "shein",
-    nome: "Shein",
-    conectado: false,
+    id: "shein-principal",
+    marketplaceId: "shein",
+    nome: "Loja Shein",
+    cnpj: "42.918.774/0001-06",
+    conectada: false,
     statusConexao: "desconectado",
     ultimaSincronizacao: null,
     skusAtivos: 0,
@@ -153,6 +230,16 @@ export const MARKETPLACES: Marketplace[] = [
     reputacao: null,
   },
 ];
+
+export const contasDoCanal = (id: MarketplaceId) =>
+  CONTAS.filter((c) => c.marketplaceId === id);
+
+export const getConta = (id: string) => CONTAS.find((c) => c.id === id)!;
+
+/** Contas com alguma integração ativa (conectada ou com token expirando). */
+export const CONTAS_ATIVAS = CONTAS.filter(
+  (c) => c.statusConexao !== "desconectado",
+);
 
 export const getMarketplace = (id: MarketplaceId) =>
   MARKETPLACES.find((m) => m.id === id)!;
@@ -222,14 +309,14 @@ function gerarPedidos(): Pedido[] {
 
     for (let i = 0; i < qtdPedidos; i++) {
       const produto = PRODUTOS[Math.floor(rand() * PRODUTOS.length)]!;
-      const marketplace = MARKETPLACES[Math.floor(rand() * 3)]!;
+      const conta = CONTAS_ATIVAS[Math.floor(rand() * CONTAS_ATIVAS.length)]!;
       const quantidade = rand() > 0.82 ? 2 : 1;
       const desconto = rand() > 0.7 ? Math.round(produto.preco * 0.05 * 100) / 100 : 0;
       const precoUnitario = Math.round((produto.preco - desconto) * 100) / 100;
       const faturamento = Math.round(precoUnitario * quantidade * 100) / 100;
       const cmv = Math.round(produto.cmv * quantidade * 100) / 100;
-      const comissao = Math.round(faturamento * marketplace.comissaoPercentual * 100) / 100;
-      const taxaFixa = marketplace.taxaFixa;
+      const comissao = Math.round(faturamento * conta.comissaoPercentual * 100) / 100;
+      const taxaFixa = conta.taxaFixa;
       const impostos = Math.round(faturamento * IMPOSTO_PADRAO * 100) / 100;
       const outrosCustos = Math.round((2 + rand() * 12) * 100) / 100;
       const lucroLiquido =
@@ -245,9 +332,10 @@ function gerarPedidos(): Pedido[] {
       dataHora.setHours(hora, minuto, 0, 0);
 
       pedidos.push({
-        id: `${marketplace.id.slice(0, 3).toUpperCase()}-${(100000 + Math.floor(rand() * 899999)).toString()}`,
+        id: `${conta.marketplaceId.slice(0, 3).toUpperCase()}-${(100000 + Math.floor(rand() * 899999)).toString()}`,
         data: dataHora.toISOString(),
-        marketplaceId: marketplace.id,
+        marketplaceId: conta.marketplaceId,
+        contaId: conta.id,
         sku: produto.sku,
         produto: produto.nome,
         quantidade,
@@ -283,7 +371,7 @@ function gerarAnuncios(): Anuncio[] {
   const anuncios: Anuncio[] = [];
 
   for (const produto of PRODUTOS) {
-    for (const marketplace of MARKETPLACES.slice(0, 4)) {
+    for (const conta of CONTAS_ATIVAS) {
       const sorteio = rand();
 
       // ~18% do catálogo sem produto vinculado -> sem CMV -> sem margem real
@@ -303,7 +391,7 @@ function gerarAnuncios(): Anuncio[] {
       // Frete: só é custo do seller acima do limiar de frete grátis do canal
       const temFreteSubsidiado = precoAtual >= 79;
       const freteUnitario = temFreteSubsidiado
-        ? Math.round(marketplace.freteMedio * (0.6 + rand() * 0.6) * 100) / 100
+        ? Math.round(conta.freteMedio * (0.6 + rand() * 0.6) * 100) / 100
         : 0;
 
       // ADS: só uma parte do catálogo é impulsionada
@@ -314,13 +402,14 @@ function gerarAnuncios(): Anuncio[] {
 
       // Afiliados: praticamente só no TikTok Shop (lives e criadores)
       const custoAfiliadoUnitario =
-        marketplace.id === "tiktok-shop" && rand() > 0.35
+        conta.marketplaceId === "tiktok-shop" && rand() > 0.35
           ? Math.round(precoAtual * (0.05 + rand() * 0.1) * 100) / 100
           : 0;
 
       anuncios.push({
-        id: `${marketplace.id}-${produto.sku}`,
-        marketplaceId: marketplace.id,
+        id: `${conta.id}-${produto.sku}`,
+        marketplaceId: conta.marketplaceId,
+        contaId: conta.id,
         sku: produto.sku,
         produto: produto.nome,
         precoAtual,
@@ -328,14 +417,14 @@ function gerarAnuncios(): Anuncio[] {
         emPromocao,
         cmv,
         impostoPercentual: IMPOSTO_PADRAO,
-        comissaoPercentual: marketplace.comissaoPercentual,
-        taxaFixa: marketplace.taxaFixa,
+        comissaoPercentual: conta.comissaoPercentual,
+        taxaFixa: conta.taxaFixa,
         freteUnitario,
         custoMidiaUnitario,
         custoAfiliadoUnitario,
         // Canal recém-conectado ainda não liquidou taxas
         origemTaxas:
-          marketplace.statusConexao === "conectado" && rand() > 0.35
+          conta.statusConexao === "conectado" && rand() > 0.35
             ? "liquidado"
             : "estimado",
         produtoVinculado,
@@ -581,7 +670,7 @@ function gerarOportunidadesRecuperacao(): OportunidadeRecuperacao[] {
         : "mensagem-enviada";
     const tipo = TIPOS_RECUPERACAO[Math.floor(rand() * TIPOS_RECUPERACAO.length)]!;
     const canal = CANAIS_RECUPERACAO[Math.floor(rand() * CANAIS_RECUPERACAO.length)]!;
-    const marketplace = MARKETPLACES[Math.floor(rand() * 3)]!;
+    const conta = CONTAS_ATIVAS[Math.floor(rand() * CONTAS_ATIVAS.length)]!;
     const produto = PRODUTOS[Math.floor(rand() * PRODUTOS.length)]!;
     const cliente = CLIENTES[Math.floor(rand() * CLIENTES.length)]!;
     const valor = Math.round((200 + rand() * 800) * 100) / 100;
@@ -590,8 +679,8 @@ function gerarOportunidadesRecuperacao(): OportunidadeRecuperacao[] {
     oportunidades.push({
       id: `REC-${1000 + i}`,
       cliente,
-      pedidoId: `${marketplace.id.slice(0, 3).toUpperCase()}-${(100000 + Math.floor(rand() * 899999)).toString()}`,
-      marketplaceId: marketplace.id,
+      pedidoId: `${conta.marketplaceId.slice(0, 3).toUpperCase()}-${(100000 + Math.floor(rand() * 899999)).toString()}`,
+      marketplaceId: conta.marketplaceId,
       valor,
       tipo,
       tempoRestante: recuperado ? "—" : `${horas}h`,

@@ -11,7 +11,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { Marketplace } from "@/types";
+import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
+import type { ContaMarketplace } from "@/types";
 
 export interface DadosConfiguracaoMarketplace {
   comissaoPercentual: number;
@@ -20,31 +21,31 @@ export interface DadosConfiguracaoMarketplace {
 }
 
 export function ModalConfiguracaoMarketplace({
-  marketplace,
+  conta,
   onFechar,
   onSalvar,
 }: {
-  marketplace: Marketplace | null;
+  conta: ContaMarketplace | null;
   onFechar: () => void;
-  onSalvar: (marketplace: Marketplace, dados: DadosConfiguracaoMarketplace) => void;
+  onSalvar: (conta: ContaMarketplace, dados: DadosConfiguracaoMarketplace) => void;
 }) {
   const [apiKey, setApiKey] = useState("");
   const [comissao, setComissao] = useState("0");
   const [taxaFixa, setTaxaFixa] = useState("0");
   const [freteMedio, setFreteMedio] = useState("0");
 
-  // Recarrega os campos sempre que um marketplace diferente é aberto.
+  // Recarrega os campos sempre que uma conta diferente é aberta.
   useEffect(() => {
-    if (!marketplace) return;
+    if (!conta) return;
     setApiKey("••••••••••••••••");
-    setComissao(String(Math.round(marketplace.comissaoPercentual * 1000) / 10));
-    setTaxaFixa(String(marketplace.taxaFixa));
-    setFreteMedio(String(marketplace.freteMedio));
-  }, [marketplace]);
+    setComissao(String(Math.round(conta.comissaoPercentual * 1000) / 10));
+    setTaxaFixa(String(conta.taxaFixa));
+    setFreteMedio(String(conta.freteMedio));
+  }, [conta]);
 
   const salvar = () => {
-    if (!marketplace) return;
-    onSalvar(marketplace, {
+    if (!conta) return;
+    onSalvar(conta, {
       comissaoPercentual: (Number(comissao) || 0) / 100,
       taxaFixa: Number(taxaFixa) || 0,
       freteMedio: Number(freteMedio) || 0,
@@ -52,17 +53,18 @@ export function ModalConfiguracaoMarketplace({
   };
 
   return (
-    <Dialog open={!!marketplace} onOpenChange={(aberto) => !aberto && onFechar()}>
+    <Dialog open={!!conta} onOpenChange={(aberto) => !aberto && onFechar()}>
       <DialogContent className="sm:max-w-md">
-        {marketplace && (
+        {conta && (
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <Settings2 className="size-4 text-brand" />
-                {marketplace.nome}
+                <LogoMarketplace id={conta.marketplaceId} tamanho="sm" />
+                {conta.nome}
               </DialogTitle>
               <DialogDescription>
-                Regras usadas nos cálculos de lucro para este canal.
+                Regras usadas nos cálculos de lucro desta conta. O nome da conta é editado em
+                Configurações → Integrações.
               </DialogDescription>
             </DialogHeader>
 

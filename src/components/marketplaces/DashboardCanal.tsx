@@ -31,7 +31,7 @@ import {
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { cn } from "@/lib/utils";
-import type { Marketplace } from "@/types";
+import type { ContaMarketplace } from "@/types";
 
 /** Cores das fatias da composição — seguem os tokens do tema. */
 const CORES_FATIA = [
@@ -44,10 +44,10 @@ const CORES_FATIA = [
   "var(--color-profit)", // lucro
 ];
 
-export function DashboardCanal({ marketplace }: { marketplace: Marketplace }) {
+export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
   const { periodo } = usePeriodo();
-  const { metasPorCanal, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
-  const metas = metasPorCanal[marketplace.id] ?? null;
+  const { metasPorConta, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
+  const metas = metasPorConta[conta.id] ?? null;
   const opcoes = (preco: number) => ({
     aliquotaImposto: fiscal.aliquota,
     custosOperacionais: custoOperacionalDetalhado(preco),
@@ -56,12 +56,12 @@ export function DashboardCanal({ marketplace }: { marketplace: Marketplace }) {
   const dados = useMemo(() => {
     const pedidosCanal = vendasService
       .listar()
-      .filter((p) => p.marketplaceId === marketplace.id);
+      .filter((p) => p.contaId === conta.id);
     const noPeriodo = filtrarPorPeriodo(pedidosCanal, periodo);
 
     const anuncios = anunciosService
       .listar()
-      .filter((a) => a.marketplaceId === marketplace.id);
+      .filter((a) => a.contaId === conta.id);
 
     // Composição das taxas somando o raio-X de cada anúncio pelas unidades
     // vendidas. Anúncio sem custo entra nas taxas, mas não no CMV nem no lucro.
@@ -104,7 +104,7 @@ export function DashboardCanal({ marketplace }: { marketplace: Marketplace }) {
       acumulado,
       anuncios,
     };
-  }, [marketplace, periodo, metas, fiscal, custoOperacionalDetalhado]);
+  }, [conta, periodo, metas, fiscal, custoOperacionalDetalhado]);
 
   const { resumo, serie, abc, acumulado } = dados;
 

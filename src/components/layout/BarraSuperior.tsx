@@ -8,17 +8,19 @@ export function BarraSuperior({ aoAbrirNotificacoes }: { aoAbrirNotificacoes: ()
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const naoLidas = notificacoesService.listar().filter((n) => !n.lida).length;
 
-  // Páginas de canal (/marketplaces/<slug>) têm título próprio e usam período.
-  const slugCanal = pathname.startsWith("/marketplaces/")
-    ? pathname.split("/")[2]
-    : undefined;
-  const canal = slugCanal ? getCanalPorSlug(slugCanal) : undefined;
+  // Páginas de canal (/marketplaces/<slug>[/<conta>]) têm título próprio.
+  // O período só faz sentido quando uma conta específica está selecionada
+  // (3º segmento presente) — na tela de escolher a conta, ainda não há
+  // resultado nenhum pra filtrar por data.
+  const segmentos = pathname.split("/").filter(Boolean); // ["marketplaces", "<slug>", "<conta>"?]
+  const dentroDeMarketplaces = segmentos[0] === "marketplaces" && !!segmentos[1];
+  const canal = dentroDeMarketplaces ? getCanalPorSlug(segmentos[1]!) : undefined;
 
   const item = canal
     ? {
         titulo: canal.titulo,
         descricao: "Resultado, taxas e saúde da conta neste canal",
-        usaPeriodo: true,
+        usaPeriodo: segmentos.length >= 3,
       }
     : (MENU.find((m) => (m.url === "/" ? pathname === "/" : pathname.startsWith(m.url))) ??
       MENU[0]!);
