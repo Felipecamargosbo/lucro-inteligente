@@ -231,10 +231,27 @@ export const CONTAS: ContaMarketplace[] = [
   },
 ];
 
-export const contasDoCanal = (id: MarketplaceId) =>
-  CONTAS.filter((c) => c.marketplaceId === id);
+/**
+ * Espelho mutável de CONTAS. As telas leem e editam as contas através do
+ * ConfiguracoesProvider (estado do React), mas as decisões de navegação
+ * (ex.: "este canal tem 1 conta só, pula a seleção") rodam no loader das
+ * rotas, fora da árvore de componentes — sem acesso a hooks/contexto. Este
+ * espelho é a ponte: toda vez que o contexto cria ou edita uma conta, ele
+ * atualiza aqui também, e os loaders sempre leem daqui, nunca de CONTAS
+ * diretamente.
+ */
+let contasAtuais: ContaMarketplace[] = CONTAS;
 
-export const getConta = (id: string) => CONTAS.find((c) => c.id === id)!;
+export const obterContasAtuais = () => contasAtuais;
+
+export const definirContasAtuais = (novas: ContaMarketplace[]) => {
+  contasAtuais = novas;
+};
+
+export const contasDoCanal = (id: MarketplaceId) =>
+  contasAtuais.filter((c) => c.marketplaceId === id);
+
+export const getConta = (id: string) => contasAtuais.find((c) => c.id === id);
 
 /** Contas com alguma integração ativa (conectada ou com token expirando). */
 export const CONTAS_ATIVAS = CONTAS.filter(

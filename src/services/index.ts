@@ -5,8 +5,6 @@
 import {
   ANUNCIOS,
   CANAIS_NOTIFICACAO,
-  CONTAS,
-  CONTAS_ATIVAS,
   ESTOQUE,
   ESTOQUE_DETALHADO,
   RESUMO_ESTOQUE,
@@ -22,6 +20,7 @@ import {
   USUARIOS,
   contasDoCanal,
   getConta,
+  obterContasAtuais,
 } from "@/data/mock";
 import type { MarketplaceId } from "@/types";
 
@@ -62,8 +61,8 @@ export const marketplacesService = {
  * taxas, reputação e resultado de cada uma.
  */
 export const contasService = {
-  listar: () => CONTAS,
-  ativas: () => CONTAS_ATIVAS,
+  listar: () => obterContasAtuais(),
+  ativas: () => obterContasAtuais().filter((c) => c.statusConexao !== "desconectado"),
   doCanal: (id: MarketplaceId) => contasDoCanal(id),
   buscar: (id: string) => getConta(id),
 };

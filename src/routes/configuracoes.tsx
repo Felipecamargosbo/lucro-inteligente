@@ -3,6 +3,7 @@ import { Fragment, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   Building2,
+  Check,
   History,
   Percent,
   Plug,
@@ -20,7 +21,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import type { CustoOperacional, DadosEmpresa, RegimeTributario } from "@/types";
+import type {
+  ContaMarketplace,
+  CustoOperacional,
+  DadosEmpresa,
+  MarketplaceId,
+  RegimeTributario,
+} from "@/types";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -576,14 +583,49 @@ function AbaMargens() {
 
 function AbaIntegracoes() {
   const canais = marketplacesService.listar();
-  const { contas, atualizarConta } = useConfiguracoes();
+  const { contas, atualizarConta, criarConta, removerConta } = useConfiguracoes();
   const [editando, setEditando] = useState<Record<string, string>>({});
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState<string | null>(null);
+  const [novaContaEm, setNovaContaEm] = useState<string | null>(null);
+  const [novoNomeConta, setNovoNomeConta] = useState("");
+  const [novoCnpjConta, setNovoCnpjConta] = useState("");
 
   const salvarNome = (id: string, nomeAtual: string) => {
     const novoNome = (editando[id] ?? nomeAtual).trim();
     if (!novoNome || novoNome === nomeAtual) return;
     atualizarConta(id, { nome: novoNome });
+    setEditando((atual) => {
+      const { [id]: _removido, ...resto } = atual;
+      return resto;
+    });
     toast.success("Nome da conta atualizado");
+  };
+
+  const abrirNovaConta = (canalId: string) => {
+    setNovaContaEm(canalId);
+    setNovoNomeConta("");
+    setNovoCnpjConta("");
+  };
+
+  const excluirConta = (c: ContaMarketplace) => {
+    removerConta(c.id);
+    setConfirmandoExclusao(null);
+    toast.success(`"${c.nome}" removida`, {
+      description: "Vendas e anúncios históricos dessa conta continuam nos relatórios.",
+    });
+  };
+
+  const confirmarNovaConta = (canalId: MarketplaceId, nomeCanal: string) => {
+    const nome = novoNomeConta.trim();
+    if (!nome) {
+      toast.error("Dê um nome para a conta antes de criar");
+      return;
+    }
+    criarConta(canalId, { nome, cnpj: novoCnpjConta.trim() });
+    toast.success(`Conta "${nome}" criada em ${nomeCanal}`, {
+      description: "Ela já aparece no Hub e no menu. Conecte a API Key para ativá-la.",
+    });
+    setNovaContaEm(null);
   };
 
   return (
@@ -594,7 +636,7 @@ function AbaIntegracoes() {
           As chaves de API ainda <strong>não são armazenadas</strong>. Guardar credencial exige
           banco de dados e criptografia, que este sistema ainda não tem — e uma chave vazada dá
           acesso à sua conta de vendas. Até lá, esta tela mostra o estado das conexões e deixa
-          você nomear cada conta.
+          você nomear e cadastrar contas.
         </p>
       </div>
 
@@ -605,15 +647,21 @@ function AbaIntegracoes() {
         <div className="divide-y">
           {canais.map((canal) => {
             const contasDoCanal = contas.filter((c) => c.marketplaceId === canal.id);
-            if (contasDoCanal.length === 0) return null;
             return (
               <div key={canal.id} className="px-5 py-4">
                 <div className="mb-3 flex items-center gap-2.5">
                   <LogoMarketplace id={canal.id} tamanho="sm" />
                   <p className="text-xs font-semibold">{canal.nome}</p>
                   <span className="text-[10px] text-muted-foreground">
-                    {contasDoCanal.length} conta{contasDoCanal.length > 1 ? "s" : ""}
+                    {contasDoCanal.length} conta{contasDoCanal.length !== 1 ? "s" : ""}
                   </span>
+                  <button
+                    onClick={() => abrirNovaConta(canal.id)}
+                    className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium text-brand transition-colors hover:text-brand/80"
+                  >
+                    <Plus className="size-3.5" />
+                    Adicionar conta
+                  </button>
                 </div>
 
                 <div className="space-y-2">
@@ -630,6 +678,7 @@ function AbaIntegracoes() {
                         : c.statusConexao === "token-expirando"
                           ? "Token expirando"
                           : "Desconectado";
+                    const editado = editando[c.id] !== undefined && editando[c.id] !== c.nome;
                     return (
                       <div key={c.id} className="flex flex-wrap items-center gap-2 pl-1">
                         <Input
@@ -637,10 +686,22 @@ function AbaIntegracoes() {
                           onChange={(e) =>
                             setEditando((atual) => ({ ...atual, [c.id]: e.target.value }))
                           }
-                          onBlur={() => salvarNome(c.id, c.nome)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") salvarNome(c.id, c.nome);
+                          }}
                           className="h-8 w-52 text-xs"
                           aria-label={`Nome da conta ${c.nome}`}
                         />
+                        {editado && (
+                          <Button
+                            size="sm"
+                            className="h-8 gap-1 bg-brand px-2.5 text-[11px] text-brand-foreground hover:bg-brand/90"
+                            onClick={() => salvarNome(c.id, c.nome)}
+                          >
+                            <Check className="size-3.5" />
+                            Salvar
+                          </Button>
+                        )}
                         <span
                           className={cn(
                             "rounded-full px-2.5 py-1 text-[10px] font-semibold",
@@ -649,10 +710,89 @@ function AbaIntegracoes() {
                         >
                           {texto}
                         </span>
-                        <span className="text-[10px] text-muted-foreground">{c.cnpj}</span>
+                        {c.cnpj && (
+                          <span className="text-[10px] text-muted-foreground">{c.cnpj}</span>
+                        )}
+
+                        {confirmandoExclusao === c.id ? (
+                          <span className="ml-auto flex items-center gap-1.5">
+                            <span className="text-[11px] font-medium text-loss">Excluir?</span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 border-loss/40 px-2 text-[11px] text-loss hover:bg-loss-soft"
+                              onClick={() => excluirConta(c)}
+                            >
+                              Confirmar
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={() => setConfirmandoExclusao(null)}
+                            >
+                              Cancelar
+                            </Button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmandoExclusao(c.id)}
+                            className="ml-auto text-muted-foreground transition-colors hover:text-loss"
+                            aria-label={`Excluir conta ${c.nome}`}
+                            title="Excluir conta"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
                       </div>
                     );
                   })}
+
+                  {contasDoCanal.length === 0 && novaContaEm !== canal.id && (
+                    <p className="pl-1 text-[11px] text-muted-foreground">
+                      Nenhuma conta cadastrada neste canal ainda.
+                    </p>
+                  )}
+
+                  {novaContaEm === canal.id && (
+                    <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-dashed p-3">
+                      <div className="space-y-1">
+                        <Label className="text-[10px]">Nome da conta</Label>
+                        <Input
+                          autoFocus
+                          value={novoNomeConta}
+                          onChange={(e) => setNovoNomeConta(e.target.value)}
+                          placeholder="Ex.: Loja 2"
+                          className="h-8 w-44 text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px]">CNPJ (opcional por enquanto)</Label>
+                        <Input
+                          value={novoCnpjConta}
+                          onChange={(e) => setNovoCnpjConta(e.target.value)}
+                          placeholder="00.000.000/0000-00"
+                          className="h-8 w-44 text-xs"
+                        />
+                      </div>
+                      <Button
+                        size="sm"
+                        className="h-8 gap-1 bg-brand text-[11px] text-brand-foreground hover:bg-brand/90"
+                        onClick={() => confirmarNovaConta(canal.id, canal.nome)}
+                      >
+                        <Check className="size-3.5" />
+                        Criar conta
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-[11px]"
+                        onClick={() => setNovaContaEm(null)}
+                      >
+                        Cancelar
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -674,10 +814,6 @@ function AbaIntegracoes() {
     </div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/* Aba: Histórico                                                     */
-/* ------------------------------------------------------------------ */
 
 function AbaHistorico() {
   const logs = logsService.listar();

@@ -1,10 +1,11 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { CONTAS, EMPRESA, REGRAS_FINANCEIRAS } from "@/data/mock";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { CONTAS, EMPRESA, REGRAS_FINANCEIRAS, definirContasAtuais } from "@/data/mock";
 import type {
   ConfiguracaoFiscal,
   ContaMarketplace,
   CustoOperacional,
   DadosEmpresa,
+  MarketplaceId,
   MetasMargem,
 } from "@/types";
 
@@ -27,6 +28,10 @@ interface ConfiguracoesContexto {
 
   contas: ContaMarketplace[];
   atualizarConta: (id: string, dados: Partial<ContaMarketplace>) => void;
+  /** Cria uma conta nova para o canal indicado, com status desconectado */
+  criarConta: (marketplaceId: MarketplaceId, dados: { nome: string; cnpj: string }) => void;
+  /** Remove a conta e a meta de margem associada a ela */
+  removerConta: (id: string) => void;
 
   /** Metas de margem por CONTA — dão as cores do Raio-X daquela conta específica */
   metasPorConta: Record<string, MetasMargem | null>;
@@ -76,6 +81,14 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
 
   const [contas, setContas] = useState<ContaMarketplace[]>(CONTAS);
 
+  // Espelha as contas para fora do React: os loaders de rota (que decidem,
+  // por exemplo, se um canal tem conta única e pula a seleção) rodam fora
+  // da árvore de componentes e não têm acesso a este contexto — precisam
+  // ler esse espelho para ver as contas criadas/editadas nesta sessão.
+  useEffect(() => {
+    definirContasAtuais(contas);
+  }, [contas]);
+
   const [metasPorConta, setMetasPorConta] = useState<
     Record<string, MetasMargem | null>
   >(() => {
@@ -107,6 +120,34 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
         setContas((atual) =>
           atual.map((c) => (c.id === id ? { ...c, ...dados } : c)),
         ),
+      criarConta: (marketplaceId, dados) => {
+        const id = `conta-${marketplaceId}-${Date.now()}`;
+        const nova: ContaMarketplace = {
+          id,
+          marketplaceId,
+          nome: dados.nome,
+          cnpj: dados.cnpj,
+          conectada: false,
+          statusConexao: "desconectado",
+          ultimaSincronizacao: null,
+          skusAtivos: 0,
+          vendasHoje: 0,
+          comissaoPercentual: 0,
+          taxaFixa: 0,
+          freteMedio: 0,
+          metas: null,
+          reputacao: null,
+        };
+        setContas((atual) => [...atual, nova]);
+        setMetasPorConta((atual) => ({ ...atual, [id]: null }));
+      },
+      removerConta: (id) => {
+        setContas((atual) => atual.filter((c) => c.id !== id));
+        setMetasPorConta((atual) => {
+          const { [id]: _removida, ...resto } = atual;
+          return resto;
+        });
+      },
 
       metasPorConta,
       salvarMetas: (contaId, metas) =>
