@@ -106,6 +106,86 @@ function resumirContasAds(
     .filter((c) => c.gasto > 0 || c.faturamento > 0);
 }
 
+interface MetricasAdsCompletas {
+  faturamento: number;
+  investimento: number;
+  roas: number;
+  acos: number;
+  pedidosAds: number;
+  cliques: number;
+  impressoes: number;
+  cpc: number;
+  ctr: number;
+  conversao: number;
+  ticketMedioAds: number;
+  cpm: number;
+  tacos: number;
+  lucroLiquido: number;
+  lucroPosAds: number;
+}
+
+/** Calcula, pra qualquer recorte de pedidos (uma conta, ou um canal sem
+ * conta cadastrada), exatamente os mesmos indicadores mostrados nos cards
+ * da aba — usado pra montar a exportação linha a linha, uma por loja. */
+function calcularMetricasAds(pedidosDoEscopo: Pedido[]): MetricasAdsCompletas {
+  const validos = pedidosDoEscopo.filter((p) => p.status !== "cancelado");
+  const resumoEscopo = resumir(validos);
+  const pedidosAdsEscopo = validos.filter((p) => p.custoMidia > 0);
+  const faturamentoAdsEscopo = pedidosAdsEscopo.reduce((s, p) => s + p.faturamento, 0);
+  const investimento = resumoEscopo.custoMidia;
+  const qtdPedidosAds = pedidosAdsEscopo.length;
+  const cliques = qtdPedidosAds > 0 ? Math.round(qtdPedidosAds / TAXA_CONVERSAO_ASSUMIDA) : 0;
+  const impressoes = cliques > 0 ? Math.round(cliques / CTR_ASSUMIDO) : 0;
+  const roas = investimento > 0 ? faturamentoAdsEscopo / investimento : 0;
+  const acos = faturamentoAdsEscopo > 0 ? investimento / faturamentoAdsEscopo : 0;
+  const tacos = resumoEscopo.faturamento ? investimento / resumoEscopo.faturamento : 0;
+  const cpc = cliques > 0 ? investimento / cliques : 0;
+  const cpm = impressoes > 0 ? (investimento / impressoes) * 1000 : 0;
+  const ctr = impressoes > 0 ? cliques / impressoes : 0;
+  const conversao = cliques > 0 ? qtdPedidosAds / cliques : 0;
+  const ticketMedioAds = qtdPedidosAds > 0 ? faturamentoAdsEscopo / qtdPedidosAds : 0;
+  const lucroPosAds = resumoEscopo.lucroLiquido - investimento;
+  return {
+    faturamento: resumoEscopo.faturamento,
+    investimento,
+    roas,
+    acos,
+    pedidosAds: qtdPedidosAds,
+    cliques,
+    impressoes,
+    cpc,
+    ctr,
+    conversao,
+    ticketMedioAds,
+    cpm,
+    tacos,
+    lucroLiquido: resumoEscopo.lucroLiquido,
+    lucroPosAds,
+  };
+}
+
+/** Todos os indicadores de uma loja, coluna por coluna — a mesma linha da
+ * exportação, seja qual for a loja/canal que ela representa. */
+function linhaExportMetricasAds(m: MetricasAdsCompletas): Record<string, string | number> {
+  return {
+    "Faturamento total": formatBRL(m.faturamento),
+    "Investimento total": formatBRL(m.investimento),
+    ROAS: `${m.roas.toFixed(2)}x`,
+    ACOS: formatPercentual(m.acos),
+    "Pedidos via ADS": m.pedidosAds,
+    "Cliques (estimado)": m.cliques,
+    "Impressões (estimado)": m.impressoes,
+    "CPC (estimado)": formatBRL(m.cpc),
+    "CTR (assumido)": formatPercentual(m.ctr),
+    Conversão: formatPercentual(m.conversao),
+    "Ticket médio via ADS": formatBRL(m.ticketMedioAds),
+    "CPM (estimado)": formatBRL(m.cpm),
+    TACOS: formatPercentual(m.tacos),
+    "Lucro antes de ADS": formatBRL(m.lucroLiquido),
+    "Lucro pós-ADS": formatBRL(m.lucroPosAds),
+  };
+}
+
 export function Ads() {
   const { periodo } = usePeriodo();
   const { filtrarPorSelecao } = useSelecaoContas();
@@ -189,103 +269,44 @@ export function Ads() {
     [atuais],
   );
 
-  // Mesmas linhas da tabela "ADS por canal" — canal e, quando tem mais de
-  // uma conta, cada loja individual logo abaixo — prontas pra exportar.
-  const linhasCanalExport = useMemo(() => {
+  // Uma linha por loja (conta), com TODOS os indicadores da aba juntos,
+  // coluna por coluna — sem "Total do canal": quando o canal tem contas
+  // cadastradas, cada uma vira sua própria linha; só quando não há nenhuma
+  // conta cadastrada pra aquele canal (não há loja pra detalhar) usamos o
+  // canal inteiro como a linha.
+  const linhasExport = useMemo(() => {
     const linhas: Record<string, string | number>[] = [];
-    for (const c of porCanal) {
-      linhas.push({
-        Canal: c.titulo,
-        Conta: "Total do canal",
-        Investimento: c.gasto.toFixed(2),
-        ROAS: `${c.roas.toFixed(2)}x`,
-        TACOS: formatPercentual(c.tacos),
-      });
-      for (const conta of contasPorCanal.get(c.id) ?? []) {
+    for (const canal of CANAIS) {
+      const contasDoCanal = contas.filter((c) => c.marketplaceId === canal.id);
+      if (contasDoCanal.length > 0) {
+        for (const conta of contasDoCanal) {
+          const doConta = atuais.filter((p) => p.contaId === conta.id);
+          const m = calcularMetricasAds(doConta);
+          if (m.faturamento === 0 && m.investimento === 0) continue;
+          linhas.push({
+            Canal: canal.titulo,
+            Conta: conta.nome,
+            ...linhaExportMetricasAds(m),
+          });
+        }
+      } else {
+        const doCanal = atuais.filter((p) => p.marketplaceId === canal.id);
+        const m = calcularMetricasAds(doCanal);
+        if (m.faturamento === 0 && m.investimento === 0) continue;
         linhas.push({
-          Canal: c.titulo,
-          Conta: conta.nome,
-          Investimento: conta.gasto.toFixed(2),
-          ROAS: `${conta.roas.toFixed(2)}x`,
-          TACOS: formatPercentual(conta.tacos),
+          Canal: canal.titulo,
+          Conta: canal.titulo,
+          ...linhaExportMetricasAds(m),
         });
       }
     }
     return linhas;
-  }, [porCanal, contasPorCanal]);
-
-  // Linha única com TODOS os indicadores da aba, coluna por coluna — o
-  // "resumo geral" do ADS pra quem quer olhar tudo de uma vez na planilha.
-  const linhasResumoExport = useMemo(
-    () => [
-      {
-        "Faturamento total": formatBRL(resumo.faturamento),
-        "Investimento total": formatBRL(investimento),
-        ROAS: `${roas.toFixed(2)}x`,
-        ACOS: formatPercentual(acos),
-        "Pedidos via ADS": qtdPedidosAds,
-        "Cliques (estimado)": totalCliques,
-        "Impressões (estimado)": totalImpressoes,
-        "CPC (estimado)": formatBRL(cpc),
-        "CTR (assumido)": formatPercentual(ctr),
-        Conversão: formatPercentual(taxaConversao),
-        "Ticket médio via ADS": formatBRL(ticketMedioAds),
-        "CPM (estimado)": formatBRL(cpm),
-        TACOS: formatPercentual(tacos),
-        "Lucro antes de ADS": formatBRL(resumo.lucroLiquido),
-        "Lucro pós-ADS": formatBRL(lucroPosAds),
-      },
-    ],
-    [
-      resumo,
-      investimento,
-      roas,
-      acos,
-      qtdPedidosAds,
-      totalCliques,
-      totalImpressoes,
-      cpc,
-      ctr,
-      taxaConversao,
-      ticketMedioAds,
-      cpm,
-      tacos,
-      lucroPosAds,
-    ],
-  );
-
-  // Mesma lista de "Mídia sem retorno" mostrada na tela, com os números que
-  // aparecem — vendeu Nx × preço, gasto de ADS e resultado final.
-  const linhasSemRetornoExport = useMemo(
-    () =>
-      semRetorno.map((item) => {
-        const precoMedio = item.quantidade > 0 ? item.faturamento / item.quantidade : 0;
-        return {
-          Produto: item.produto,
-          SKU: item.sku,
-          "Quantidade vendida": item.quantidade,
-          "Preço médio": formatBRL(precoMedio),
-          Faturamento: formatBRL(item.faturamento),
-          "Gasto com ADS": formatBRL(item.custoMidia),
-          "Lucro pós-ADS": formatBRL(item.lucroPosAds),
-        };
-      }),
-    [semRetorno],
-  );
-
-  const secoesExport = useMemo(
-    () => [
-      { titulo: "Resumo geral", linhas: linhasResumoExport },
-      { titulo: "ADS por canal", linhas: linhasCanalExport },
-      { titulo: "Mídia sem retorno", linhas: linhasSemRetornoExport },
-    ],
-    [linhasResumoExport, linhasCanalExport, linhasSemRetornoExport],
-  );
+  }, [atuais, contas]);
 
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
-        <ExportarDados nomeArquivo="ads" secoes={secoesExport} />
+        <ExportarDados nomeArquivo="ads" linhas={linhasExport} />
       </div>
 
       <div className="rounded-xl bg-muted/40 px-4 py-2.5 text-[11px] text-muted-foreground">
