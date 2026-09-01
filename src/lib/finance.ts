@@ -282,6 +282,12 @@ export interface ResumoPeriodo {
   impostos: number;
   comissoes: number;
   outrosCustos: number;
+  /**
+   * ADS/mídia paga. De propósito NÃO entra em custosTotais nem em
+   * lucroLiquido — este é o lucro "antes de ADS", igual já era mostrado em
+   * todo o sistema. Para o lucro pós-ADS, subtraia custoMidia à parte.
+   */
+  custoMidia: number;
   custosTotais: number;
   lucroLiquido: number;
   margem: number;
@@ -316,6 +322,7 @@ export function resumir(pedidos: Pedido[]): ResumoPeriodo {
     impostos: soma((p) => p.impostos),
     comissoes: soma((p) => p.comissao),
     outrosCustos,
+    custoMidia: soma((p) => p.custoMidia),
     custosTotais: faturamento - lucroLiquido,
     lucroLiquido,
     margem: faturamento ? lucroLiquido / faturamento : 0,
@@ -338,6 +345,8 @@ export interface PontoDia {
   pedidos: number;
   /** Soma de unidades vendidas no dia (um pedido pode ter mais de 1 unidade) */
   unidades: number;
+  /** ADS/mídia paga no dia */
+  custoMidia: number;
 }
 
 export function seriePorDia(pedidos: Pedido[], periodo: Periodo): PontoDia[] {
@@ -351,6 +360,7 @@ export function seriePorDia(pedidos: Pedido[], periodo: Periodo): PontoDia[] {
       lucro: 0,
       pedidos: 0,
       unidades: 0,
+      custoMidia: 0,
     });
   }
   for (const p of pedidos) {
@@ -362,6 +372,7 @@ export function seriePorDia(pedidos: Pedido[], periodo: Periodo): PontoDia[] {
     ponto.lucro += p.lucroLiquido;
     ponto.pedidos += 1;
     ponto.unidades += p.quantidade;
+    ponto.custoMidia += p.custoMidia;
   }
   return [...mapa.values()];
 }
@@ -471,4 +482,44 @@ export function agruparPorSku(pedidos: Pedido[]): ItemAgregadoSku[] {
     item.margem = item.faturamento ? item.lucro / item.faturamento : 0;
   }
   return [...mapa.values()];
+}
+
+export interface ItemAdsPorSku {
+  sku: string;
+  produto: string;
+  faturamento: number;
+  custoMidia: number;
+  /** Lucro antes de descontar o ADS deste produto (o "lucro líquido" de sempre) */
+  lucroAntesAds: number;
+  /** Lucro depois de descontar o ADS — o que realmente sobrou */
+  lucroPosAds: number;
+  /** true quando o ADS gasto é maior que o lucro que o produto gerava antes dele */
+  semRetorno: boolean;
+}
+
+/** Agrupa pedidos por SKU somando o gasto de ADS, para achar quem consome
+ * mídia sem retorno — quando o gasto supera o lucro que o produto já tinha. */
+export function agruparPorSkuComAds(pedidos: Pedido[]): ItemAdsPorSku[] {
+  const mapa = new Map<string, ItemAdsPorSku>();
+  for (const p of pedidos) {
+    if (p.status === "cancelado") continue;
+    const atual = mapa.get(p.sku) ?? {
+      sku: p.sku,
+      produto: p.produto,
+      faturamento: 0,
+      custoMidia: 0,
+      lucroAntesAds: 0,
+      lucroPosAds: 0,
+      semRetorno: false,
+    };
+    atual.faturamento += p.faturamento;
+    atual.custoMidia += p.custoMidia;
+    atual.lucroAntesAds += p.lucroLiquido;
+    mapa.set(p.sku, atual);
+  }
+  for (const item of mapa.values()) {
+    item.lucroPosAds = item.lucroAntesAds - item.custoMidia;
+    item.semRetorno = item.custoMidia > 0 && item.custoMidia > item.lucroAntesAds;
+  }
+  return [...mapa.values()].filter((i) => i.custoMidia > 0);
 }

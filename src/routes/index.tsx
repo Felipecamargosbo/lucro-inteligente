@@ -4,6 +4,7 @@ import { Construction } from "lucide-react";
 import { VisaoGeral } from "@/components/dashboard/VisaoGeral";
 import { Comparativos } from "@/components/dashboard/Comparativos";
 import { Canais } from "@/components/dashboard/Canais";
+import { Ads } from "@/components/dashboard/Ads";
 import { Painel } from "@/components/comum/Indicadores";
 import { cn } from "@/lib/utils";
 
@@ -115,6 +116,8 @@ function Dashboard() {
         <Comparativos />
       ) : aba === "canais" ? (
         <Canais />
+      ) : aba === "ads" ? (
+        <Ads />
       ) : (
         <EmConstrucao
           titulo={ABAS.find((a) => a.id === aba)!.titulo}

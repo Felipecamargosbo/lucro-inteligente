@@ -169,10 +169,10 @@ export function VisaoGeral() {
         <CardKpi
           titulo="Lucro líquido"
           valor={formatBRL(resumo.lucroLiquido)}
-          detalhe={`Margem líquida: ${formatPercentual(resumo.margem)}`}
+          detalhe={`Margem: ${formatPercentual(resumo.margem)} · Pós-ADS: ${formatBRL(resumo.lucroLiquido - resumo.custoMidia)}`}
           variacaoPercentual={variacao(resumo.lucroLiquido, resumoAnterior.lucroLiquido)}
           destaque
-          dica="O que sobra depois de CMV, comissões, taxas, impostos e outros custos."
+          dica="O que sobra depois de CMV, comissões, taxas, impostos e outros custos. 'Pós-ADS' desconta também o investimento em mídia — veja o detalhe na aba ADS."
         />
         <CardKpi
           titulo={cardTerciario.titulo}

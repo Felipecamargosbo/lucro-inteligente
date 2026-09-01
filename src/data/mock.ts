@@ -336,6 +336,11 @@ function gerarPedidos(): Pedido[] {
       const taxaFixa = conta.taxaFixa;
       const impostos = Math.round(faturamento * IMPOSTO_PADRAO * 100) / 100;
       const outrosCustos = Math.round((2 + rand() * 12) * 100) / 100;
+      // ~40% dos pedidos vêm de um clique de anúncio patrocinado
+      const investeMidia = rand() > 0.6;
+      const custoMidia = investeMidia
+        ? Math.round(faturamento * (0.03 + rand() * 0.14) * 100) / 100
+        : 0;
       const lucroLiquido =
         Math.round((faturamento - cmv - comissao - taxaFixa - impostos - outrosCustos) * 100) /
         100;
@@ -364,6 +369,7 @@ function gerarPedidos(): Pedido[] {
         impostos,
         descontos: Math.round(desconto * quantidade * 100) / 100,
         outrosCustos,
+        custoMidia,
         lucroLiquido,
         margem: faturamento ? lucroLiquido / faturamento : 0,
         status,

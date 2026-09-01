@@ -110,6 +110,8 @@ export interface Pedido {
   impostos: number;
   descontos: number;
   outrosCustos: number;
+  /** ADS/mídia paga atribuída a este pedido — não confundir com outrosCustos */
+  custoMidia: number;
   lucroLiquido: number;
   margem: number; // 0-1
   status: StatusPedido;
