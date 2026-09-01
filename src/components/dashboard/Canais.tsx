@@ -21,6 +21,7 @@ import { filtrarPorPeriodo, variacao } from "@/lib/finance";
 import { formatBRL, formatBRLCompacto, formatNumero, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
+import { ExportarDados } from "@/components/comum/ExportarDados";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace, MarketplaceId, Pedido } from "@/types";
 
@@ -141,6 +142,35 @@ export function Canais() {
   const totalPedidos = resumoCanais.reduce((s, c) => s + c.pedidos, 0);
   const canalTopo = resumoCanais[0];
 
+  // Mesmas linhas da tabela "Comparação por canal" — canal e, quando tem
+  // mais de uma conta, cada loja individual logo abaixo — prontas pra exportar.
+  const linhasExport = useMemo(() => {
+    const linhas: Record<string, string | number>[] = [];
+    for (const c of resumoCanais) {
+      linhas.push({
+        Canal: c.titulo,
+        Conta: "Total do canal",
+        Pedidos: c.pedidos,
+        Unidades: c.unidades,
+        Faturamento: c.faturamento.toFixed(2),
+        Lucro: c.lucro.toFixed(2),
+        Margem: formatPercentual(c.margem),
+      });
+      for (const conta of contasPorCanal.get(c.id) ?? []) {
+        linhas.push({
+          Canal: c.titulo,
+          Conta: conta.nome,
+          Pedidos: conta.pedidos,
+          Unidades: conta.unidades,
+          Faturamento: conta.faturamento.toFixed(2),
+          Lucro: conta.lucro.toFixed(2),
+          Margem: formatPercentual(conta.margem),
+        });
+      }
+    }
+    return linhas;
+  }, [resumoCanais, contasPorCanal]);
+
   const dadosPizza = resumoCanais.map((c) => ({
     nome: c.titulo,
     valor: c.faturamento,
@@ -159,6 +189,10 @@ export function Canais() {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <ExportarDados nomeArquivo="canais" linhas={linhasExport} />
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-3">
         <CardKpi
           titulo="Canais com venda"

@@ -20,6 +20,7 @@ import { filtrarPorPeriodo, variacao } from "@/lib/finance";
 import { formatBRL, formatBRLCompacto, formatNumero, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
+import { ExportarDados } from "@/components/comum/ExportarDados";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace, MarketplaceId, Pedido, TipoLogistica } from "@/types";
 
@@ -153,6 +154,54 @@ export function Logistica() {
     }
     return mapa;
   }, [dados.atuais, contas]);
+
+  // Mesmas linhas da tabela "Full vs Coleta por canal" — canal, modelo e,
+  // quando tem mais de uma conta, cada loja individual — prontas pra exportar.
+  const linhasExport = useMemo(() => {
+    const linhas: Record<string, string | number>[] = [];
+    for (const c of porCanal) {
+      linhas.push({
+        Canal: c.titulo,
+        Conta: "Total do canal",
+        Modelo: "Full",
+        Pedidos: c.full.pedidos,
+        Faturamento: c.full.faturamento.toFixed(2),
+        Lucro: c.full.lucro.toFixed(2),
+        Margem: c.full.pedidos ? formatPercentual(c.full.margem) : "—",
+      });
+      linhas.push({
+        Canal: c.titulo,
+        Conta: "Total do canal",
+        Modelo: "Coleta",
+        Pedidos: c.coleta.pedidos,
+        Faturamento: c.coleta.faturamento.toFixed(2),
+        Lucro: c.coleta.lucro.toFixed(2),
+        Margem: c.coleta.pedidos ? formatPercentual(c.coleta.margem) : "—",
+      });
+      for (const conta of contasPorCanal.get(c.id) ?? []) {
+        linhas.push({
+          Canal: c.titulo,
+          Conta: conta.nome,
+          Modelo: "Full",
+          Pedidos: conta.full.pedidos,
+          Faturamento: conta.full.faturamento.toFixed(2),
+          Lucro: conta.full.lucro.toFixed(2),
+          Margem: conta.full.pedidos ? formatPercentual(conta.full.margem) : "—",
+        });
+        linhas.push({
+          Canal: c.titulo,
+          Conta: conta.nome,
+          Modelo: "Coleta",
+          Pedidos: conta.coleta.pedidos,
+          Faturamento: conta.coleta.faturamento.toFixed(2),
+          Lucro: conta.coleta.lucro.toFixed(2),
+          Margem: conta.coleta.pedidos ? formatPercentual(conta.coleta.margem) : "—",
+        });
+      }
+    }
+    return linhas;
+  }, [porCanal, contasPorCanal]);
+
   const full = resumo.find((r) => r.tipo === "full")!;
   const coleta = resumo.find((r) => r.tipo === "coleta")!;
   const totalFaturamento = full.faturamento + coleta.faturamento;
@@ -185,6 +234,10 @@ export function Logistica() {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <ExportarDados nomeArquivo="logistica" linhas={linhasExport} />
+      </div>
+
       <div className="rounded-xl bg-muted/40 px-4 py-2.5 text-[11px] text-muted-foreground">
         <strong>Full</strong> = estoque enviado com antecedência ao centro de distribuição do
         marketplace, que cuida da separação e do envio. <strong>Coleta</strong> = o próprio seller

@@ -1,4 +1,4 @@
-import { Download, FileSpreadsheet, FileText } from "lucide-react";
+import { Download, FileSpreadsheet, FileText, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,8 +9,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 /**
- * Interface de exportação. No protótipo o CSV é gerado no navegador
- * e o Excel fica preparado para o backend futuro.
+ * Botão de exportação reutilizável em qualquer aba do dashboard. Recebe as
+ * linhas já formatadas (o mesmo que aparece nas tabelas da tela) e gera o
+ * arquivo inteiramente no navegador, sem precisar de backend — CSV e Excel
+ * saem prontos pra abrir no Sheets/Excel, e o PDF sai pronto pra imprimir ou
+ * enviar por e-mail.
+ *
+ * Excel e PDF usam bibliotecas carregadas sob demanda (só quando o seller
+ * clica em exportar), pra não pesar o carregamento inicial da página.
  */
 export function ExportarDados({
   nomeArquivo,
@@ -19,18 +25,19 @@ export function ExportarDados({
   nomeArquivo: string;
   linhas: Record<string, string | number>[];
 }) {
+  const avisarSemDados = () => {
+    toast.info("Não há dados para exportar neste período.");
+  };
+
   const exportarCSV = () => {
-    if (!linhas.length) {
-      toast.info("Não há dados para exportar neste período.");
-      return;
-    }
+    if (!linhas.length) return avisarSemDados();
     const colunas = Object.keys(linhas[0]!);
     const csv = [
       colunas.join(";"),
       ...linhas.map((l) => colunas.map((c) => `"${String(l[c] ?? "")}"`).join(";")),
     ].join("\n");
 
-    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -38,6 +45,45 @@ export function ExportarDados({
     link.click();
     URL.revokeObjectURL(url);
     toast.success("Arquivo CSV gerado com sucesso.");
+  };
+
+  const exportarExcel = async () => {
+    if (!linhas.length) return avisarSemDados();
+    try {
+      const XLSX = await import("xlsx");
+      const planilha = XLSX.utils.json_to_sheet(linhas);
+      const livro = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(livro, planilha, "Dados");
+      XLSX.writeFile(livro, `${nomeArquivo}.xlsx`);
+      toast.success("Arquivo Excel gerado com sucesso.");
+    } catch {
+      toast.error("Não foi possível gerar o Excel agora. Tente novamente.");
+    }
+  };
+
+  const exportarPDF = async () => {
+    if (!linhas.length) return avisarSemDados();
+    try {
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+        import("jspdf"),
+        import("jspdf-autotable"),
+      ]);
+      const colunas = Object.keys(linhas[0]!);
+      const doc = new jsPDF({ orientation: colunas.length > 6 ? "landscape" : "portrait" });
+      doc.setFontSize(12);
+      doc.text(nomeArquivo.replace(/-/g, " "), 14, 14);
+      autoTable(doc, {
+        head: [colunas],
+        body: linhas.map((l) => colunas.map((c) => String(l[c] ?? ""))),
+        startY: 20,
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [37, 99, 235] },
+      });
+      doc.save(`${nomeArquivo}.pdf`);
+      toast.success("Arquivo PDF gerado com sucesso.");
+    } catch {
+      toast.error("Não foi possível gerar o PDF agora. Tente novamente.");
+    }
   };
 
   return (
@@ -52,11 +98,11 @@ export function ExportarDados({
         <DropdownMenuItem onClick={exportarCSV} className="gap-2">
           <FileText className="size-4" /> Baixar CSV
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => toast.info("Exportação em Excel será liberada com o backend.")}
-          className="gap-2"
-        >
+        <DropdownMenuItem onClick={exportarExcel} className="gap-2">
           <FileSpreadsheet className="size-4" /> Baixar Excel
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={exportarPDF} className="gap-2">
+          <Printer className="size-4" /> Baixar PDF
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

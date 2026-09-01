@@ -18,6 +18,7 @@ import { filtrarPorPeriodo } from "@/lib/finance";
 import { formatBRL, formatBRLCompacto, formatData, formatNumero, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
+import { ExportarDados } from "@/components/comum/ExportarDados";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace, MarketplaceId, Pedido } from "@/types";
 
@@ -187,6 +188,39 @@ export function Financeiro() {
     return mapa;
   }, [atuais, contas]);
 
+  // Junta recebíveis e devoluções por canal/conta — as mesmas duas tabelas da
+  // tela, numa única planilha pronta pra exportar.
+  const linhasExport = useMemo(() => {
+    const linhas: Record<string, string | number>[] = [];
+    for (const c of porCanal) {
+      linhas.push({
+        Canal: c.titulo,
+        Conta: "Total do canal",
+        "Prazo médio (dias)": c.prazoMedioDias,
+        Recebido: c.recebido.toFixed(2),
+        "A receber": c.pendente.toFixed(2),
+        "Pedidos devolvidos": c.pedidosDevolvidos,
+        "Valor devolvido": c.valorDevolvido.toFixed(2),
+        "% devolução do canal": c.faturamento ? formatPercentual(c.valorDevolvido / c.faturamento) : "—",
+      });
+      for (const conta of contasPorCanal.get(c.id) ?? []) {
+        linhas.push({
+          Canal: c.titulo,
+          Conta: conta.nome,
+          "Prazo médio (dias)": conta.prazoMedioDias,
+          Recebido: conta.recebido.toFixed(2),
+          "A receber": conta.pendente.toFixed(2),
+          "Pedidos devolvidos": conta.pedidosDevolvidos,
+          "Valor devolvido": conta.valorDevolvido.toFixed(2),
+          "% devolução do canal": conta.faturamento
+            ? formatPercentual(conta.valorDevolvido / conta.faturamento)
+            : "—",
+        });
+      }
+    }
+    return linhas;
+  }, [porCanal, contasPorCanal]);
+
   const proximos7 = porFaixa.find((f) => f.id === "7")?.valor ?? 0;
   const mais30 = porFaixa.find((f) => f.id === "30+")?.valor ?? 0;
   const percentualDevolucao = faturamentoBruto ? valorDevolvido / faturamentoBruto : 0;
@@ -204,6 +238,10 @@ export function Financeiro() {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <ExportarDados nomeArquivo="financeiro" linhas={linhasExport} />
+      </div>
+
       <div className="rounded-xl bg-muted/40 px-4 py-2.5 text-[11px] text-muted-foreground">
         Prazo de repasse e devoluções calculados sobre as vendas do período selecionado —{" "}
         <strong>dados fictícios de demonstração</strong>. Quando as APIs dos marketplaces forem

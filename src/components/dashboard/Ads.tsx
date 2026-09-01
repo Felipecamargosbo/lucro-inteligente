@@ -20,6 +20,7 @@ import { agruparPorSkuComAds, filtrarPorPeriodo, resumir, variacao } from "@/lib
 import { formatBRL, formatBRLCompacto, formatNumero, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
+import { ExportarDados } from "@/components/comum/ExportarDados";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace, MarketplaceId, Pedido, Periodo } from "@/types";
 
@@ -188,8 +189,37 @@ export function Ads() {
     [atuais],
   );
 
+  // Mesmas linhas da tabela "ADS por canal" — canal e, quando tem mais de
+  // uma conta, cada loja individual logo abaixo — prontas pra exportar.
+  const linhasExport = useMemo(() => {
+    const linhas: Record<string, string | number>[] = [];
+    for (const c of porCanal) {
+      linhas.push({
+        Canal: c.titulo,
+        Conta: "Total do canal",
+        Investimento: c.gasto.toFixed(2),
+        ROAS: `${c.roas.toFixed(2)}x`,
+        TACOS: formatPercentual(c.tacos),
+      });
+      for (const conta of contasPorCanal.get(c.id) ?? []) {
+        linhas.push({
+          Canal: c.titulo,
+          Conta: conta.nome,
+          Investimento: conta.gasto.toFixed(2),
+          ROAS: `${conta.roas.toFixed(2)}x`,
+          TACOS: formatPercentual(conta.tacos),
+        });
+      }
+    }
+    return linhas;
+  }, [porCanal, contasPorCanal]);
+
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <ExportarDados nomeArquivo="ads" linhas={linhasExport} />
+      </div>
+
       <div className="rounded-xl bg-muted/40 px-4 py-2.5 text-[11px] text-muted-foreground">
         <strong>Cliques e impressões são estimados</strong> (conversão de {formatPercentual(TAXA_CONVERSAO_ASSUMIDA)} e
         CTR de {formatPercentual(CTR_ASSUMIDO)} assumidos) — ainda não temos a conexão com a API de

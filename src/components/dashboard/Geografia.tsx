@@ -21,6 +21,7 @@ import { filtrarPorPeriodo, variacao } from "@/lib/finance";
 import { formatBRL, formatBRLCompacto, formatNumero, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
+import { ExportarDados } from "@/components/comum/ExportarDados";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace, MarketplaceId, Pedido } from "@/types";
 
@@ -207,6 +208,21 @@ export function Geografia() {
     return mapa;
   }, [atuais, contas]);
 
+  // Mesmas linhas do "Ranking completo por estado" — prontas pra exportar.
+  const linhasExport = useMemo(
+    () =>
+      porEstado.map((e) => ({
+        Estado: e.uf,
+        Região: e.regiao,
+        Pedidos: e.pedidos,
+        Faturamento: e.faturamento.toFixed(2),
+        Lucro: e.lucro.toFixed(2),
+        Margem: formatPercentual(e.margem),
+        "% do total": totalFaturamento ? formatPercentual(e.faturamento / totalFaturamento) : "—",
+      })),
+    [porEstado, totalFaturamento],
+  );
+
   if (atuais.length === 0) {
     return (
       <Painel titulo="Geografia" descricao="Faturamento e pedidos por estado">
@@ -219,6 +235,10 @@ export function Geografia() {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <ExportarDados nomeArquivo="geografia" linhas={linhasExport} />
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <CardKpi
           titulo="Estados com venda"
