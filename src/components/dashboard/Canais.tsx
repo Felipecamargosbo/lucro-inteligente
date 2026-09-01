@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -14,6 +14,7 @@ import {
 import { usePeriodo } from "@/context/periodo";
 import { periodoAnterior } from "@/lib/period";
 import { useSelecaoContas } from "@/context/selecao-contas";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { vendasService } from "@/services";
 import { CANAIS } from "@/config/navegacao";
 import { filtrarPorPeriodo, variacao } from "@/lib/finance";
@@ -21,7 +22,7 @@ import { formatBRL, formatBRLCompacto, formatNumero, formatPercentual } from "@/
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { cn } from "@/lib/utils";
-import type { MarketplaceId, Pedido } from "@/types";
+import type { ContaMarketplace, MarketplaceId, Pedido } from "@/types";
 
 type Metrica = "pedidos" | "faturamento";
 
@@ -68,9 +69,50 @@ function resumirPorCanal(atuais: Pedido[], anteriores: Pedido[]): ResumoCanal[] 
   }).filter((c) => c.pedidos > 0 || c.faturamentoAnterior > 0);
 }
 
+interface ResumoConta {
+  id: string;
+  nome: string;
+  pedidos: number;
+  unidades: number;
+  faturamento: number;
+  lucro: number;
+  margem: number;
+  faturamentoAnterior: number;
+}
+
+/** Mesma lógica de resumirPorCanal, mas por CONTA — pra abrir o canal e ver
+ * quanto cada loja individual vendeu, em vez de só o total do canal. */
+function resumirPorConta(
+  atuais: Pedido[],
+  anteriores: Pedido[],
+  contasDoCanal: ContaMarketplace[],
+): ResumoConta[] {
+  return contasDoCanal
+    .map((conta) => {
+      const daConta = atuais.filter((p) => p.contaId === conta.id && p.status !== "cancelado");
+      const daContaAnterior = anteriores.filter(
+        (p) => p.contaId === conta.id && p.status !== "cancelado",
+      );
+      const faturamento = daConta.reduce((s, p) => s + p.faturamento, 0);
+      const lucro = daConta.reduce((s, p) => s + p.lucroLiquido, 0);
+      return {
+        id: conta.id,
+        nome: conta.nome,
+        pedidos: daConta.length,
+        unidades: daConta.reduce((s, p) => s + p.quantidade, 0),
+        faturamento,
+        lucro,
+        margem: faturamento ? lucro / faturamento : 0,
+        faturamentoAnterior: daContaAnterior.reduce((s, p) => s + p.faturamento, 0),
+      };
+    })
+    .filter((c) => c.pedidos > 0 || c.faturamentoAnterior > 0);
+}
+
 export function Canais() {
   const { periodo } = usePeriodo();
   const { filtrarPorSelecao } = useSelecaoContas();
+  const { contas } = useConfiguracoes();
   const [metrica, setMetrica] = useState<Metrica>("faturamento");
 
   const pedidos = filtrarPorSelecao(vendasService.listar());
@@ -80,6 +122,20 @@ export function Canais() {
     const anteriores = filtrarPorPeriodo(pedidos, periodoAnterior(periodo));
     return resumirPorCanal(atuais, anteriores).sort((a, b) => b.faturamento - a.faturamento);
   }, [pedidos, periodo]);
+
+  // Contas por canal, só pra abrir o detalhe na tabela — os pedidos já vêm
+  // filtrados pela seleção global, então uma conta desmarcada simplesmente
+  // não aparece aqui (é como se não existisse pro período).
+  const contasPorCanal = useMemo(() => {
+    const atuais = filtrarPorPeriodo(pedidos, periodo);
+    const anteriores = filtrarPorPeriodo(pedidos, periodoAnterior(periodo));
+    const mapa = new Map<MarketplaceId, ResumoConta[]>();
+    for (const canal of CANAIS) {
+      const doCanal = contas.filter((c) => c.marketplaceId === canal.id);
+      mapa.set(canal.id, resumirPorConta(atuais, anteriores, doCanal));
+    }
+    return mapa;
+  }, [pedidos, periodo, contas]);
 
   const totalFaturamento = resumoCanais.reduce((s, c) => s + c.faturamento, 0);
   const totalPedidos = resumoCanais.reduce((s, c) => s + c.pedidos, 0);
@@ -234,7 +290,7 @@ export function Canais() {
 
       <Painel
         titulo="Comparação por canal"
-        descricao="Cada canal, com a variação de faturamento vs. o período anterior"
+        descricao="Cada canal com o total, e quando tem mais de uma conta, o valor individual de cada loja logo abaixo"
       >
         <div className="overflow-x-auto">
           <table className="w-full min-w-[680px] text-left">
@@ -252,42 +308,94 @@ export function Canais() {
             <tbody>
               {resumoCanais.map((c) => {
                 const v = variacao(c.faturamento, c.faturamentoAnterior);
+                const contasDoCanal = contasPorCanal.get(c.id) ?? [];
+                const temVariasContas = contasDoCanal.length > 1;
                 return (
-                  <tr key={c.id} className="border-b last:border-0">
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <LogoMarketplace id={c.id} tamanho="xs" />
-                        <span className="text-xs font-medium">{c.titulo}</span>
-                      </div>
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs">{formatNumero(c.pedidos)}</td>
-                    <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
-                      {formatNumero(c.unidades)}
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs font-semibold">
-                      {formatBRL(c.faturamento)}
-                    </td>
-                    <td
-                      className={cn(
-                        "num px-3 py-3 text-right text-xs font-bold",
-                        c.lucro >= 0 ? "text-profit" : "text-loss",
-                      )}
-                    >
-                      {formatBRL(c.lucro)}
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
-                      {formatPercentual(c.margem)}
-                    </td>
-                    <td
-                      className={cn(
-                        "num px-3 py-3 text-right text-xs font-bold",
-                        v >= 0 ? "text-profit" : "text-loss",
-                      )}
-                    >
-                      {v >= 0 ? "+" : "−"}
-                      {formatPercentual(Math.abs(v))}
-                    </td>
-                  </tr>
+                  <Fragment key={c.id}>
+                    <tr className={cn("border-b", temVariasContas && "bg-muted/10")}>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-2">
+                          <LogoMarketplace id={c.id} tamanho="xs" />
+                          <span className="text-xs font-medium">{c.titulo}</span>
+                          {temVariasContas && (
+                            <span className="text-[10px] text-muted-foreground">
+                              ({contasDoCanal.length} contas)
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs">{formatNumero(c.pedidos)}</td>
+                      <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                        {formatNumero(c.unidades)}
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs font-semibold">
+                        {formatBRL(c.faturamento)}
+                      </td>
+                      <td
+                        className={cn(
+                          "num px-3 py-3 text-right text-xs font-bold",
+                          c.lucro >= 0 ? "text-profit" : "text-loss",
+                        )}
+                      >
+                        {formatBRL(c.lucro)}
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                        {formatPercentual(c.margem)}
+                      </td>
+                      <td
+                        className={cn(
+                          "num px-3 py-3 text-right text-xs font-bold",
+                          v >= 0 ? "text-profit" : "text-loss",
+                        )}
+                      >
+                        {v >= 0 ? "+" : "−"}
+                        {formatPercentual(Math.abs(v))}
+                      </td>
+                    </tr>
+
+                    {temVariasContas &&
+                      contasDoCanal.map((conta) => {
+                        const vConta = variacao(conta.faturamento, conta.faturamentoAnterior);
+                        return (
+                          <tr key={conta.id} className="border-b last:border-0">
+                            <td className="py-2.5 pl-11 pr-5">
+                              <span className="text-[11px] text-muted-foreground">
+                                {conta.nome}
+                              </span>
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {formatNumero(conta.pedidos)}
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {formatNumero(conta.unidades)}
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {formatBRL(conta.faturamento)}
+                            </td>
+                            <td
+                              className={cn(
+                                "num px-3 py-2.5 text-right text-[11px]",
+                                conta.lucro >= 0 ? "text-profit" : "text-loss",
+                              )}
+                            >
+                              {formatBRL(conta.lucro)}
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {formatPercentual(conta.margem)}
+                            </td>
+                            <td
+                              className={cn(
+                                "num px-3 py-2.5 text-right text-[11px]",
+                                vConta >= 0 ? "text-profit" : "text-loss",
+                              )}
+                            >
+                              {vConta >= 0 ? "+" : "−"}
+                              {formatPercentual(Math.abs(vConta))}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </Fragment>
                 );
               })}
               <tr className="bg-muted/20 font-semibold">
