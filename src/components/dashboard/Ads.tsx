@@ -4,28 +4,71 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip as ChartTooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import { usePeriodo } from "@/context/periodo";
-import { periodoAnterior } from "@/lib/period";
+import { inicioDoDia, listarDias, periodoAnterior } from "@/lib/period";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { vendasService } from "@/services";
 import { CANAIS } from "@/config/navegacao";
-import {
-  agruparPorSkuComAds,
-  filtrarPorPeriodo,
-  resumir,
-  seriePorDia,
-  variacao,
-} from "@/lib/finance";
-import { formatBRL, formatBRLCompacto, formatPercentual } from "@/lib/format";
+import { agruparPorSkuComAds, filtrarPorPeriodo, resumir, variacao } from "@/lib/finance";
+import { formatBRL, formatBRLCompacto, formatNumero, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { cn } from "@/lib/utils";
-import type { Pedido } from "@/types";
+import type { Pedido, Periodo } from "@/types";
+
+/**
+ * O sistema ainda não tem a conexão com a API de anúncios de cada
+ * marketplace — por isso não sabemos impressões e cliques de verdade.
+ * Estimamos os dois a partir de taxas de mercado plausíveis, aplicadas aos
+ * pedidos que realmente vieram de ADS (custoMidia > 0). Quando a API entrar,
+ * essas duas contas somem e entram os números reais no lugar.
+ */
+const TAXA_CONVERSAO_ASSUMIDA = 0.06; // cliques → pedido
+const CTR_ASSUMIDO = 0.02; // impressões → clique
+
+interface PontoFunil {
+  dia: string;
+  faturamento: number;
+  investimento: number;
+  pedidosAds: number;
+  faturamentoAds: number;
+  cliques: number;
+  impressoes: number;
+}
+
+function serieFunilAds(pedidos: Pedido[], periodo: Periodo): PontoFunil[] {
+  const mapa = new Map<string, Omit<PontoFunil, "cliques" | "impressoes">>();
+  for (const dia of listarDias(periodo)) {
+    mapa.set(inicioDoDia(dia).toDateString(), {
+      dia: dia.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+      faturamento: 0,
+      investimento: 0,
+      pedidosAds: 0,
+      faturamentoAds: 0,
+    });
+  }
+  for (const p of pedidos) {
+    if (p.status === "cancelado") continue;
+    const ponto = mapa.get(inicioDoDia(new Date(p.data)).toDateString());
+    if (!ponto) continue;
+    ponto.faturamento += p.faturamento;
+    ponto.investimento += p.custoMidia;
+    if (p.custoMidia > 0) {
+      ponto.pedidosAds += 1;
+      ponto.faturamentoAds += p.faturamento;
+    }
+  }
+  return [...mapa.values()].map((p) => {
+    const cliques = p.pedidosAds > 0 ? Math.round(p.pedidosAds / TAXA_CONVERSAO_ASSUMIDA) : 0;
+    return { ...p, cliques, impressoes: Math.round(cliques / CTR_ASSUMIDO) };
+  });
+}
 
 export function Ads() {
   const { periodo } = usePeriodo();
@@ -35,37 +78,56 @@ export function Ads() {
   const dados = useMemo(() => {
     const atuais = filtrarPorPeriodo(pedidos, periodo);
     const anteriores = filtrarPorPeriodo(pedidos, periodoAnterior(periodo));
+    const pedidosAds = atuais.filter((p) => p.custoMidia > 0 && p.status !== "cancelado");
+    const pedidosAdsAnterior = anteriores.filter(
+      (p) => p.custoMidia > 0 && p.status !== "cancelado",
+    );
     return {
       atuais,
       resumo: resumir(atuais),
       resumoAnterior: resumir(anteriores),
-      serie: seriePorDia(atuais, periodo),
+      pedidosAds,
+      faturamentoAds: pedidosAds.reduce((s, p) => s + p.faturamento, 0),
+      faturamentoAdsAnterior: pedidosAdsAnterior.reduce((s, p) => s + p.faturamento, 0),
+      funil: serieFunilAds(atuais, periodo),
     };
   }, [pedidos, periodo]);
 
-  const { resumo, resumoAnterior, serie, atuais } = dados;
+  const { resumo, resumoAnterior, atuais, pedidosAds, faturamentoAds, faturamentoAdsAnterior, funil } =
+    dados;
 
-  const tacos = resumo.faturamento ? resumo.custoMidia / resumo.faturamento : 0;
-  const tacosAnterior = resumoAnterior.faturamento
-    ? resumoAnterior.custoMidia / resumoAnterior.faturamento
-    : 0;
-  const lucroAntesAds = resumo.lucroLiquido;
-  const lucroPosAds = resumo.lucroLiquido - resumo.custoMidia;
+  const investimento = resumo.custoMidia;
+  const investimentoAnterior = resumoAnterior.custoMidia;
+  const qtdPedidosAds = pedidosAds.length;
+  const totalCliques = funil.reduce((s, d) => s + d.cliques, 0);
+  const totalImpressoes = funil.reduce((s, d) => s + d.impressoes, 0);
 
-  // Composição por canal: quanto cada um gastou e faturou com ADS no período
+  const roas = investimento > 0 ? faturamentoAds / investimento : 0;
+  const roasAnterior = investimentoAnterior > 0 ? faturamentoAdsAnterior / investimentoAnterior : 0;
+  const acos = faturamentoAds > 0 ? investimento / faturamentoAds : 0;
+  const tacos = resumo.faturamento ? investimento / resumo.faturamento : 0;
+  const cpc = totalCliques > 0 ? investimento / totalCliques : 0;
+  const cpm = totalImpressoes > 0 ? (investimento / totalImpressoes) * 1000 : 0;
+  const ctr = totalImpressoes > 0 ? totalCliques / totalImpressoes : 0;
+  const taxaConversao = totalCliques > 0 ? qtdPedidosAds / totalCliques : 0;
+  const ticketMedioAds = qtdPedidosAds > 0 ? faturamentoAds / qtdPedidosAds : 0;
+  const lucroPosAds = resumo.lucroLiquido - investimento;
+
   const porCanal = useMemo(() => {
     return CANAIS.map((canal) => {
       const doCanal = atuais.filter(
-        (p: Pedido) => p.marketplaceId === canal.id && p.status !== "cancelado",
+        (p) => p.marketplaceId === canal.id && p.status !== "cancelado",
       );
-      const faturamento = doCanal.reduce((s, p) => s + p.faturamento, 0);
       const gasto = doCanal.reduce((s, p) => s + p.custoMidia, 0);
+      const doCanalAds = doCanal.filter((p) => p.custoMidia > 0);
+      const fatAds = doCanalAds.reduce((s, p) => s + p.faturamento, 0);
       return {
         id: canal.id,
         titulo: canal.titulo,
-        faturamento,
         gasto,
-        tacos: faturamento ? gasto / faturamento : 0,
+        faturamento: doCanal.reduce((s, p) => s + p.faturamento, 0),
+        roas: gasto > 0 ? fatAds / gasto : 0,
+        tacos: doCanal.length ? gasto / doCanal.reduce((s, p) => s + p.faturamento, 0) : 0,
       };
     }).filter((c) => c.gasto > 0 || c.faturamento > 0);
   }, [atuais]);
@@ -81,39 +143,76 @@ export function Ads() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="rounded-xl bg-muted/40 px-4 py-2.5 text-[11px] text-muted-foreground">
+        <strong>Cliques e impressões são estimados</strong> (conversão de {formatPercentual(TAXA_CONVERSAO_ASSUMIDA)} e
+        CTR de {formatPercentual(CTR_ASSUMIDO)} assumidos) — ainda não temos a conexão com a API de
+        anúncios de cada marketplace. Os demais números são calculados de verdade a partir dos seus pedidos.
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
         <CardKpi
-          titulo="Gasto com ADS"
-          valor={formatBRL(resumo.custoMidia)}
-          variacaoPercentual={variacao(resumo.custoMidia, resumoAnterior.custoMidia)}
-          dica="Total investido em anúncios patrocinados no período."
+          titulo="Faturamento total"
+          valor={formatBRL(resumo.faturamento)}
+          variacaoPercentual={variacao(resumo.faturamento, resumoAnterior.faturamento)}
         />
+        <CardKpi
+          titulo="Investimento total"
+          valor={formatBRL(investimento)}
+          variacaoPercentual={variacao(investimento, investimentoAnterior)}
+        />
+        <CardKpi
+          titulo="ROAS"
+          valor={`${roas.toFixed(2)}x`}
+          detalhe={`${roas >= roasAnterior ? "+" : "−"}${Math.abs(roas - roasAnterior).toFixed(2)}x vs. anterior`}
+          dica="Faturamento vindo de ADS dividido pelo investimento. Quanto maior, melhor: 5x significa R$5 de venda pra cada R$1 investido."
+        />
+        <CardKpi
+          titulo="ACOS"
+          valor={formatPercentual(acos)}
+          dica="Investimento dividido pelo faturamento vindo de ADS (não o faturamento total — isso é o TACOS). Quanto menor, melhor."
+        />
+        <CardKpi titulo="Pedidos via ADS" valor={formatNumero(qtdPedidosAds)} />
+        <CardKpi
+          titulo="Cliques (estimado)"
+          valor={formatNumero(totalCliques)}
+          detalhe={`${formatNumero(totalImpressoes)} impressões`}
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
+        <CardKpi titulo="Impressões (estimado)" valor={formatNumero(totalImpressoes)} />
+        <CardKpi titulo="CPC (estimado)" valor={formatBRL(cpc)} dica="Investimento ÷ cliques estimados." />
+        <CardKpi titulo="CTR (assumido)" valor={formatPercentual(ctr)} />
+        <CardKpi
+          titulo="Conversão"
+          valor={formatPercentual(taxaConversao)}
+          dica="Pedidos via ADS ÷ cliques estimados."
+        />
+        <CardKpi titulo="Ticket médio via ADS" valor={formatBRL(ticketMedioAds)} />
+        <CardKpi titulo="CPM (estimado)" valor={formatBRL(cpm)} dica="Investimento a cada 1.000 impressões." />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
         <CardKpi
           titulo="TACOS"
           valor={formatPercentual(tacos)}
-          detalhe={`${tacos >= tacosAnterior ? "+" : "−"}${formatPercentual(Math.abs(variacao(tacos, tacosAnterior)))} vs. anterior`}
-          dica="Gasto com ADS dividido pelo faturamento total — não só o das vendas vindas de anúncio. É o termômetro de quanto a mídia está comendo do seu resultado."
-        />
-        <CardKpi
-          titulo="Lucro antes de ADS"
-          valor={formatBRL(lucroAntesAds)}
-          detalhe="O lucro líquido que já aparece em todo o sistema"
+          dica="Investimento ÷ faturamento TOTAL (não só o de ADS). É o termômetro de quanto a mídia pesa no seu resultado geral."
         />
         <CardKpi
           titulo="Lucro pós-ADS"
           valor={formatBRL(lucroPosAds)}
-          detalhe={`Margem pós-ADS: ${formatPercentual(resumo.faturamento ? lucroPosAds / resumo.faturamento : 0)}`}
+          detalhe={`Lucro antes de ADS: ${formatBRL(resumo.lucroLiquido)}`}
           destaque
         />
       </div>
 
       <Painel
-        titulo="Gasto com ADS dia a dia"
-        descricao="Barras: investimento em mídia · Linha: TACOS do dia"
+        titulo="Faturamento x investimento"
+        descricao="Linha: faturamento total do dia · Barra: investimento em ADS do dia"
       >
         <div className="h-72 p-4">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={serie}>
+            <ComposedChart data={funil}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
               <XAxis dataKey="dia" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
               <YAxis
@@ -127,29 +226,19 @@ export function Ads() {
                 orientation="right"
                 tick={{ fontSize: 10 }}
                 stroke="var(--muted-foreground)"
-                tickFormatter={(v) => `${Math.round(Number(v) * 100)}%`}
+                tickFormatter={(v) => formatBRLCompacto(Number(v))}
               />
               <ChartTooltip
-                formatter={(v: number | string, nome) =>
-                  nome === "TACOS" ? formatPercentual(Number(v)) : formatBRL(Number(v))
-                }
+                formatter={(v: number | string) => formatBRL(Number(v))}
                 contentStyle={{ fontSize: 12, borderRadius: 12 }}
               />
-              <Bar
-                yAxisId="esq"
-                dataKey="custoMidia"
-                name="Gasto com ADS"
-                fill="var(--brand)"
-                radius={[6, 6, 0, 0]}
-              />
+              <Bar yAxisId="dir" dataKey="investimento" name="Investimento" fill="var(--warning)" radius={[6, 6, 0, 0]} />
               <Line
-                yAxisId="dir"
+                yAxisId="esq"
                 type="monotone"
-                dataKey={(p: (typeof serie)[number]) =>
-                  p.faturamento ? p.custoMidia / p.faturamento : 0
-                }
-                name="TACOS"
-                stroke="var(--loss)"
+                dataKey="faturamento"
+                name="Faturamento"
+                stroke="var(--brand)"
                 strokeWidth={2}
                 dot={false}
               />
@@ -159,14 +248,82 @@ export function Ads() {
       </Painel>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Painel titulo="ADS por canal" descricao="Onde o investimento em mídia está concentrado">
+        <Painel
+          titulo="Impressões x cliques (estimado)"
+          descricao="Funil estimado a partir dos pedidos vindos de ADS"
+        >
+          <div className="h-60 p-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={funil}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="dia" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
+                <YAxis
+                  yAxisId="esq"
+                  tick={{ fontSize: 10 }}
+                  stroke="var(--muted-foreground)"
+                  tickFormatter={(v) => formatBRLCompacto(Number(v))}
+                />
+                <YAxis
+                  yAxisId="dir"
+                  orientation="right"
+                  tick={{ fontSize: 10 }}
+                  stroke="var(--muted-foreground)"
+                  tickFormatter={(v) => formatBRLCompacto(Number(v))}
+                />
+                <ChartTooltip
+                  formatter={(v: number | string) => formatNumero(Number(v))}
+                  contentStyle={{ fontSize: 12, borderRadius: 12 }}
+                />
+                <Line
+                  yAxisId="esq"
+                  type="monotone"
+                  dataKey="impressoes"
+                  name="Impressões"
+                  stroke="var(--brand)"
+                  strokeWidth={2}
+                  dot={false}
+                />
+                <Line
+                  yAxisId="dir"
+                  type="monotone"
+                  dataKey="cliques"
+                  name="Cliques"
+                  stroke="var(--warning)"
+                  strokeWidth={2}
+                  dot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Painel>
+
+        <Painel titulo="Pedidos via ADS por dia" descricao="Vendas atribuídas a anúncios patrocinados">
+          <div className="h-60 p-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={funil}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="dia" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
+                <YAxis tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" allowDecimals={false} />
+                <ChartTooltip
+                  formatter={(v: number | string) => formatNumero(Number(v))}
+                  contentStyle={{ fontSize: 12, borderRadius: 12 }}
+                />
+                <Bar dataKey="pedidosAds" name="Pedidos via ADS" fill="var(--brand)" radius={[6, 6, 0, 0]} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </Painel>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Painel titulo="ADS por canal" descricao="Investimento, ROAS e TACOS de cada canal">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[420px] text-left">
+            <table className="w-full min-w-[460px] text-left">
               <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-5 py-2.5 font-medium">Canal</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Gasto ADS</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Faturamento</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Investimento</th>
+                  <th className="px-3 py-2.5 text-right font-medium">ROAS</th>
                   <th className="px-3 py-2.5 text-right font-medium">TACOS</th>
                 </tr>
               </thead>
@@ -182,8 +339,8 @@ export function Ads() {
                     <td className="num px-3 py-3 text-right text-xs font-semibold">
                       {formatBRL(c.gasto)}
                     </td>
-                    <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
-                      {formatBRL(c.faturamento)}
+                    <td className="num px-3 py-3 text-right text-xs font-bold text-profit">
+                      {c.roas.toFixed(2)}x
                     </td>
                     <td
                       className={cn(
