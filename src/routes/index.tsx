@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Construction } from "lucide-react";
 import { VisaoGeral } from "@/components/dashboard/VisaoGeral";
 import { Comparativos } from "@/components/dashboard/Comparativos";
+import { Canais } from "@/components/dashboard/Canais";
 import { Painel } from "@/components/comum/Indicadores";
 import { cn } from "@/lib/utils";
 
@@ -112,6 +113,8 @@ function Dashboard() {
         <VisaoGeral />
       ) : aba === "comparativos" ? (
         <Comparativos />
+      ) : aba === "canais" ? (
+        <Canais />
       ) : (
         <EmConstrucao
           titulo={ABAS.find((a) => a.id === aba)!.titulo}
