@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -11,7 +11,9 @@ import {
 import { usePeriodo } from "@/context/periodo";
 import { periodoAnterior } from "@/lib/period";
 import { useSelecaoContas } from "@/context/selecao-contas";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { vendasService } from "@/services";
+import { CANAIS } from "@/config/navegacao";
 import {
   agruparPorSku,
   anoMesDeHoje,
@@ -24,8 +26,9 @@ import {
 } from "@/lib/finance";
 import { formatBRL, formatBRLCompacto, formatData, formatNumero, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
+import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { cn } from "@/lib/utils";
-import type { Periodo } from "@/types";
+import type { ContaMarketplace, MarketplaceId, Pedido, Periodo } from "@/types";
 
 type Metrica = "faturamento" | "unidades" | "pedidos" | "lucro";
 
@@ -54,9 +57,79 @@ function formata(m: Metrica, v: number) {
   return m === "unidades" || m === "pedidos" ? formatNumero(v) : formatBRL(v);
 }
 
+interface TotaisPeriodo {
+  faturamento: number;
+  unidades: number;
+  pedidos: number;
+  lucro: number;
+}
+
+function somarTotaisPeriodo(itens: Pedido[]): TotaisPeriodo {
+  const validos = itens.filter((p) => p.status !== "cancelado");
+  return {
+    faturamento: validos.reduce((s, p) => s + p.faturamento, 0),
+    unidades: validos.reduce((s, p) => s + p.quantidade, 0),
+    pedidos: validos.length,
+    lucro: validos.reduce((s, p) => s + p.lucroLiquido, 0),
+  };
+}
+
+function valorTotais(t: TotaisPeriodo, m: Metrica) {
+  if (m === "faturamento") return t.faturamento;
+  if (m === "unidades") return t.unidades;
+  if (m === "pedidos") return t.pedidos;
+  return t.lucro;
+}
+
+interface ResumoCanalComparativo {
+  id: MarketplaceId;
+  titulo: string;
+  atual: TotaisPeriodo;
+  comparado: TotaisPeriodo;
+}
+
+/** Mesma lógica de Canais.tsx, mas comparando o período atual com o período
+ * escolhido pra comparação (livre ou mês fechado). */
+function resumirPorCanalComparativo(
+  atuais: Pedido[],
+  comparados: Pedido[],
+): ResumoCanalComparativo[] {
+  return CANAIS.map((canal) => ({
+    id: canal.id,
+    titulo: canal.titulo,
+    atual: somarTotaisPeriodo(atuais.filter((p) => p.marketplaceId === canal.id)),
+    comparado: somarTotaisPeriodo(comparados.filter((p) => p.marketplaceId === canal.id)),
+  })).filter((c) => c.atual.pedidos > 0 || c.comparado.pedidos > 0);
+}
+
+interface ResumoContaComparativo {
+  id: string;
+  nome: string;
+  atual: TotaisPeriodo;
+  comparado: TotaisPeriodo;
+}
+
+/** Mesma quebra por canal, mas por CONTA — pra abrir o canal e ver o
+ * comparativo de cada loja individual, igual em Canais. */
+function resumirPorContaComparativo(
+  atuais: Pedido[],
+  comparados: Pedido[],
+  contasDoCanal: ContaMarketplace[],
+): ResumoContaComparativo[] {
+  return contasDoCanal
+    .map((conta) => ({
+      id: conta.id,
+      nome: conta.nome,
+      atual: somarTotaisPeriodo(atuais.filter((p) => p.contaId === conta.id)),
+      comparado: somarTotaisPeriodo(comparados.filter((p) => p.contaId === conta.id)),
+    }))
+    .filter((c) => c.atual.pedidos > 0 || c.comparado.pedidos > 0);
+}
+
 export function Comparativos() {
   const { filtrarPorSelecao } = useSelecaoContas();
   const { periodo } = usePeriodo();
+  const { contas } = useConfiguracoes();
   const pedidos = filtrarPorSelecao(vendasService.listar());
 
   const [modo, setModo] = useState<"livre" | "mes-fechado">("livre");
@@ -73,6 +146,7 @@ export function Comparativos() {
     const comparados = filtrarPorPeriodo(pedidos, periodoComparado);
     return {
       atuais,
+      comparados,
       resumoAtual: resumir(atuais),
       resumoComparado: resumir(comparados),
       serieAtual: seriePorDia(atuais, periodoAtual),
@@ -112,6 +186,24 @@ export function Comparativos() {
     () => [...porSku].sort((a, b) => a.lucro - b.lucro).slice(0, 5),
     [porSku],
   );
+
+  const porCanal = useMemo(
+    () =>
+      resumirPorCanalComparativo(dados.atuais, dados.comparados).sort(
+        (a, b) => valorTotais(b.atual, metrica) - valorTotais(a.atual, metrica),
+      ),
+    [dados, metrica],
+  );
+
+  // Contas por canal, só pra abrir o detalhe na tabela — mesmo padrão de Canais.
+  const contasPorCanal = useMemo(() => {
+    const mapa = new Map<MarketplaceId, ResumoContaComparativo[]>();
+    for (const canal of CANAIS) {
+      const doCanal = contas.filter((c) => c.marketplaceId === canal.id);
+      mapa.set(canal.id, resumirPorContaComparativo(dados.atuais, dados.comparados, doCanal));
+    }
+    return mapa;
+  }, [dados, contas]);
 
   return (
     <div className="space-y-6">
@@ -268,6 +360,102 @@ export function Comparativos() {
               />
             </LineChart>
           </ResponsiveContainer>
+        </div>
+      </Painel>
+
+      {/* Comparativo por canal */}
+      <Painel
+        titulo="Comparativo por canal"
+        descricao="Cada canal com o total, e quando tem mais de uma conta, o valor individual de cada loja logo abaixo — métrica de acordo com o seletor acima"
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left">
+            <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-5 py-2.5 font-medium">Canal</th>
+                <th className="px-3 py-2.5 text-right font-medium">Atual</th>
+                <th className="px-3 py-2.5 text-right font-medium">Período anterior</th>
+                <th className="px-3 py-2.5 text-right font-medium">Variação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {porCanal.map((c) => {
+                const vAtualCanal = valorTotais(c.atual, metrica);
+                const vComparadoCanal = valorTotais(c.comparado, metrica);
+                const v = variacao(vAtualCanal, vComparadoCanal);
+                const contasDoCanal = contasPorCanal.get(c.id) ?? [];
+                const temVariasContas = contasDoCanal.length > 1;
+                return (
+                  <Fragment key={c.id}>
+                    <tr className={cn("border-b", temVariasContas && "bg-muted/10")}>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-2">
+                          <LogoMarketplace id={c.id} tamanho="xs" />
+                          <span className="text-xs font-medium">{c.titulo}</span>
+                          {temVariasContas && (
+                            <span className="text-[10px] text-muted-foreground">
+                              ({contasDoCanal.length} contas)
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs font-semibold">
+                        {formata(metrica, vAtualCanal)}
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                        {formata(metrica, vComparadoCanal)}
+                      </td>
+                      <td
+                        className={cn(
+                          "num px-3 py-3 text-right text-xs font-bold",
+                          v >= 0 ? "text-profit" : "text-loss",
+                        )}
+                      >
+                        {v >= 0 ? "+" : "−"}
+                        {formatPercentual(Math.abs(v))}
+                      </td>
+                    </tr>
+
+                    {temVariasContas &&
+                      contasDoCanal.map((conta) => {
+                        const vAtualConta = valorTotais(conta.atual, metrica);
+                        const vComparadoConta = valorTotais(conta.comparado, metrica);
+                        const vConta = variacao(vAtualConta, vComparadoConta);
+                        return (
+                          <tr key={conta.id} className="border-b last:border-0">
+                            <td className="py-2.5 pl-11 pr-5">
+                              <span className="text-[11px] text-muted-foreground">{conta.nome}</span>
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {formata(metrica, vAtualConta)}
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {formata(metrica, vComparadoConta)}
+                            </td>
+                            <td
+                              className={cn(
+                                "num px-3 py-2.5 text-right text-[11px]",
+                                vConta >= 0 ? "text-profit" : "text-loss",
+                              )}
+                            >
+                              {vConta >= 0 ? "+" : "−"}
+                              {formatPercentual(Math.abs(vConta))}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </Fragment>
+                );
+              })}
+              {porCanal.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-5 py-10 text-center text-xs text-muted-foreground">
+                    Nenhuma venda nos períodos selecionados.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </Painel>
 
