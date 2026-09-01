@@ -13,6 +13,7 @@ import { Truck, Warehouse } from "lucide-react";
 import { usePeriodo } from "@/context/periodo";
 import { periodoAnterior } from "@/lib/period";
 import { useSelecaoContas } from "@/context/selecao-contas";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { vendasService } from "@/services";
 import { CANAIS } from "@/config/navegacao";
 import { filtrarPorPeriodo, variacao } from "@/lib/finance";
@@ -20,7 +21,7 @@ import { formatBRL, formatBRLCompacto, formatNumero, formatPercentual } from "@/
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { cn } from "@/lib/utils";
-import type { MarketplaceId, Pedido, TipoLogistica } from "@/types";
+import type { ContaMarketplace, MarketplaceId, Pedido, TipoLogistica } from "@/types";
 
 const ROTULO_LOGISTICA: Record<TipoLogistica, string> = {
   full: "Full",
@@ -62,11 +63,35 @@ function resumirPorLogistica(atuais: Pedido[], anteriores: Pedido[]): ResumoLogi
   });
 }
 
+interface SplitLogistica {
+  pedidos: number;
+  faturamento: number;
+  lucro: number;
+  margem: number;
+}
+
+/** Calcula o resultado de Full e de Coleta para um conjunto qualquer de
+ * pedidos já filtrado (por canal ou por conta) — reaproveitado nos dois. */
+function splitLogistica(itensDoEscopo: Pedido[]): { full: SplitLogistica; coleta: SplitLogistica } {
+  const calcular = (tipo: TipoLogistica): SplitLogistica => {
+    const itens = itensDoEscopo.filter((p) => p.tipoLogistica === tipo);
+    const faturamento = itens.reduce((s, p) => s + p.faturamento, 0);
+    const lucro = itens.reduce((s, p) => s + p.lucroLiquido, 0);
+    return {
+      pedidos: itens.length,
+      faturamento,
+      lucro,
+      margem: faturamento ? lucro / faturamento : 0,
+    };
+  };
+  return { full: calcular("full"), coleta: calcular("coleta") };
+}
+
 interface LinhaCanalLogistica {
   id: MarketplaceId;
   titulo: string;
-  full: { pedidos: number; faturamento: number; lucro: number; margem: number };
-  coleta: { pedidos: number; faturamento: number; lucro: number; margem: number };
+  full: SplitLogistica;
+  coleta: SplitLogistica;
 }
 
 function resumirPorCanalELogistica(pedidos: Pedido[]): LinhaCanalLogistica[] {
@@ -74,31 +99,37 @@ function resumirPorCanalELogistica(pedidos: Pedido[]): LinhaCanalLogistica[] {
     const doCanal = pedidos.filter(
       (p) => p.marketplaceId === canal.id && p.status !== "cancelado",
     );
-
-    const calcular = (tipo: TipoLogistica) => {
-      const itens = doCanal.filter((p) => p.tipoLogistica === tipo);
-      const faturamento = itens.reduce((s, p) => s + p.faturamento, 0);
-      const lucro = itens.reduce((s, p) => s + p.lucroLiquido, 0);
-      return {
-        pedidos: itens.length,
-        faturamento,
-        lucro,
-        margem: faturamento ? lucro / faturamento : 0,
-      };
-    };
-
-    return {
-      id: canal.id,
-      titulo: canal.titulo,
-      full: calcular("full"),
-      coleta: calcular("coleta"),
-    };
+    return { id: canal.id, titulo: canal.titulo, ...splitLogistica(doCanal) };
   }).filter((c) => c.full.pedidos > 0 || c.coleta.pedidos > 0);
+}
+
+interface LinhaContaLogistica {
+  id: string;
+  nome: string;
+  full: SplitLogistica;
+  coleta: SplitLogistica;
+}
+
+/** Mesma quebra Full/Coleta, mas por CONTA — pra abrir o canal e ver o
+ * resultado de cada loja individual, igual já é feito em Canais. */
+function resumirPorContaELogistica(
+  pedidos: Pedido[],
+  contasDoCanal: ContaMarketplace[],
+): LinhaContaLogistica[] {
+  return contasDoCanal
+    .map((conta) => {
+      const daConta = pedidos.filter(
+        (p) => p.contaId === conta.id && p.status !== "cancelado",
+      );
+      return { id: conta.id, nome: conta.nome, ...splitLogistica(daConta) };
+    })
+    .filter((c) => c.full.pedidos > 0 || c.coleta.pedidos > 0);
 }
 
 export function Logistica() {
   const { periodo } = usePeriodo();
   const { filtrarPorSelecao } = useSelecaoContas();
+  const { contas } = useConfiguracoes();
   const pedidos = filtrarPorSelecao(vendasService.listar());
 
   const dados = useMemo(() => {
@@ -112,6 +143,16 @@ export function Logistica() {
   }, [pedidos, periodo]);
 
   const { atuais, resumo, porCanal } = dados;
+
+  // Contas por canal, só pra abrir o detalhe na tabela — mesmo padrão de Canais.
+  const contasPorCanal = useMemo(() => {
+    const mapa = new Map<MarketplaceId, LinhaContaLogistica[]>();
+    for (const canal of CANAIS) {
+      const doCanal = contas.filter((c) => c.marketplaceId === canal.id);
+      mapa.set(canal.id, resumirPorContaELogistica(dados.atuais, doCanal));
+    }
+    return mapa;
+  }, [dados.atuais, contas]);
   const full = resumo.find((r) => r.tipo === "full")!;
   const coleta = resumo.find((r) => r.tipo === "coleta")!;
   const totalFaturamento = full.faturamento + coleta.faturamento;
@@ -288,64 +329,135 @@ export function Logistica() {
               </tr>
             </thead>
             <tbody>
-              {porCanal.map((c) => (
-                <Fragment key={c.id}>
-                  <tr className="border-b">
-                    <td className="px-5 py-3" rowSpan={2}>
-                      <div className="flex items-center gap-2">
-                        <LogoMarketplace id={c.id} tamanho="xs" />
-                        <span className="text-xs font-medium">{c.titulo}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
-                        <span className="size-2 rounded-full bg-brand" /> Full
-                      </span>
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs">
-                      {formatNumero(c.full.pedidos)}
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs font-semibold">
-                      {formatBRL(c.full.faturamento)}
-                    </td>
-                    <td
-                      className={cn(
-                        "num px-3 py-3 text-right text-xs font-bold",
-                        c.full.lucro >= 0 ? "text-profit" : "text-loss",
-                      )}
-                    >
-                      {formatBRL(c.full.lucro)}
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
-                      {c.full.pedidos ? formatPercentual(c.full.margem) : "—"}
-                    </td>
-                  </tr>
-                  <tr className="border-b last:border-0">
-                    <td className="px-3 py-3">
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
-                        <span className="size-2 rounded-full bg-warning" /> Coleta
-                      </span>
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs">
-                      {formatNumero(c.coleta.pedidos)}
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs font-semibold">
-                      {formatBRL(c.coleta.faturamento)}
-                    </td>
-                    <td
-                      className={cn(
-                        "num px-3 py-3 text-right text-xs font-bold",
-                        c.coleta.lucro >= 0 ? "text-profit" : "text-loss",
-                      )}
-                    >
-                      {formatBRL(c.coleta.lucro)}
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
-                      {c.coleta.pedidos ? formatPercentual(c.coleta.margem) : "—"}
-                    </td>
-                  </tr>
-                </Fragment>
-              ))}
+              {porCanal.map((c) => {
+                const contasDoCanal = contasPorCanal.get(c.id) ?? [];
+                const temVariasContas = contasDoCanal.length > 1;
+                return (
+                  <Fragment key={c.id}>
+                    <tr className={cn("border-b", temVariasContas && "bg-muted/10")}>
+                      <td className="px-5 py-3" rowSpan={2}>
+                        <div className="flex items-center gap-2">
+                          <LogoMarketplace id={c.id} tamanho="xs" />
+                          <span className="text-xs font-medium">{c.titulo}</span>
+                          {temVariasContas && (
+                            <span className="text-[10px] text-muted-foreground">
+                              ({contasDoCanal.length} contas)
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
+                          <span className="size-2 rounded-full bg-brand" /> Full
+                        </span>
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs">
+                        {formatNumero(c.full.pedidos)}
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs font-semibold">
+                        {formatBRL(c.full.faturamento)}
+                      </td>
+                      <td
+                        className={cn(
+                          "num px-3 py-3 text-right text-xs font-bold",
+                          c.full.lucro >= 0 ? "text-profit" : "text-loss",
+                        )}
+                      >
+                        {formatBRL(c.full.lucro)}
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                        {c.full.pedidos ? formatPercentual(c.full.margem) : "—"}
+                      </td>
+                    </tr>
+                    <tr className={cn("border-b", !temVariasContas && "last:border-0")}>
+                      <td className="px-3 py-3">
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
+                          <span className="size-2 rounded-full bg-warning" /> Coleta
+                        </span>
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs">
+                        {formatNumero(c.coleta.pedidos)}
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs font-semibold">
+                        {formatBRL(c.coleta.faturamento)}
+                      </td>
+                      <td
+                        className={cn(
+                          "num px-3 py-3 text-right text-xs font-bold",
+                          c.coleta.lucro >= 0 ? "text-profit" : "text-loss",
+                        )}
+                      >
+                        {formatBRL(c.coleta.lucro)}
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                        {c.coleta.pedidos ? formatPercentual(c.coleta.margem) : "—"}
+                      </td>
+                    </tr>
+
+                    {temVariasContas &&
+                      contasDoCanal.map((conta, i) => {
+                        const ultimaConta = i === contasDoCanal.length - 1;
+                        return (
+                          <Fragment key={conta.id}>
+                            <tr className="border-b">
+                              <td className="py-2.5 pl-11 pr-5" rowSpan={2}>
+                                <span className="text-[11px] text-muted-foreground">
+                                  {conta.nome}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <span className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                  <span className="size-1.5 rounded-full bg-brand" /> Full
+                                </span>
+                              </td>
+                              <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                                {formatNumero(conta.full.pedidos)}
+                              </td>
+                              <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                                {formatBRL(conta.full.faturamento)}
+                              </td>
+                              <td
+                                className={cn(
+                                  "num px-3 py-2.5 text-right text-[11px]",
+                                  conta.full.lucro >= 0 ? "text-profit" : "text-loss",
+                                )}
+                              >
+                                {formatBRL(conta.full.lucro)}
+                              </td>
+                              <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                                {conta.full.pedidos ? formatPercentual(conta.full.margem) : "—"}
+                              </td>
+                            </tr>
+                            <tr className={cn("border-b", ultimaConta && "last:border-0")}>
+                              <td className="px-3 py-2.5">
+                                <span className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                  <span className="size-1.5 rounded-full bg-warning" /> Coleta
+                                </span>
+                              </td>
+                              <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                                {formatNumero(conta.coleta.pedidos)}
+                              </td>
+                              <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                                {formatBRL(conta.coleta.faturamento)}
+                              </td>
+                              <td
+                                className={cn(
+                                  "num px-3 py-2.5 text-right text-[11px]",
+                                  conta.coleta.lucro >= 0 ? "text-profit" : "text-loss",
+                                )}
+                              >
+                                {formatBRL(conta.coleta.lucro)}
+                              </td>
+                              <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                                {conta.coleta.pedidos ? formatPercentual(conta.coleta.margem) : "—"}
+                              </td>
+                            </tr>
+                          </Fragment>
+                        );
+                      })}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
