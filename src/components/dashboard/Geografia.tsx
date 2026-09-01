@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -14,12 +14,15 @@ import {
 import { usePeriodo } from "@/context/periodo";
 import { periodoAnterior } from "@/lib/period";
 import { useSelecaoContas } from "@/context/selecao-contas";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { vendasService } from "@/services";
+import { CANAIS } from "@/config/navegacao";
 import { filtrarPorPeriodo, variacao } from "@/lib/finance";
 import { formatBRL, formatBRLCompacto, formatNumero, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
+import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { cn } from "@/lib/utils";
-import type { Pedido } from "@/types";
+import type { ContaMarketplace, MarketplaceId, Pedido } from "@/types";
 
 type Regiao = "Norte" | "Nordeste" | "Centro-Oeste" | "Sudeste" | "Sul";
 
@@ -88,9 +91,73 @@ function resumirPorEstado(atuais: Pedido[], anteriores: Pedido[]): ResumoEstado[
   return [...mapa.values()];
 }
 
+interface ResumoCanalGeografia {
+  id: MarketplaceId;
+  titulo: string;
+  pedidos: number;
+  faturamento: number;
+  lucro: number;
+  margem: number;
+}
+
+/** Mesma lógica usada em Canais.tsx — reaproveitada aqui pra dar uma visão
+ * por canal também na aba Geografia, além da quebra por estado. */
+function resumirPorCanalGeografia(atuais: Pedido[]): ResumoCanalGeografia[] {
+  return CANAIS.map((canal) => {
+    const doCanal = atuais.filter(
+      (p) => p.marketplaceId === canal.id && p.status !== "cancelado",
+    );
+    const faturamento = doCanal.reduce((s, p) => s + p.faturamento, 0);
+    const lucro = doCanal.reduce((s, p) => s + p.lucroLiquido, 0);
+    return {
+      id: canal.id,
+      titulo: canal.titulo,
+      pedidos: doCanal.length,
+      faturamento,
+      lucro,
+      margem: faturamento ? lucro / faturamento : 0,
+    };
+  }).filter((c) => c.pedidos > 0);
+}
+
+interface ResumoContaGeografia {
+  id: string;
+  nome: string;
+  pedidos: number;
+  faturamento: number;
+  lucro: number;
+  margem: number;
+}
+
+/** Mesma quebra por canal, mas por CONTA — pra abrir o canal e ver o
+ * resultado de cada loja individual, igual em Canais. */
+function resumirPorContaGeografia(
+  atuais: Pedido[],
+  contasDoCanal: ContaMarketplace[],
+): ResumoContaGeografia[] {
+  return contasDoCanal
+    .map((conta) => {
+      const daConta = atuais.filter(
+        (p) => p.contaId === conta.id && p.status !== "cancelado",
+      );
+      const faturamento = daConta.reduce((s, p) => s + p.faturamento, 0);
+      const lucro = daConta.reduce((s, p) => s + p.lucroLiquido, 0);
+      return {
+        id: conta.id,
+        nome: conta.nome,
+        pedidos: daConta.length,
+        faturamento,
+        lucro,
+        margem: faturamento ? lucro / faturamento : 0,
+      };
+    })
+    .filter((c) => c.pedidos > 0);
+}
+
 export function Geografia() {
   const { periodo } = usePeriodo();
   const { filtrarPorSelecao } = useSelecaoContas();
+  const { contas } = useConfiguracoes();
   const pedidos = filtrarPorSelecao(vendasService.listar());
   const [metrica, setMetrica] = useState<Metrica>("faturamento");
 
@@ -123,6 +190,22 @@ export function Geografia() {
     .slice()
     .sort((a, b) => (metrica === "faturamento" ? b.faturamento - a.faturamento : b.pedidos - a.pedidos))
     .slice(0, 10);
+
+  const porCanal = useMemo(
+    () =>
+      resumirPorCanalGeografia(atuais).sort((a, b) => b.faturamento - a.faturamento),
+    [atuais],
+  );
+
+  // Contas por canal, só pra abrir o detalhe na tabela — mesmo padrão de Canais.
+  const contasPorCanal = useMemo(() => {
+    const mapa = new Map<MarketplaceId, ResumoContaGeografia[]>();
+    for (const canal of CANAIS) {
+      const doCanal = contas.filter((c) => c.marketplaceId === canal.id);
+      mapa.set(canal.id, resumirPorContaGeografia(atuais, doCanal));
+    }
+    return mapa;
+  }, [atuais, contas]);
 
   if (atuais.length === 0) {
     return (
@@ -336,6 +419,96 @@ export function Geografia() {
                 <td className="num px-3 py-3 text-right text-xs">{formatBRL(totalFaturamento)}</td>
                 <td className="px-3 py-3" colSpan={2} />
               </tr>
+            </tbody>
+          </table>
+        </div>
+      </Painel>
+
+      <Painel
+        titulo="Faturamento por canal"
+        descricao="Cada canal com o total, e quando tem mais de uma conta, o valor individual de cada loja logo abaixo"
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left">
+            <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-5 py-2.5 font-medium">Canal</th>
+                <th className="px-3 py-2.5 text-right font-medium">Pedidos</th>
+                <th className="px-3 py-2.5 text-right font-medium">Faturamento</th>
+                <th className="px-3 py-2.5 text-right font-medium">Lucro</th>
+                <th className="px-3 py-2.5 text-right font-medium">Margem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {porCanal.map((c) => {
+                const contasDoCanal = contasPorCanal.get(c.id) ?? [];
+                const temVariasContas = contasDoCanal.length > 1;
+                return (
+                  <Fragment key={c.id}>
+                    <tr className={cn("border-b", temVariasContas && "bg-muted/10")}>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-2">
+                          <LogoMarketplace id={c.id} tamanho="xs" />
+                          <span className="text-xs font-medium">{c.titulo}</span>
+                          {temVariasContas && (
+                            <span className="text-[10px] text-muted-foreground">
+                              ({contasDoCanal.length} contas)
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs">{formatNumero(c.pedidos)}</td>
+                      <td className="num px-3 py-3 text-right text-xs font-semibold">
+                        {formatBRL(c.faturamento)}
+                      </td>
+                      <td
+                        className={cn(
+                          "num px-3 py-3 text-right text-xs font-bold",
+                          c.lucro >= 0 ? "text-profit" : "text-loss",
+                        )}
+                      >
+                        {formatBRL(c.lucro)}
+                      </td>
+                      <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                        {formatPercentual(c.margem)}
+                      </td>
+                    </tr>
+
+                    {temVariasContas &&
+                      contasDoCanal.map((conta) => (
+                        <tr key={conta.id} className="border-b last:border-0">
+                          <td className="py-2.5 pl-11 pr-5">
+                            <span className="text-[11px] text-muted-foreground">{conta.nome}</span>
+                          </td>
+                          <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            {formatNumero(conta.pedidos)}
+                          </td>
+                          <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            {formatBRL(conta.faturamento)}
+                          </td>
+                          <td
+                            className={cn(
+                              "num px-3 py-2.5 text-right text-[11px]",
+                              conta.lucro >= 0 ? "text-profit" : "text-loss",
+                            )}
+                          >
+                            {formatBRL(conta.lucro)}
+                          </td>
+                          <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            {formatPercentual(conta.margem)}
+                          </td>
+                        </tr>
+                      ))}
+                  </Fragment>
+                );
+              })}
+              {porCanal.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-5 py-10 text-center text-xs text-muted-foreground">
+                    Nenhuma venda no período (ou nenhuma conta selecionada no filtro).
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
