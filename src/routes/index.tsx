@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Construction } from "lucide-react";
 import { VisaoGeral } from "@/components/dashboard/VisaoGeral";
 import { Comparativos } from "@/components/dashboard/Comparativos";
 import { Canais } from "@/components/dashboard/Canais";
 import { Ads } from "@/components/dashboard/Ads";
-import { Painel } from "@/components/comum/Indicadores";
+import { Logistica } from "@/components/dashboard/Logistica";
+import { Geografia } from "@/components/dashboard/Geografia";
+import { Financeiro } from "@/components/dashboard/Financeiro";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -74,20 +75,6 @@ const ABAS: { id: AbaDashboard; titulo: string; descricao: string }[] = [
   },
 ];
 
-function EmConstrucao({ titulo, descricao }: { titulo: string; descricao: string }) {
-  return (
-    <Painel titulo={titulo} descricao={descricao}>
-      <div className="flex flex-col items-center px-5 py-14 text-center">
-        <Construction className="size-8 text-muted-foreground" />
-        <p className="mt-3 text-sm font-medium">Esta aba ainda não foi construída</p>
-        <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-          Estamos fazendo o Dashboard por etapas — essa é uma das próximas.
-        </p>
-      </div>
-    </Painel>
-  );
-}
-
 function Dashboard() {
   const [aba, setAba] = useState<AbaDashboard>("visao-geral");
 
@@ -118,11 +105,12 @@ function Dashboard() {
         <Canais />
       ) : aba === "ads" ? (
         <Ads />
+      ) : aba === "logistica" ? (
+        <Logistica />
+      ) : aba === "geografia" ? (
+        <Geografia />
       ) : (
-        <EmConstrucao
-          titulo={ABAS.find((a) => a.id === aba)!.titulo}
-          descricao={ABAS.find((a) => a.id === aba)!.descricao}
-        />
+        <Financeiro />
       )}
     </div>
   );

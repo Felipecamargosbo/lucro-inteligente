@@ -19,6 +19,7 @@ import type {
   Promocao,
   StatusOportunidadeRecuperacao,
   StatusPedido,
+  TipoLogistica,
   TipoOportunidadeRecuperacao,
   Usuario,
 } from "@/types";
@@ -308,6 +309,65 @@ const STATUS: StatusPedido[] = [
 const IMPOSTO_PADRAO = 0.1;
 const DIAS_HISTORICO = 120;
 
+/**
+ * Distribuição aproximada de faturamento e-commerce por estado no Brasil —
+ * pesos relativos, não percentuais oficiais. Usada só para sortear a UF de
+ * entrega de cada pedido fictício de forma realista (SP e Sudeste concentram
+ * a maior parte do volume, o resto se espalha proporcionalmente ao tamanho
+ * de cada mercado regional).
+ */
+const ESTADOS_PESO: [string, number][] = [
+  ["SP", 30], ["RJ", 11], ["MG", 10], ["RS", 6], ["PR", 6], ["SC", 5],
+  ["BA", 5], ["GO", 4], ["PE", 3], ["CE", 3], ["DF", 3], ["ES", 2],
+  ["PA", 2], ["MT", 1.5], ["MA", 1.3], ["AM", 1.2], ["RN", 1.2],
+  ["PB", 1], ["MS", 1], ["AL", 0.9], ["PI", 0.9], ["SE", 0.7],
+  ["RO", 0.6], ["TO", 0.5], ["AC", 0.35], ["AP", 0.3], ["RR", 0.25],
+];
+const TOTAL_PESO_ESTADOS = ESTADOS_PESO.reduce((soma, [, peso]) => soma + peso, 0);
+
+function escolherEstado(rand: () => number): string {
+  let alvo = rand() * TOTAL_PESO_ESTADOS;
+  for (const [uf, peso] of ESTADOS_PESO) {
+    alvo -= peso;
+    if (alvo <= 0) return uf;
+  }
+  return "SP";
+}
+
+/**
+ * Prazo aproximado (em dias corridos) que cada marketplace leva para
+ * repassar ao seller o valor de uma venda já entregue. Varia de canal para
+ * canal — é por isso que "recebível previsto" precisa olhar canal a canal,
+ * não só somar tudo com o mesmo prazo.
+ */
+const DIAS_REPASSE: Record<MarketplaceId, number> = {
+  "mercado-livre": 14,
+  shopee: 7,
+  amazon: 14,
+  magalu: 30,
+  "tiktok-shop": 15,
+  shein: 20,
+};
+
+/** Probabilidade de um pedido do canal ter ido via Full (estoque no centro de
+ * distribuição do marketplace) em vez de Coleta (o seller despacha). */
+const PROB_FULL: Record<MarketplaceId, number> = {
+  "mercado-livre": 0.62,
+  shopee: 0.38,
+  amazon: 0.78,
+  magalu: 0.45,
+  "tiktok-shop": 0.3,
+  shein: 0.25,
+};
+
+const MOTIVOS_DEVOLUCAO = [
+  "Produto com defeito",
+  "Arrependimento da compra",
+  "Produto diferente do anunciado",
+  "Entrega com atraso",
+  "Item incompleto",
+];
+
 function gerarPedidos(): Pedido[] {
   const rand = criarRandom(20260821);
   const pedidos: Pedido[] = [];
@@ -359,6 +419,29 @@ function gerarPedidos(): Pedido[] {
       const dataHora = new Date(data);
       dataHora.setHours(hora, minuto, 0, 0);
 
+      const tipoLogistica: TipoLogistica =
+        rand() < PROB_FULL[conta.marketplaceId] ? "full" : "coleta";
+      const estado = escolherEstado(rand);
+
+      const previsaoRepasseData = new Date(dataHora);
+      previsaoRepasseData.setDate(
+        previsaoRepasseData.getDate() + DIAS_REPASSE[conta.marketplaceId],
+      );
+
+      // ~5% dos pedidos entregues sofrem devolução depois da entrega — é
+      // diferente de "cancelado" (que nunca chegou a ser despachado/entregue).
+      const houveDevolucao = status === "entregue" && rand() > 0.95;
+      const devolucaoParcial = houveDevolucao && rand() > 0.65;
+      const valorDevolvido = houveDevolucao
+        ? Math.round(faturamento * (devolucaoParcial ? 0.3 + rand() * 0.4 : 1) * 100) / 100
+        : 0;
+      const dataDevolucao = houveDevolucao
+        ? new Date(dataHora.getTime() + (3 + Math.floor(rand() * 17)) * 86400000).toISOString()
+        : null;
+      const motivoDevolucao = houveDevolucao
+        ? MOTIVOS_DEVOLUCAO[Math.floor(rand() * MOTIVOS_DEVOLUCAO.length)]!
+        : null;
+
       pedidos.push({
         id: `${conta.marketplaceId.slice(0, 3).toUpperCase()}-${(100000 + Math.floor(rand() * 899999)).toString()}`,
         data: dataHora.toISOString(),
@@ -381,6 +464,12 @@ function gerarPedidos(): Pedido[] {
         status,
         cliente: CLIENTES[clienteIdx]!,
         telefone: `(${ddd}) 9${Math.floor(1000 + rand() * 8999)}-${Math.floor(1000 + rand() * 8999)}`,
+        tipoLogistica,
+        estado,
+        previsaoRepasse: previsaoRepasseData.toISOString(),
+        valorDevolvido,
+        dataDevolucao,
+        motivoDevolucao,
       });
     }
   }

@@ -117,7 +117,25 @@ export interface Pedido {
   status: StatusPedido;
   cliente: string;
   telefone: string;
+  /** Full = estoque enviado ao centro de distribuição do marketplace; Coleta = o próprio seller despacha */
+  tipoLogistica: TipoLogistica;
+  /** UF de entrega do pedido (endereço do cliente) */
+  estado: string;
+  /** Data em que o marketplace deve repassar o valor desta venda ao seller */
+  previsaoRepasse: string; // ISO
+  /**
+   * Valor devolvido pelo cliente após a entrega (0 quando não houve
+   * devolução). Diferente de "cancelado": a devolução acontece depois da
+   * venda já ter sido contabilizada como concluída.
+   */
+  valorDevolvido: number;
+  /** Data em que a devolução foi registrada; null quando não houve devolução */
+  dataDevolucao: string | null;
+  /** Motivo informado pelo cliente/canal; null quando não houve devolução */
+  motivoDevolucao: string | null;
 }
+
+export type TipoLogistica = "full" | "coleta";
 
 export type StatusAnuncio = "ativo" | "pausado" | "sem-estoque";
 
