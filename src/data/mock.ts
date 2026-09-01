@@ -336,10 +336,16 @@ function gerarPedidos(): Pedido[] {
       const taxaFixa = conta.taxaFixa;
       const impostos = Math.round(faturamento * IMPOSTO_PADRAO * 100) / 100;
       const outrosCustos = Math.round((2 + rand() * 12) * 100) / 100;
-      // ~40% dos pedidos vêm de um clique de anúncio patrocinado
-      const investeMidia = rand() > 0.6;
+      // ~40% dos pedidos vêm de um clique de anúncio patrocinado. Dois SKUs
+      // são de propósito "gastões" de ADS — pra você ver a tela de "mídia
+      // sem retorno" com exemplo real antes de conectar a API de anúncios.
+      const SKUS_ADS_SEM_RETORNO = ["CAD-ERG-PRO", "MOU-SF-2K"];
+      const ehSkuProblematico = SKUS_ADS_SEM_RETORNO.includes(produto.sku);
+      const investeMidia = ehSkuProblematico ? rand() > 0.25 : rand() > 0.6;
       const custoMidia = investeMidia
-        ? Math.round(faturamento * (0.03 + rand() * 0.14) * 100) / 100
+        ? Math.round(
+            faturamento * (ehSkuProblematico ? 0.55 + rand() * 0.35 : 0.03 + rand() * 0.14) * 100,
+          ) / 100
         : 0;
       const lucroLiquido =
         Math.round((faturamento - cmv - comissao - taxaFixa - impostos - outrosCustos) * 100) /
