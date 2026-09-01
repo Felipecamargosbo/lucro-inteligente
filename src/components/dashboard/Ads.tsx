@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -13,6 +13,7 @@ import {
 import { usePeriodo } from "@/context/periodo";
 import { inicioDoDia, listarDias, periodoAnterior } from "@/lib/period";
 import { useSelecaoContas } from "@/context/selecao-contas";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { vendasService } from "@/services";
 import { CANAIS } from "@/config/navegacao";
 import { agruparPorSkuComAds, filtrarPorPeriodo, resumir, variacao } from "@/lib/finance";
@@ -20,7 +21,7 @@ import { formatBRL, formatBRLCompacto, formatNumero, formatPercentual } from "@/
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { cn } from "@/lib/utils";
-import type { Pedido, Periodo } from "@/types";
+import type { ContaMarketplace, MarketplaceId, Pedido, Periodo } from "@/types";
 
 /**
  * O sistema ainda não tem a conexão com a API de anúncios de cada
@@ -70,9 +71,44 @@ function serieFunilAds(pedidos: Pedido[], periodo: Periodo): PontoFunil[] {
   });
 }
 
+interface ResumoContaAds {
+  id: string;
+  nome: string;
+  gasto: number;
+  faturamento: number;
+  roas: number;
+  tacos: number;
+}
+
+/** Mesma lógica do resumo por canal, mas por CONTA — pra abrir o canal e ver
+ * o gasto de ADS de cada loja individual, igual já é feito em Canais. */
+function resumirContasAds(
+  pedidos: Pedido[],
+  contasDoCanal: ContaMarketplace[],
+): ResumoContaAds[] {
+  return contasDoCanal
+    .map((conta) => {
+      const daConta = pedidos.filter((p) => p.contaId === conta.id && p.status !== "cancelado");
+      const gasto = daConta.reduce((s, p) => s + p.custoMidia, 0);
+      const daContaAds = daConta.filter((p) => p.custoMidia > 0);
+      const fatAds = daContaAds.reduce((s, p) => s + p.faturamento, 0);
+      const faturamento = daConta.reduce((s, p) => s + p.faturamento, 0);
+      return {
+        id: conta.id,
+        nome: conta.nome,
+        gasto,
+        faturamento,
+        roas: gasto > 0 ? fatAds / gasto : 0,
+        tacos: faturamento ? gasto / faturamento : 0,
+      };
+    })
+    .filter((c) => c.gasto > 0 || c.faturamento > 0);
+}
+
 export function Ads() {
   const { periodo } = usePeriodo();
   const { filtrarPorSelecao } = useSelecaoContas();
+  const { contas } = useConfiguracoes();
   const pedidos = filtrarPorSelecao(vendasService.listar());
 
   const dados = useMemo(() => {
@@ -131,6 +167,17 @@ export function Ads() {
       };
     }).filter((c) => c.gasto > 0 || c.faturamento > 0);
   }, [atuais]);
+
+  // Contas por canal, só pra abrir o detalhe na tabela — mesmo padrão da aba
+  // Canais: uma conta desmarcada no filtro global simplesmente não aparece.
+  const contasPorCanal = useMemo(() => {
+    const mapa = new Map<MarketplaceId, ResumoContaAds[]>();
+    for (const canal of CANAIS) {
+      const doCanal = contas.filter((c) => c.marketplaceId === canal.id);
+      mapa.set(canal.id, resumirContasAds(atuais, doCanal));
+    }
+    return mapa;
+  }, [atuais, contas]);
 
   const semRetorno = useMemo(
     () =>
@@ -328,30 +375,61 @@ export function Ads() {
                 </tr>
               </thead>
               <tbody>
-                {porCanal.map((c) => (
-                  <tr key={c.id} className="border-b last:border-0">
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <LogoMarketplace id={c.id} tamanho="xs" />
-                        <span className="text-xs font-medium">{c.titulo}</span>
-                      </div>
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs font-semibold">
-                      {formatBRL(c.gasto)}
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs font-bold text-profit">
-                      {c.roas.toFixed(2)}x
-                    </td>
-                    <td
-                      className={cn(
-                        "num px-3 py-3 text-right text-xs font-bold",
-                        c.tacos > 0.15 ? "text-loss" : "text-profit",
-                      )}
-                    >
-                      {formatPercentual(c.tacos)}
-                    </td>
-                  </tr>
-                ))}
+                {porCanal.map((c) => {
+                  const contasDoCanal = contasPorCanal.get(c.id) ?? [];
+                  const temVariasContas = contasDoCanal.length > 1;
+                  return (
+                    <Fragment key={c.id}>
+                      <tr className={cn("border-b", temVariasContas && "bg-muted/10")}>
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <LogoMarketplace id={c.id} tamanho="xs" />
+                            <span className="text-xs font-medium">{c.titulo}</span>
+                            {temVariasContas && (
+                              <span className="text-[10px] text-muted-foreground">
+                                ({contasDoCanal.length} contas)
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="num px-3 py-3 text-right text-xs font-semibold">
+                          {formatBRL(c.gasto)}
+                        </td>
+                        <td className="num px-3 py-3 text-right text-xs font-bold text-profit">
+                          {c.roas.toFixed(2)}x
+                        </td>
+                        <td
+                          className={cn(
+                            "num px-3 py-3 text-right text-xs font-bold",
+                            c.tacos > 0.15 ? "text-loss" : "text-profit",
+                          )}
+                        >
+                          {formatPercentual(c.tacos)}
+                        </td>
+                      </tr>
+
+                      {temVariasContas &&
+                        contasDoCanal.map((conta) => (
+                          <tr key={conta.id} className="border-b last:border-0">
+                            <td className="py-2.5 pl-11 pr-5">
+                              <span className="text-[11px] text-muted-foreground">
+                                {conta.nome}
+                              </span>
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {formatBRL(conta.gasto)}
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {conta.roas.toFixed(2)}x
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {formatPercentual(conta.tacos)}
+                            </td>
+                          </tr>
+                        ))}
+                    </Fragment>
+                  );
+                })}
                 {porCanal.length === 0 && (
                   <tr>
                     <td colSpan={4} className="px-5 py-10 text-center text-xs text-muted-foreground">
@@ -369,22 +447,43 @@ export function Ads() {
           descricao="Produtos em que o gasto de ADS supera o lucro que eles geravam antes dele"
         >
           <div className="divide-y">
-            {semRetorno.map((item) => (
-              <div key={item.sku} className="flex items-center justify-between gap-3 px-5 py-3">
-                <div className="min-w-0">
-                  <p className="truncate text-xs font-medium">{item.produto}</p>
-                  <p className="num text-[10px] text-muted-foreground">
-                    {item.sku} · Lucro antes de ADS: {formatBRL(item.lucroAntesAds)}
-                  </p>
+            {semRetorno.map((item) => {
+              const precoMedio = item.quantidade > 0 ? item.faturamento / item.quantidade : 0;
+              return (
+                <div key={item.sku} className="space-y-1.5 px-5 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="truncate text-xs font-medium">{item.produto}</p>
+                    <p className="num shrink-0 text-[10px] text-muted-foreground">{item.sku}</p>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 text-[11px]">
+                    <span className="text-muted-foreground">
+                      Vendeu {formatNumero(item.quantidade)}x × {formatBRL(precoMedio)}
+                    </span>
+                    <span className="num font-semibold">= {formatBRL(item.faturamento)}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 text-[11px]">
+                    <span className="text-muted-foreground">Gasto com ADS</span>
+                    <span className="num font-semibold text-loss">− {formatBRL(item.custoMidia)}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 border-t pt-1.5 text-[11px]">
+                    <span className="text-muted-foreground">
+                      {item.lucroPosAds < 0 ? "Ficou no vermelho" : "Sobrou de lucro"}
+                    </span>
+                    <span
+                      className={cn(
+                        "num text-sm font-bold",
+                        item.lucroPosAds < 0 ? "text-loss" : "text-profit",
+                      )}
+                    >
+                      {formatBRL(item.lucroPosAds)}
+                    </span>
+                  </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <p className="num text-sm font-bold text-loss">− {formatBRL(item.custoMidia)}</p>
-                  <p className="num text-[10px] font-medium text-loss">
-                    Pós-ADS: {formatBRL(item.lucroPosAds)}
-                  </p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {semRetorno.length === 0 && (
               <p className="px-5 py-10 text-center text-xs text-muted-foreground">
                 Nenhum produto com ADS consumindo mais que o lucro no período — sinal bom.

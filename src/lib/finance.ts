@@ -487,6 +487,8 @@ export function agruparPorSku(pedidos: Pedido[]): ItemAgregadoSku[] {
 export interface ItemAdsPorSku {
   sku: string;
   produto: string;
+  /** Unidades vendidas no período (soma de todos os pedidos desse SKU) */
+  quantidade: number;
   faturamento: number;
   custoMidia: number;
   /** Lucro antes de descontar o ADS deste produto (o "lucro líquido" de sempre) */
@@ -506,12 +508,14 @@ export function agruparPorSkuComAds(pedidos: Pedido[]): ItemAdsPorSku[] {
     const atual = mapa.get(p.sku) ?? {
       sku: p.sku,
       produto: p.produto,
+      quantidade: 0,
       faturamento: 0,
       custoMidia: 0,
       lucroAntesAds: 0,
       lucroPosAds: 0,
       semRetorno: false,
     };
+    atual.quantidade += p.quantidade;
     atual.faturamento += p.faturamento;
     atual.custoMidia += p.custoMidia;
     atual.lucroAntesAds += p.lucroLiquido;
