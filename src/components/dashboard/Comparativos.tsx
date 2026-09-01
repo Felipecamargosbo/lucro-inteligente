@@ -207,30 +207,64 @@ export function Comparativos() {
   }, [dados, contas]);
 
   // Mesmas linhas da tabela "Comparativo por canal" — canal e, quando tem
-  // mais de uma conta, cada loja individual logo abaixo — prontas pra exportar.
+  // mais de uma conta, cada loja individual logo abaixo — prontas pra
+  // exportar. Quando o canal tem só 1 conta rastreada, a linha "Total do
+  // canal" ficaria idêntica à da própria conta — nesse caso mostramos só a
+  // linha da conta, sem duplicar; o "Total do canal" só aparece quando faz
+  // sentido, com 2 ou mais contas.
   const linhasExport = useMemo(() => {
     const linhas: Record<string, string | number>[] = [];
     for (const c of porCanal) {
-      const vAtualCanal = valorTotais(c.atual, metrica);
-      const vComparadoCanal = valorTotais(c.comparado, metrica);
-      linhas.push({
-        Canal: c.titulo,
-        Conta: "Total do canal",
-        Métrica: METRICAS.find((m) => m.id === metrica)?.rotulo ?? metrica,
-        Atual: formata(metrica, vAtualCanal),
-        "Período anterior": formata(metrica, vComparadoCanal),
-        "Variação (%)": formatPercentual(variacao(vAtualCanal, vComparadoCanal)),
-      });
-      for (const conta of contasPorCanal.get(c.id) ?? []) {
-        const vAtualConta = valorTotais(conta.atual, metrica);
-        const vComparadoConta = valorTotais(conta.comparado, metrica);
+      const contasDoCanal = contasPorCanal.get(c.id) ?? [];
+      const temVariasContas = contasDoCanal.length > 1;
+
+      if (temVariasContas) {
+        const vAtualCanal = valorTotais(c.atual, metrica);
+        const vComparadoCanal = valorTotais(c.comparado, metrica);
         linhas.push({
           Canal: c.titulo,
-          Conta: conta.nome,
+          Conta: "Total do canal",
+          Métrica: METRICAS.find((m) => m.id === metrica)?.rotulo ?? metrica,
+          Atual: formata(metrica, vAtualCanal),
+          "Período anterior": formata(metrica, vComparadoCanal),
+          "Variação (%)": formatPercentual(variacao(vAtualCanal, vComparadoCanal)),
+        });
+        for (const conta of contasDoCanal) {
+          const vAtualConta = valorTotais(conta.atual, metrica);
+          const vComparadoConta = valorTotais(conta.comparado, metrica);
+          linhas.push({
+            Canal: c.titulo,
+            Conta: conta.nome,
+            Métrica: METRICAS.find((m) => m.id === metrica)?.rotulo ?? metrica,
+            Atual: formata(metrica, vAtualConta),
+            "Período anterior": formata(metrica, vComparadoConta),
+            "Variação (%)": formatPercentual(variacao(vAtualConta, vComparadoConta)),
+          });
+        }
+      } else if (contasDoCanal.length === 1) {
+        const unica = contasDoCanal[0]!;
+        const vAtualConta = valorTotais(unica.atual, metrica);
+        const vComparadoConta = valorTotais(unica.comparado, metrica);
+        linhas.push({
+          Canal: c.titulo,
+          Conta: unica.nome,
           Métrica: METRICAS.find((m) => m.id === metrica)?.rotulo ?? metrica,
           Atual: formata(metrica, vAtualConta),
           "Período anterior": formata(metrica, vComparadoConta),
           "Variação (%)": formatPercentual(variacao(vAtualConta, vComparadoConta)),
+        });
+      } else {
+        // Nenhuma conta rastreada pra esse canal — mantém a linha do canal,
+        // já que não há detalhe de loja pra mostrar em vez dela.
+        const vAtualCanal = valorTotais(c.atual, metrica);
+        const vComparadoCanal = valorTotais(c.comparado, metrica);
+        linhas.push({
+          Canal: c.titulo,
+          Conta: c.titulo,
+          Métrica: METRICAS.find((m) => m.id === metrica)?.rotulo ?? metrica,
+          Atual: formata(metrica, vAtualCanal),
+          "Período anterior": formata(metrica, vComparadoCanal),
+          "Variação (%)": formatPercentual(variacao(vAtualCanal, vComparadoCanal)),
         });
       }
     }

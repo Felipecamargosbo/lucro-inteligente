@@ -194,6 +194,95 @@ export function VisaoGeral() {
 
   const ultimas = dados.atuais.slice(0, 6);
 
+  // Média diária "de verdade", independente do card que está sendo mostrado
+  // ali em cima (que muda de nome/conteúdo se o mês está em andamento,
+  // fechado, ou é um período livre) — pro export sempre ter esse número.
+  const mediaDiariaPeriodo = serie.length ? resumo.faturamento / serie.length : 0;
+
+  // Linha única com TODOS os indicadores gerais, coluna por coluna.
+  const linhasResumoExport = useMemo(
+    () => [
+      {
+        Faturamento: formatBRL(resumo.faturamento),
+        Pedidos: resumo.pedidos,
+        Unidades: resumo.unidades,
+        "SKUs distintos": resumo.skusDistintos,
+        "Ticket médio": formatBRL(resumo.ticketMedio),
+        "Média diária do período": formatBRL(mediaDiariaPeriodo),
+        CMV: formatBRL(resumo.cmv),
+        Impostos: formatBRL(resumo.impostos),
+        Comissões: formatBRL(resumo.comissoes),
+        "Outros custos": formatBRL(resumo.outrosCustos),
+        "Pedidos cancelados": resumo.pedidosCancelados,
+        "Vendas canceladas": formatBRL(resumo.valorCancelado),
+        "Lucro líquido": formatBRL(resumo.lucroLiquido),
+        Margem: formatPercentual(resumo.margem),
+      },
+    ],
+    [resumo, mediaDiariaPeriodo],
+  );
+
+  // Faturamento, lucro e margem já separados por marketplace — e, quando o
+  // canal tem mais de uma conta, o detalhe de cada loja logo abaixo. Com só
+  // 1 conta no canal, mostra direto a loja (sem duplicar com um "Total do
+  // canal" idêntico); sem nenhuma conta rastreada, mantém a linha do canal.
+  const linhasPorCanalExport = useMemo(() => {
+    const linhas: Record<string, string | number>[] = [];
+    for (const c of porCanal) {
+      const contasDoCanal = contasPorCanal.get(c.id) ?? [];
+      const temVariasContas = contasDoCanal.length > 1;
+
+      if (temVariasContas) {
+        linhas.push({
+          Canal: c.titulo,
+          Conta: "Total do canal",
+          Pedidos: c.pedidos,
+          Faturamento: formatBRL(c.faturamento),
+          Lucro: formatBRL(c.lucro),
+          Margem: formatPercentual(c.margem),
+        });
+        for (const conta of contasDoCanal) {
+          linhas.push({
+            Canal: c.titulo,
+            Conta: conta.nome,
+            Pedidos: conta.pedidos,
+            Faturamento: formatBRL(conta.faturamento),
+            Lucro: formatBRL(conta.lucro),
+            Margem: formatPercentual(conta.margem),
+          });
+        }
+      } else if (contasDoCanal.length === 1) {
+        const unica = contasDoCanal[0]!;
+        linhas.push({
+          Canal: c.titulo,
+          Conta: unica.nome,
+          Pedidos: unica.pedidos,
+          Faturamento: formatBRL(unica.faturamento),
+          Lucro: formatBRL(unica.lucro),
+          Margem: formatPercentual(unica.margem),
+        });
+      } else {
+        linhas.push({
+          Canal: c.titulo,
+          Conta: c.titulo,
+          Pedidos: c.pedidos,
+          Faturamento: formatBRL(c.faturamento),
+          Lucro: formatBRL(c.lucro),
+          Margem: formatPercentual(c.margem),
+        });
+      }
+    }
+    return linhas;
+  }, [porCanal, contasPorCanal]);
+
+  const secoesExport = useMemo(
+    () => [
+      { titulo: "Resumo geral", linhas: linhasResumoExport },
+      { titulo: "Faturamento e lucro por canal", linhas: linhasPorCanalExport },
+    ],
+    [linhasResumoExport, linhasPorCanalExport],
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -201,23 +290,7 @@ export function VisaoGeral() {
           Período analisado: <strong>{formatData(periodo.inicio)}</strong> até{" "}
           <strong>{formatData(periodo.fim)}</strong> · dados fictícios de demonstração
         </p>
-        <ExportarDados
-          nomeArquivo="resumo-dashboard"
-          linhas={[
-            {
-              Faturamento: resumo.faturamento.toFixed(2),
-              Pedidos: resumo.pedidos,
-              Unidades: resumo.unidades,
-              "SKUs distintos": resumo.skusDistintos,
-              "Ticket médio": resumo.ticketMedio.toFixed(2),
-              CMV: resumo.cmv.toFixed(2),
-              Impostos: resumo.impostos.toFixed(2),
-              Comissões: resumo.comissoes.toFixed(2),
-              "Lucro líquido": resumo.lucroLiquido.toFixed(2),
-              Margem: formatPercentual(resumo.margem),
-            },
-          ]}
-        />
+        <ExportarDados nomeArquivo="resumo-dashboard" secoes={secoesExport} />
       </div>
 
       <MetaFaturamento

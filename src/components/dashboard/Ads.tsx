@@ -191,7 +191,7 @@ export function Ads() {
 
   // Mesmas linhas da tabela "ADS por canal" — canal e, quando tem mais de
   // uma conta, cada loja individual logo abaixo — prontas pra exportar.
-  const linhasExport = useMemo(() => {
+  const linhasCanalExport = useMemo(() => {
     const linhas: Record<string, string | number>[] = [];
     for (const c of porCanal) {
       linhas.push({
@@ -214,10 +214,78 @@ export function Ads() {
     return linhas;
   }, [porCanal, contasPorCanal]);
 
+  // Linha única com TODOS os indicadores da aba, coluna por coluna — o
+  // "resumo geral" do ADS pra quem quer olhar tudo de uma vez na planilha.
+  const linhasResumoExport = useMemo(
+    () => [
+      {
+        "Faturamento total": formatBRL(resumo.faturamento),
+        "Investimento total": formatBRL(investimento),
+        ROAS: `${roas.toFixed(2)}x`,
+        ACOS: formatPercentual(acos),
+        "Pedidos via ADS": qtdPedidosAds,
+        "Cliques (estimado)": totalCliques,
+        "Impressões (estimado)": totalImpressoes,
+        "CPC (estimado)": formatBRL(cpc),
+        "CTR (assumido)": formatPercentual(ctr),
+        Conversão: formatPercentual(taxaConversao),
+        "Ticket médio via ADS": formatBRL(ticketMedioAds),
+        "CPM (estimado)": formatBRL(cpm),
+        TACOS: formatPercentual(tacos),
+        "Lucro antes de ADS": formatBRL(resumo.lucroLiquido),
+        "Lucro pós-ADS": formatBRL(lucroPosAds),
+      },
+    ],
+    [
+      resumo,
+      investimento,
+      roas,
+      acos,
+      qtdPedidosAds,
+      totalCliques,
+      totalImpressoes,
+      cpc,
+      ctr,
+      taxaConversao,
+      ticketMedioAds,
+      cpm,
+      tacos,
+      lucroPosAds,
+    ],
+  );
+
+  // Mesma lista de "Mídia sem retorno" mostrada na tela, com os números que
+  // aparecem — vendeu Nx × preço, gasto de ADS e resultado final.
+  const linhasSemRetornoExport = useMemo(
+    () =>
+      semRetorno.map((item) => {
+        const precoMedio = item.quantidade > 0 ? item.faturamento / item.quantidade : 0;
+        return {
+          Produto: item.produto,
+          SKU: item.sku,
+          "Quantidade vendida": item.quantidade,
+          "Preço médio": formatBRL(precoMedio),
+          Faturamento: formatBRL(item.faturamento),
+          "Gasto com ADS": formatBRL(item.custoMidia),
+          "Lucro pós-ADS": formatBRL(item.lucroPosAds),
+        };
+      }),
+    [semRetorno],
+  );
+
+  const secoesExport = useMemo(
+    () => [
+      { titulo: "Resumo geral", linhas: linhasResumoExport },
+      { titulo: "ADS por canal", linhas: linhasCanalExport },
+      { titulo: "Mídia sem retorno", linhas: linhasSemRetornoExport },
+    ],
+    [linhasResumoExport, linhasCanalExport, linhasSemRetornoExport],
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
-        <ExportarDados nomeArquivo="ads" linhas={linhasExport} />
+        <ExportarDados nomeArquivo="ads" secoes={secoesExport} />
       </div>
 
       <div className="rounded-xl bg-muted/40 px-4 py-2.5 text-[11px] text-muted-foreground">
