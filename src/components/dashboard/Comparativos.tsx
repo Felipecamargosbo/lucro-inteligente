@@ -9,13 +9,13 @@ import {
   YAxis,
 } from "recharts";
 import { usePeriodo } from "@/context/periodo";
+import { periodoAnterior } from "@/lib/period";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { vendasService } from "@/services";
 import {
   agruparPorSku,
   anoMesDeHoje,
   filtrarPorPeriodo,
-  periodoAnterior,
   periodoDoMes,
   resumir,
   seriePorDia,
