@@ -56,7 +56,8 @@ export function ExportarDados({
       XLSX.utils.book_append_sheet(livro, planilha, "Dados");
       XLSX.writeFile(livro, `${nomeArquivo}.xlsx`);
       toast.success("Arquivo Excel gerado com sucesso.");
-    } catch {
+    } catch (erro) {
+      console.error("Falha ao exportar Excel:", erro);
       toast.error("Não foi possível gerar o Excel agora. Tente novamente.");
     }
   };
@@ -64,10 +65,19 @@ export function ExportarDados({
   const exportarPDF = async () => {
     if (!linhas.length) return avisarSemDados();
     try {
-      const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+      const [{ jsPDF }, autoTableModulo] = await Promise.all([
         import("jspdf"),
         import("jspdf-autotable"),
       ]);
+      // Dependendo de como o Vercel empacota essa biblioteca (CommonJS
+      // interoperando com ESM), a função pode vir direto em "default" ou
+      // embrulhada mais uma vez em "default.default" — cobrimos os dois casos.
+      const autoTablePossivelmenteEmbrulhado = autoTableModulo.default as unknown;
+      const autoTable = (
+        typeof autoTablePossivelmenteEmbrulhado === "function"
+          ? autoTablePossivelmenteEmbrulhado
+          : (autoTablePossivelmenteEmbrulhado as { default: unknown }).default
+      ) as typeof import("jspdf-autotable").default;
       const colunas = Object.keys(linhas[0]!);
       const doc = new jsPDF({ orientation: colunas.length > 6 ? "landscape" : "portrait" });
       doc.setFontSize(12);
@@ -81,7 +91,8 @@ export function ExportarDados({
       });
       doc.save(`${nomeArquivo}.pdf`);
       toast.success("Arquivo PDF gerado com sucesso.");
-    } catch {
+    } catch (erro) {
+      console.error("Falha ao exportar PDF:", erro);
       toast.error("Não foi possível gerar o PDF agora. Tente novamente.");
     }
   };
