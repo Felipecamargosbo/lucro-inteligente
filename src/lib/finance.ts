@@ -274,6 +274,10 @@ export interface ResumoPeriodo {
   faturamento: number;
   pedidos: number;
   ticketMedio: number;
+  /** Soma de unidades vendidas (não confundir com skusDistintos) */
+  unidades: number;
+  /** Quantos produtos diferentes venderam — se caiu 1 venda daquele SKU, conta 1 */
+  skusDistintos: number;
   cmv: number;
   impostos: number;
   comissoes: number;
@@ -299,11 +303,15 @@ export function resumir(pedidos: Pedido[]): ResumoPeriodo {
   const faturamento = soma((p) => p.faturamento);
   const lucroLiquido = soma((p) => p.lucroLiquido);
   const outrosCustos = soma((p) => p.outrosCustos + p.taxaFixa + p.descontos);
+  const unidades = validos.reduce((acc, p) => acc + p.quantidade, 0);
+  const skusDistintos = new Set(validos.map((p) => p.sku)).size;
 
   return {
     faturamento,
     pedidos: validos.length,
     ticketMedio: validos.length ? faturamento / validos.length : 0,
+    unidades,
+    skusDistintos,
     cmv: soma((p) => p.cmv),
     impostos: soma((p) => p.impostos),
     comissoes: soma((p) => p.comissao),
