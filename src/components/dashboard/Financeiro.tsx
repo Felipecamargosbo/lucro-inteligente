@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import {
   Bar,
   BarChart,
@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { usePeriodo } from "@/context/periodo";
 import { useSelecaoContas } from "@/context/selecao-contas";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { vendasService } from "@/services";
 import { CANAIS } from "@/config/navegacao";
 import { filtrarPorPeriodo } from "@/lib/finance";
@@ -18,7 +19,7 @@ import { formatBRL, formatBRLCompacto, formatData, formatNumero, formatPercentua
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { cn } from "@/lib/utils";
-import type { MarketplaceId, Pedido } from "@/types";
+import type { ContaMarketplace, MarketplaceId, Pedido } from "@/types";
 
 const MS_POR_DIA = 86400000;
 
@@ -44,9 +45,7 @@ function diasAteRepasse(p: Pedido, hoje: Date) {
   return Math.ceil((new Date(p.previsaoRepasse).getTime() - hoje.getTime()) / MS_POR_DIA);
 }
 
-interface ResumoCanalFinanceiro {
-  id: MarketplaceId;
-  titulo: string;
+interface ResumoEscopoFinanceiro {
   prazoMedioDias: number;
   recebido: number;
   pendente: number;
@@ -55,9 +54,67 @@ interface ResumoCanalFinanceiro {
   faturamento: number;
 }
 
+/** Recebíveis e devoluções de um conjunto qualquer de pedidos já filtrado
+ * (por canal ou por conta) — reaproveitado nos dois níveis da tabela. */
+function resumirEscopoFinanceiro(itensDoEscopo: Pedido[], hoje: Date): ResumoEscopoFinanceiro {
+  if (itensDoEscopo.length === 0) {
+    return {
+      prazoMedioDias: 0,
+      recebido: 0,
+      pendente: 0,
+      valorDevolvido: 0,
+      pedidosDevolvidos: 0,
+      faturamento: 0,
+    };
+  }
+  const prazos = itensDoEscopo.map(
+    (p) => (new Date(p.previsaoRepasse).getTime() - new Date(p.data).getTime()) / MS_POR_DIA,
+  );
+  const prazoMedioDias = Math.round(prazos.reduce((s, v) => s + v, 0) / prazos.length);
+  const devolvidosDoEscopo = itensDoEscopo.filter((p) => p.valorDevolvido > 0);
+  return {
+    prazoMedioDias,
+    recebido: itensDoEscopo
+      .filter((p) => diasAteRepasse(p, hoje) <= 0)
+      .reduce((s, p) => s + p.faturamento, 0),
+    pendente: itensDoEscopo
+      .filter((p) => diasAteRepasse(p, hoje) > 0)
+      .reduce((s, p) => s + p.faturamento, 0),
+    valorDevolvido: devolvidosDoEscopo.reduce((s, p) => s + p.valorDevolvido, 0),
+    pedidosDevolvidos: devolvidosDoEscopo.length,
+    faturamento: itensDoEscopo.reduce((s, p) => s + p.faturamento, 0),
+  };
+}
+
+interface ResumoCanalFinanceiro extends ResumoEscopoFinanceiro {
+  id: MarketplaceId;
+  titulo: string;
+}
+
+interface ResumoContaFinanceiro extends ResumoEscopoFinanceiro {
+  id: string;
+  nome: string;
+}
+
+/** Mesma quebra de recebíveis/devoluções, mas por CONTA — pra abrir o canal e
+ * ver o resultado de cada loja individual, igual já é feito em Canais. */
+function resumirContasFinanceiro(
+  atuais: Pedido[],
+  contasDoCanal: ContaMarketplace[],
+  hoje: Date,
+): ResumoContaFinanceiro[] {
+  return contasDoCanal
+    .map((conta) => {
+      const daConta = atuais.filter((p) => p.contaId === conta.id);
+      return { id: conta.id, nome: conta.nome, ...resumirEscopoFinanceiro(daConta, hoje) };
+    })
+    .filter((c) => c.faturamento > 0);
+}
+
 export function Financeiro() {
   const { periodo } = usePeriodo();
   const { filtrarPorSelecao } = useSelecaoContas();
+  const { contas } = useConfiguracoes();
   const pedidos = filtrarPorSelecao(vendasService.listar());
 
   const dados = useMemo(() => {
@@ -86,33 +143,7 @@ export function Financeiro() {
 
     const porCanal: ResumoCanalFinanceiro[] = CANAIS.map((canal) => {
       const doCanal = atuais.filter((p) => p.marketplaceId === canal.id);
-      if (doCanal.length === 0) {
-        return {
-          id: canal.id,
-          titulo: canal.titulo,
-          prazoMedioDias: 0,
-          recebido: 0,
-          pendente: 0,
-          valorDevolvido: 0,
-          pedidosDevolvidos: 0,
-          faturamento: 0,
-        };
-      }
-      const prazos = doCanal.map(
-        (p) => (new Date(p.previsaoRepasse).getTime() - new Date(p.data).getTime()) / MS_POR_DIA,
-      );
-      const prazoMedioDias = Math.round(prazos.reduce((s, v) => s + v, 0) / prazos.length);
-      const doCanalDevolvidos = doCanal.filter((p) => p.valorDevolvido > 0);
-      return {
-        id: canal.id,
-        titulo: canal.titulo,
-        prazoMedioDias,
-        recebido: doCanal.filter((p) => diasAteRepasse(p, hoje) <= 0).reduce((s, p) => s + p.faturamento, 0),
-        pendente: doCanal.filter((p) => diasAteRepasse(p, hoje) > 0).reduce((s, p) => s + p.faturamento, 0),
-        valorDevolvido: doCanalDevolvidos.reduce((s, p) => s + p.valorDevolvido, 0),
-        pedidosDevolvidos: doCanalDevolvidos.length,
-        faturamento: doCanal.reduce((s, p) => s + p.faturamento, 0),
-      };
+      return { id: canal.id, titulo: canal.titulo, ...resumirEscopoFinanceiro(doCanal, hoje) };
     }).filter((c) => c.faturamento > 0);
 
     const recentes = devolvidos
@@ -144,6 +175,17 @@ export function Financeiro() {
     porCanal,
     recentes,
   } = dados;
+
+  // Contas por canal, só pra abrir o detalhe nas tabelas — mesmo padrão de Canais.
+  const contasPorCanal = useMemo(() => {
+    const hoje = new Date();
+    const mapa = new Map<MarketplaceId, ResumoContaFinanceiro[]>();
+    for (const canal of CANAIS) {
+      const doCanal = contas.filter((c) => c.marketplaceId === canal.id);
+      mapa.set(canal.id, resumirContasFinanceiro(atuais, doCanal, hoje));
+    }
+    return mapa;
+  }, [atuais, contas]);
 
   const proximos7 = porFaixa.find((f) => f.id === "7")?.valor ?? 0;
   const mais30 = porFaixa.find((f) => f.id === "30+")?.valor ?? 0;
@@ -232,25 +274,56 @@ export function Financeiro() {
                 </tr>
               </thead>
               <tbody>
-                {porCanal.map((c) => (
-                  <tr key={c.id} className="border-b last:border-0">
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <LogoMarketplace id={c.id} tamanho="xs" />
-                        <span className="text-xs font-medium">{c.titulo}</span>
-                      </div>
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
-                      D+{c.prazoMedioDias}
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs font-semibold text-profit">
-                      {formatBRL(c.recebido)}
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs font-semibold">
-                      {formatBRL(c.pendente)}
-                    </td>
-                  </tr>
-                ))}
+                {porCanal.map((c) => {
+                  const contasDoCanal = contasPorCanal.get(c.id) ?? [];
+                  const temVariasContas = contasDoCanal.length > 1;
+                  return (
+                    <Fragment key={c.id}>
+                      <tr className={cn("border-b", temVariasContas && "bg-muted/10")}>
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <LogoMarketplace id={c.id} tamanho="xs" />
+                            <span className="text-xs font-medium">{c.titulo}</span>
+                            {temVariasContas && (
+                              <span className="text-[10px] text-muted-foreground">
+                                ({contasDoCanal.length} contas)
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                          D+{c.prazoMedioDias}
+                        </td>
+                        <td className="num px-3 py-3 text-right text-xs font-semibold text-profit">
+                          {formatBRL(c.recebido)}
+                        </td>
+                        <td className="num px-3 py-3 text-right text-xs font-semibold">
+                          {formatBRL(c.pendente)}
+                        </td>
+                      </tr>
+
+                      {temVariasContas &&
+                        contasDoCanal.map((conta) => (
+                          <tr key={conta.id} className="border-b last:border-0">
+                            <td className="py-2.5 pl-11 pr-5">
+                              <span className="text-[11px] text-muted-foreground">
+                                {conta.nome}
+                              </span>
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              D+{conta.prazoMedioDias}
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {formatBRL(conta.recebido)}
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {formatBRL(conta.pendente)}
+                            </td>
+                          </tr>
+                        ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -288,25 +361,58 @@ export function Financeiro() {
                 </tr>
               </thead>
               <tbody>
-                {porCanal.map((c) => (
-                  <tr key={c.id} className="border-b last:border-0">
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <LogoMarketplace id={c.id} tamanho="xs" />
-                        <span className="text-xs font-medium">{c.titulo}</span>
-                      </div>
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs">
-                      {formatNumero(c.pedidosDevolvidos)}
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs font-semibold text-loss">
-                      {c.valorDevolvido > 0 ? formatBRL(c.valorDevolvido) : "—"}
-                    </td>
-                    <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
-                      {c.faturamento ? formatPercentual(c.valorDevolvido / c.faturamento) : "—"}
-                    </td>
-                  </tr>
-                ))}
+                {porCanal.map((c) => {
+                  const contasDoCanal = contasPorCanal.get(c.id) ?? [];
+                  const temVariasContas = contasDoCanal.length > 1;
+                  return (
+                    <Fragment key={c.id}>
+                      <tr className={cn("border-b", temVariasContas && "bg-muted/10")}>
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <LogoMarketplace id={c.id} tamanho="xs" />
+                            <span className="text-xs font-medium">{c.titulo}</span>
+                            {temVariasContas && (
+                              <span className="text-[10px] text-muted-foreground">
+                                ({contasDoCanal.length} contas)
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="num px-3 py-3 text-right text-xs">
+                          {formatNumero(c.pedidosDevolvidos)}
+                        </td>
+                        <td className="num px-3 py-3 text-right text-xs font-semibold text-loss">
+                          {c.valorDevolvido > 0 ? formatBRL(c.valorDevolvido) : "—"}
+                        </td>
+                        <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                          {c.faturamento ? formatPercentual(c.valorDevolvido / c.faturamento) : "—"}
+                        </td>
+                      </tr>
+
+                      {temVariasContas &&
+                        contasDoCanal.map((conta) => (
+                          <tr key={conta.id} className="border-b last:border-0">
+                            <td className="py-2.5 pl-11 pr-5">
+                              <span className="text-[11px] text-muted-foreground">
+                                {conta.nome}
+                              </span>
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {formatNumero(conta.pedidosDevolvidos)}
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {conta.valorDevolvido > 0 ? formatBRL(conta.valorDevolvido) : "—"}
+                            </td>
+                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                              {conta.faturamento
+                                ? formatPercentual(conta.valorDevolvido / conta.faturamento)
+                                : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
