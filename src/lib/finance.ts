@@ -334,7 +334,10 @@ export interface PontoDia {
   data: string; // ISO
   faturamento: number;
   lucro: number;
+  /** Contagem de pedidos válidos no dia — não confundir com unidades */
   pedidos: number;
+  /** Soma de unidades vendidas no dia (um pedido pode ter mais de 1 unidade) */
+  unidades: number;
 }
 
 export function seriePorDia(pedidos: Pedido[], periodo: Periodo): PontoDia[] {
@@ -347,6 +350,7 @@ export function seriePorDia(pedidos: Pedido[], periodo: Periodo): PontoDia[] {
       faturamento: 0,
       lucro: 0,
       pedidos: 0,
+      unidades: 0,
     });
   }
   for (const p of pedidos) {
@@ -356,7 +360,8 @@ export function seriePorDia(pedidos: Pedido[], periodo: Periodo): PontoDia[] {
     if (!ponto) continue;
     ponto.faturamento += p.faturamento;
     ponto.lucro += p.lucroLiquido;
-    ponto.pedidos += p.quantidade;
+    ponto.pedidos += 1;
+    ponto.unidades += p.quantidade;
   }
   return [...mapa.values()];
 }
@@ -413,4 +418,57 @@ export function projetarMes(pedidos: Pedido[], hoje = new Date()): Projecao {
     diasDecorridos,
     diasNoMes,
   };
+}
+
+const NOMES_MES = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
+/** Converte "AAAA-MM" (formato do <input type="month">) num Período do mês cheio. */
+export function periodoDoMes(anoMes: string): Periodo {
+  const [ano, mes] = anoMes.split("-").map(Number);
+  const inicio = new Date(ano!, mes! - 1, 1, 0, 0, 0, 0);
+  const fim = new Date(ano!, mes!, 0, 23, 59, 59, 999);
+  return { inicio, fim, rotulo: `${NOMES_MES[mes! - 1]} de ${ano}` };
+}
+
+export function anoMesDeHoje(deslocamentoMeses = 0): string {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + deslocamentoMeses);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export interface ItemAgregadoSku {
+  sku: string;
+  produto: string;
+  unidades: number;
+  faturamento: number;
+  lucro: number;
+  margem: number;
+}
+
+/** Agrupa pedidos válidos por SKU, somando unidades, faturamento e lucro. */
+export function agruparPorSku(pedidos: Pedido[]): ItemAgregadoSku[] {
+  const mapa = new Map<string, ItemAgregadoSku>();
+  for (const p of pedidos) {
+    if (p.status === "cancelado") continue;
+    const atual = mapa.get(p.sku) ?? {
+      sku: p.sku,
+      produto: p.produto,
+      unidades: 0,
+      faturamento: 0,
+      lucro: 0,
+      margem: 0,
+    };
+    atual.unidades += p.quantidade;
+    atual.faturamento += p.faturamento;
+    atual.lucro += p.lucroLiquido;
+    mapa.set(p.sku, atual);
+  }
+  for (const item of mapa.values()) {
+    item.margem = item.faturamento ? item.lucro / item.faturamento : 0;
+  }
+  return [...mapa.values()];
 }

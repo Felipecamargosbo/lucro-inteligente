@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Construction } from "lucide-react";
 import { VisaoGeral } from "@/components/dashboard/VisaoGeral";
+import { Comparativos } from "@/components/dashboard/Comparativos";
 import { Painel } from "@/components/comum/Indicadores";
 import { cn } from "@/lib/utils";
 
@@ -109,6 +110,8 @@ function Dashboard() {
 
       {aba === "visao-geral" ? (
         <VisaoGeral />
+      ) : aba === "comparativos" ? (
+        <Comparativos />
       ) : (
         <EmConstrucao
           titulo={ABAS.find((a) => a.id === aba)!.titulo}
