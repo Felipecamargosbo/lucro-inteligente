@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Check, Link2, Pencil, RefreshCw } from "lucide-react";
+import { Check, ChevronDown, Link2, Pencil, RefreshCw } from "lucide-react";
 import { anunciosService, contasService, produtosService } from "@/services";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { CANAIS } from "@/config/navegacao";
@@ -11,6 +11,8 @@ import { ExportarDados } from "@/components/comum/ExportarDados";
 import { DialogVincularProduto } from "@/components/comum/DialogVincularProduto";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -46,14 +48,107 @@ type StatusFiltro = "todos" | "vinculado" | "sem-vinculo";
  * anúncio ainda sem vínculo (com ação de vincular) — o mesmo lugar, duas
  * naturezas de linha, pra não obrigar o seller a ficar pulando de tela. */
 type LinhaCatalogo =
-  | { tipo: "produto"; id: string; produto: Produto; qtd: number; marketplaces: MarketplaceId[] }
+  | {
+      tipo: "produto";
+      id: string;
+      produto: Produto;
+      qtd: number;
+      marketplaces: MarketplaceId[];
+      contas: string[];
+    }
   | { tipo: "pendente"; id: string; anuncio: Anuncio };
+
+/** Lista suspensa com caixinhas de marcar — pra filtrar por vários canais ou
+ * várias contas ao mesmo tempo (ex: ver Shopee + Mercado Livre juntos). */
+function FiltroMultiSelect<T extends string>({
+  rotulo,
+  todosRotulo,
+  opcoes,
+  selecionados,
+  aoMudar,
+}: {
+  rotulo: string;
+  todosRotulo: string;
+  opcoes: { valor: T; titulo: string; qtd: number }[];
+  selecionados: Set<T>;
+  aoMudar: (proximo: Set<T>) => void;
+}) {
+  const alternar = (valor: T) => {
+    const proximo = new Set(selecionados);
+    if (proximo.has(valor)) proximo.delete(valor);
+    else proximo.add(valor);
+    aoMudar(proximo);
+  };
+
+  const rotuloBotao =
+    selecionados.size === 0
+      ? todosRotulo
+      : selecionados.size === 1
+        ? (opcoes.find((o) => selecionados.has(o.valor))?.titulo ?? todosRotulo)
+        : `${selecionados.size} selecionados`;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 w-56 justify-between text-xs font-normal"
+        >
+          <span className="truncate">{rotuloBotao}</span>
+          <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 p-2">
+        <div className="flex items-center justify-between px-1 pb-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {rotulo}
+          </p>
+          {selecionados.size > 0 && (
+            <button
+              onClick={() => aoMudar(new Set())}
+              className="text-[10px] font-medium text-brand hover:underline"
+            >
+              Limpar
+            </button>
+          )}
+        </div>
+        <div className="max-h-64 space-y-0.5 overflow-y-auto">
+          {opcoes.map((o) => (
+            <label
+              key={o.valor}
+              className="flex cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted"
+            >
+              <span className="flex items-center gap-2">
+                <Checkbox
+                  checked={selecionados.has(o.valor)}
+                  onCheckedChange={() => alternar(o.valor)}
+                />
+                {o.titulo}
+              </span>
+              <span className="num text-[10px] text-muted-foreground">
+                {formatNumero(o.qtd)}
+              </span>
+            </label>
+          ))}
+          {opcoes.length === 0 && (
+            <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+              Nenhuma opção com os filtros atuais
+            </p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function Produtos() {
   const { atualizarConta } = useConfiguracoes();
   const [busca, setBusca] = useState("");
   const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>("todos");
-  const [canalFiltro, setCanalFiltro] = useState<MarketplaceId | "todos">("todos");
+  // Vazio = "todos os canais/lojas" — selecionar um ou mais restringe a lista.
+  const [canaisFiltro, setCanaisFiltro] = useState<Set<MarketplaceId>>(new Set());
+  const [contasFiltro, setContasFiltro] = useState<Set<string>>(new Set());
   const [editando, setEditando] = useState<string | null>(null);
   const [valorEdicao, setValorEdicao] = useState("");
   const [sincronizando, setSincronizando] = useState(false);
@@ -68,7 +163,23 @@ function Produtos() {
   const vinculosDoProduto = (produtoId: string) => {
     const vinculados = anuncios.filter((a) => a.produtoId === produtoId);
     const marketplaces = [...new Set(vinculados.map((a) => a.marketplaceId))];
-    return { totalAnuncios: vinculados.length, marketplaces };
+    const contas = [...new Set(vinculados.map((a) => a.contaId))];
+    return { totalAnuncios: vinculados.length, marketplaces, contas };
+  };
+
+  /** Troca o canal selecionado e já tira do filtro de loja qualquer conta que
+   * não pertença mais a nenhum dos canais escolhidos — pra não deixar um
+   * filtro de loja "fantasma" travado depois de mudar o canal. */
+  const mudarCanaisFiltro = (proximo: Set<MarketplaceId>) => {
+    setCanaisFiltro(proximo);
+    if (proximo.size === 0) return;
+    setContasFiltro((atual) => {
+      const validas = new Set(
+        contasService.listar().filter((c) => proximo.has(c.marketplaceId)).map((c) => c.id),
+      );
+      const filtrado = new Set([...atual].filter((id) => validas.has(id)));
+      return filtrado.size === atual.size ? atual : filtrado;
+    });
   };
 
   const totalAnuncios = anuncios.length;
@@ -78,8 +189,8 @@ function Produtos() {
   // tudo na mesma tabela, filtrado do mesmo jeito.
   const linhas = useMemo<LinhaCatalogo[]>(() => {
     const doProdutos: LinhaCatalogo[] = produtosService.listar().map((p) => {
-      const { totalAnuncios: qtd, marketplaces } = vinculosDoProduto(p.id);
-      return { tipo: "produto", id: p.id, produto: p, qtd, marketplaces };
+      const { totalAnuncios: qtd, marketplaces, contas } = vinculosDoProduto(p.id);
+      return { tipo: "produto", id: p.id, produto: p, qtd, marketplaces, contas };
     });
     const doPendentes: LinhaCatalogo[] = pendentes
       // Faturamento perdido primeiro: resolver o que mais vende rende mais
@@ -90,6 +201,9 @@ function Produtos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, pendentes]);
 
+  // Contagens "facetadas": o filtro de canal respeita a loja já escolhida, e
+  // vice-versa — assim os números na lista suspensa nunca mentem sobre o que
+  // vai aparecer se você marcar aquela opção.
   const contagemPorCanal = useMemo(() => {
     // Começa com todos os canais em 0 — assim nenhum some da lista, mesmo
     // sem nada vinculado ainda (é só entrar e ver zerado).
@@ -97,11 +211,43 @@ function Produtos() {
     for (const l of linhas) {
       if (statusFiltro === "vinculado" && l.tipo !== "produto") continue;
       if (statusFiltro === "sem-vinculo" && l.tipo !== "pendente") continue;
+      const contas = l.tipo === "produto" ? l.contas : [l.anuncio.contaId];
+      if (contasFiltro.size > 0 && !contas.some((c) => contasFiltro.has(c))) continue;
       const canais = l.tipo === "produto" ? l.marketplaces : [l.anuncio.marketplaceId];
       for (const c of canais) mapa.set(c, (mapa.get(c) ?? 0) + 1);
     }
     return mapa;
-  }, [linhas, statusFiltro]);
+  }, [linhas, statusFiltro, contasFiltro]);
+
+  const contagemPorConta = useMemo(() => {
+    const mapa = new Map<string, number>(contasService.listar().map((c) => [c.id, 0]));
+    for (const l of linhas) {
+      if (statusFiltro === "vinculado" && l.tipo !== "produto") continue;
+      if (statusFiltro === "sem-vinculo" && l.tipo !== "pendente") continue;
+      const canais = l.tipo === "produto" ? l.marketplaces : [l.anuncio.marketplaceId];
+      if (canaisFiltro.size > 0 && !canais.some((c) => canaisFiltro.has(c))) continue;
+      const contas = l.tipo === "produto" ? l.contas : [l.anuncio.contaId];
+      for (const c of contas) mapa.set(c, (mapa.get(c) ?? 0) + 1);
+    }
+    return mapa;
+  }, [linhas, statusFiltro, canaisFiltro]);
+
+  // Lojas disponíveis pra marcar: só as dos canais escolhidos (ou todas, se
+  // nenhum canal estiver marcado) — evita listar "Amazon Outlet" quando só
+  // Shopee está selecionado.
+  const opcoesConta = useMemo(() => {
+    return contasService
+      .listar()
+      .filter((c) => canaisFiltro.size === 0 || canaisFiltro.has(c.marketplaceId))
+      .map((c) => {
+        const canal = CANAIS.find((cn) => cn.id === c.marketplaceId);
+        return {
+          valor: c.id,
+          titulo: canal ? `${c.nome} · ${canal.titulo}` : c.nome,
+          qtd: contagemPorConta.get(c.id) ?? 0,
+        };
+      });
+  }, [canaisFiltro, contagemPorConta]);
 
   const linhasFiltradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -110,7 +256,10 @@ function Produtos() {
       if (statusFiltro === "sem-vinculo" && l.tipo !== "pendente") return false;
 
       const canais = l.tipo === "produto" ? l.marketplaces : [l.anuncio.marketplaceId];
-      if (canalFiltro !== "todos" && !canais.includes(canalFiltro)) return false;
+      if (canaisFiltro.size > 0 && !canais.some((c) => canaisFiltro.has(c))) return false;
+
+      const contas = l.tipo === "produto" ? l.contas : [l.anuncio.contaId];
+      if (contasFiltro.size > 0 && !contas.some((c) => contasFiltro.has(c))) return false;
 
       if (termo) {
         const alvo =
@@ -121,7 +270,7 @@ function Produtos() {
       }
       return true;
     });
-  }, [linhas, statusFiltro, canalFiltro, busca]);
+  }, [linhas, statusFiltro, canaisFiltro, contasFiltro, busca]);
 
   const iniciarEdicao = (produto: Produto) => {
     setEditando(produto.id);
@@ -227,46 +376,70 @@ function Produtos() {
           </div>
         </div>
 
-        {/* Busca + duas listas suspensas: status (vinculado/sem vínculo) e canal */}
-        <div className="flex flex-wrap items-center gap-2 border-b p-4">
-          <Input
-            placeholder="Buscar por SKU, EAN ou nome"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            className="h-8 max-w-xs text-xs"
-          />
+        {/* Busca + 3 filtros, cada um com sua etiqueta — pra nunca ficar
+            ambíguo o que "Todos" significa (todos os quê?). Canal e Loja
+            aceitam marcar mais de uma opção ao mesmo tempo (ex: ver Shopee +
+            Mercado Livre juntos). */}
+        <div className="flex flex-wrap items-end gap-3 border-b p-4">
+          <div>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Buscar
+            </p>
+            <Input
+              placeholder="SKU, EAN ou nome"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              className="h-8 w-48 text-xs"
+            />
+          </div>
 
-          <Select value={statusFiltro} onValueChange={(v) => setStatusFiltro(v as StatusFiltro)}>
-            <SelectTrigger className="h-8 w-48 text-xs">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              {BOTOES_STATUS.map((b) => (
-                <SelectItem key={b.id} value={b.id}>
-                  {b.rotulo} ({formatNumero(b.qtd)})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Vínculo com CMV
+            </p>
+            <Select value={statusFiltro} onValueChange={(v) => setStatusFiltro(v as StatusFiltro)}>
+              <SelectTrigger className="h-8 w-48 text-xs">
+                <SelectValue placeholder="Vínculo" />
+              </SelectTrigger>
+              <SelectContent>
+                {BOTOES_STATUS.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>
+                    {b.rotulo} ({formatNumero(b.qtd)})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-          <Select
-            value={canalFiltro}
-            onValueChange={(v) => setCanalFiltro(v as MarketplaceId | "todos")}
-          >
-            <SelectTrigger className="h-8 w-56 text-xs">
-              <SelectValue placeholder="Canal" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">
-                Todos os canais ({formatNumero([...contagemPorCanal.values()].reduce((s, n) => s + n, 0))})
-              </SelectItem>
-              {CANAIS.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.titulo} ({formatNumero(contagemPorCanal.get(c.id) ?? 0)})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Canal
+            </p>
+            <FiltroMultiSelect
+              rotulo="Marcar um ou mais canais"
+              todosRotulo="Todos os canais"
+              opcoes={CANAIS.map((c) => ({
+                valor: c.id,
+                titulo: c.titulo,
+                qtd: contagemPorCanal.get(c.id) ?? 0,
+              }))}
+              selecionados={canaisFiltro}
+              aoMudar={mudarCanaisFiltro}
+            />
+          </div>
+
+          <div>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Loja / conta
+            </p>
+            <FiltroMultiSelect
+              rotulo="Marcar uma ou mais lojas"
+              todosRotulo="Todas as lojas"
+              opcoes={opcoesConta}
+              selecionados={contasFiltro}
+              aoMudar={setContasFiltro}
+            />
+          </div>
         </div>
 
         <div className="overflow-x-auto">
