@@ -117,7 +117,9 @@ export interface Pedido {
   status: StatusPedido;
   cliente: string;
   telefone: string;
-  /** Full = estoque enviado ao centro de distribuição do marketplace; Coleta = o próprio seller despacha */
+  /** Full = estoque enviado ao centro de distribuição do marketplace; Flex =
+   * o próprio seller entrega, geralmente no mesmo dia; Padrão = o seller
+   * despacha via Correios/transportadora comum. */
   tipoLogistica: TipoLogistica;
   /** UF de entrega do pedido (endereço do cliente) */
   estado: string;
@@ -135,7 +137,7 @@ export interface Pedido {
   motivoDevolucao: string | null;
 }
 
-export type TipoLogistica = "full" | "coleta";
+export type TipoLogistica = "full" | "flex" | "padrao";
 
 export type StatusAnuncio = "ativo" | "pausado" | "sem-estoque";
 
@@ -158,6 +160,23 @@ export type FaixaSaudeMargem =
   | "saudavel"
   | "sem-meta"
   | "sem-custo";
+
+/**
+ * Item do catálogo do seller — onde o CMV mora, uma vez só. Um Produto pode
+ * estar vinculado a vários Anúncios (o mesmo item publicado em vários
+ * marketplaces e contas); o custo nunca é digitado marketplace por
+ * marketplace, só aqui. Mudar o CMV aqui reflete em todo anúncio vinculado.
+ */
+export interface Produto {
+  id: string;
+  /** Código interno do seller — o identificador principal do catálogo */
+  sku: string;
+  /** Código de barras — opcional, usado para tentar auto-vincular um
+   * anúncio recém-puxado do marketplace sem intervenção manual */
+  ean: string | null;
+  nome: string;
+  cmv: number;
+}
 
 export interface Anuncio {
   id: string;
@@ -186,8 +205,12 @@ export interface Anuncio {
   custoAfiliadoUnitario: number;
   /** Se as taxas acima são projeção ou já foram liquidadas pelo canal */
   origemTaxas: OrigemValor;
-  /** Vínculo anúncio ↔ produto do catálogo. Sem ele não há CMV. */
-  produtoVinculado: boolean;
+  /**
+   * Vínculo anúncio ↔ produto do catálogo (Produto.id). null = sem vínculo,
+   * e sem ele não há CMV — o anúncio cai na fila de Pendências até o seller
+   * vincular a um produto existente ou criar um novo a partir dele.
+   */
+  produtoId: string | null;
   status: StatusAnuncio;
   elegivelPromocao: boolean;
   /** Unidades vendidas no período — usado na curva ABC e no realizado */
