@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
-import { RefreshCw, Search, TriangleAlert } from "lucide-react";
+import { toast } from "sonner";
+import { Check, RefreshCw, Search, TriangleAlert } from "lucide-react";
 import { anunciosService } from "@/services";
+import { USUARIO_ATUAL } from "@/data/mock";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { raioXAnuncio, calcularCobertura, type RaioXAnuncio } from "@/lib/finance";
-import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
+import { formatBRL, formatDataHora, formatNumero, formatPercentual } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { Input } from "@/components/ui/input";
@@ -117,10 +119,12 @@ function LinhaAnuncio({
   anuncio,
   conta,
   metas,
+  aoAlterarPreco,
 }: {
   anuncio: Anuncio;
   conta: ContaMarketplace;
   metas: MetasMargem | null;
+  aoAlterarPreco: () => void;
 }) {
   const { fiscal, custoOperacionalDetalhado } = useConfiguracoes();
   const [precoSimulado, setPrecoSimulado] = useState<number | null>(null);
@@ -153,7 +157,7 @@ function LinhaAnuncio({
                 Promo
               </span>
             )}
-            {!anuncio.produtoVinculado && (
+            {!anuncio.produtoId && (
               <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
                 sem vínculo
               </span>
@@ -273,7 +277,7 @@ function LinhaAnuncio({
           )}
         </td>
 
-        {/* Simulador inline */}
+        {/* Simulador inline — também é onde o preço é efetivamente alterado */}
         <td className="whitespace-nowrap px-3 py-3">
           <div className="flex items-center gap-1">
             <Input
@@ -285,13 +289,27 @@ function LinhaAnuncio({
               aria-label={`Simular preço de ${anuncio.produto}`}
             />
             {simulando && (
-              <button
-                onClick={() => setPrecoSimulado(null)}
-                title="Voltar ao preço atual"
-                className="text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <RefreshCw className="size-3.5" />
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    anunciosService.alterarPreco(anuncio.id, precoEmUso, USUARIO_ATUAL.nome);
+                    toast.success("Preço atualizado e registrado no histórico.");
+                    setPrecoSimulado(null);
+                    aoAlterarPreco();
+                  }}
+                  title="Aplicar este preço"
+                  className="text-profit transition-colors hover:text-profit/80"
+                >
+                  <Check className="size-3.5" />
+                </button>
+                <button
+                  onClick={() => setPrecoSimulado(null)}
+                  title="Voltar ao preço atual"
+                  className="text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <RefreshCw className="size-3.5" />
+                </button>
+              </>
             )}
           </div>
         </td>
@@ -316,13 +334,26 @@ export function RaioXAnuncios({ conta }: { conta: ContaMarketplace }) {
   const metas = metasPorConta[conta.id] ?? null;
   const [busca, setBusca] = useState("");
   const [faixaFiltro, setFaixaFiltro] = useState<FaixaSaudeMargem | "todos">("todos");
+  // Preço e vínculo mudam arrays fora do React; este contador força a
+  // releitura depois de cada alteração de preço.
+  const [tick, forcarAtualizacao] = useState(0);
 
   const anuncios = useMemo(
     () => anunciosService.listar().filter((a) => a.contaId === conta.id),
-    [conta.id],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [conta.id, tick],
   );
 
   const cobertura = calcularCobertura(anuncios);
+
+  const historicoDaConta = useMemo(() => {
+    const skus = new Set(anuncios.map((a) => a.sku));
+    return anunciosService
+      .historicoPrecos()
+      .filter((h) => skus.has(h.sku))
+      .slice(0, 8);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anuncios, tick]);
 
   const contagemPorFaixa = useMemo(() => {
     const mapa = new Map<FaixaSaudeMargem, number>();
@@ -483,7 +514,13 @@ export function RaioXAnuncios({ conta }: { conta: ContaMarketplace }) {
             </thead>
             <tbody>
               {filtrados.map((a) => (
-                <LinhaAnuncio key={a.id} anuncio={a} conta={conta} metas={metas} />
+                <LinhaAnuncio
+                  key={a.id}
+                  anuncio={a}
+                  conta={conta}
+                  metas={metas}
+                  aoAlterarPreco={() => forcarAtualizacao((n) => n + 1)}
+                />
               ))}
               {filtrados.length === 0 && (
                 <tr>
@@ -496,6 +533,37 @@ export function RaioXAnuncios({ conta }: { conta: ContaMarketplace }) {
           </table>
         </div>
       </Painel>
+
+      {historicoDaConta.length > 0 && (
+        <Painel
+          titulo="Histórico de preços"
+          descricao="Toda alteração feita pelo simulador acima fica registrada aqui"
+        >
+          <div className="divide-y">
+            {historicoDaConta.map((h) => (
+              <div
+                key={h.id}
+                className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
+              >
+                <div>
+                  <p className="text-xs font-medium">{h.produto}</p>
+                  <p className="num text-[10px] text-muted-foreground">
+                    {h.sku} · {formatDataHora(h.data)} · {h.usuario}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="num text-xs text-muted-foreground line-through">
+                    {formatBRL(h.precoAnterior)}
+                  </span>
+                  <span className="num text-xs font-bold text-foreground">
+                    → {formatBRL(h.precoNovo)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Painel>
+      )}
 
       {!metas && (
         <p className="text-[11px] text-muted-foreground">
