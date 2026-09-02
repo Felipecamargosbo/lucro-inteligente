@@ -16,6 +16,7 @@ import type {
   Notificacao,
   OportunidadeRecuperacao,
   Pedido,
+  Produto,
   Promocao,
   StatusOportunidadeRecuperacao,
   StatusPedido,
@@ -262,14 +263,16 @@ export const CONTAS_ATIVAS = CONTAS.filter(
 export const getMarketplace = (id: MarketplaceId) =>
   MARKETPLACES.find((m) => m.id === id)!;
 
-interface Produto {
+/** Semente de produto usada só para gerar pedidos/anúncios fictícios — não
+ * confundir com o Produto do catálogo (@/types), que é o que o seller edita. */
+interface ProdutoSeed {
   sku: string;
   nome: string;
   preco: number;
   cmv: number;
 }
 
-export const PRODUTOS: Produto[] = [
+export const PRODUTOS: ProdutoSeed[] = [
   { sku: "SW-X-BLK-001", nome: "Smartwatch Series X Titanium Black", preco: 499.9, cmv: 212 },
   { sku: "AU-G3-2026", nome: "Fone Bluetooth Cancelamento de Ruído G3", preco: 289, cmv: 118 },
   { sku: "PWR-GAN-65W", nome: "Carregador Turbo 65W GaN", preco: 189.9, cmv: 74 },
@@ -283,6 +286,26 @@ export const PRODUTOS: Produto[] = [
   { sku: "LUM-RING-18", nome: "Ring Light 18'' com Tripé", preco: 219.9, cmv: 82 },
   { sku: "MOU-SF-2K", nome: "Mouse Sem Fio Silencioso 2.4G", preco: 89.9, cmv: 27 },
 ];
+
+/** Gera um EAN-13 fictício, determinístico pelo índice — só para demonstrar
+ * o auto-vínculo por código de barras. Não é um EAN real/válido. */
+function gerarEanFicticio(indice: number): string {
+  const base = `789${String(1000000 + indice * 37).padStart(9, "0")}`;
+  return base.slice(0, 13);
+}
+
+/**
+ * Catálogo do seller — fonte única do CMV. No protótipo nasce a partir dos
+ * mesmos itens usados para gerar pedidos e anúncios; no futuro será cadastro
+ * do próprio seller (manual ou puxado do marketplace por SKU/EAN).
+ */
+export const PRODUTOS_CATALOGO: Produto[] = PRODUTOS.map((p, i) => ({
+  id: `prod-${p.sku.toLowerCase()}`,
+  sku: p.sku,
+  ean: gerarEanFicticio(i),
+  nome: p.nome,
+  cmv: p.cmv,
+}));
 
 const CLIENTES = [
   "Ana Beatriz Souza",
@@ -350,7 +373,8 @@ const DIAS_REPASSE: Record<MarketplaceId, number> = {
 };
 
 /** Probabilidade de um pedido do canal ter ido via Full (estoque no centro de
- * distribuição do marketplace) em vez de Coleta (o seller despacha). */
+ * distribuição do marketplace) em vez de despachado pelo próprio seller
+ * (Flex ou Padrão). */
 const PROB_FULL: Record<MarketplaceId, number> = {
   "mercado-livre": 0.62,
   shopee: 0.38,
@@ -359,6 +383,11 @@ const PROB_FULL: Record<MarketplaceId, number> = {
   "tiktok-shop": 0.3,
   shein: 0.25,
 };
+
+/** Dos pedidos que não foram Full, chance de terem ido via Flex (o próprio
+ * seller entrega, geralmente no mesmo dia) em vez de Padrão (Correios ou
+ * transportadora comum). */
+const PROB_FLEX_SE_NAO_FULL = 0.4;
 
 const MOTIVOS_DEVOLUCAO = [
   "Produto com defeito",
@@ -419,8 +448,10 @@ function gerarPedidos(): Pedido[] {
       const dataHora = new Date(data);
       dataHora.setHours(hora, minuto, 0, 0);
 
-      const tipoLogistica: TipoLogistica =
-        rand() < PROB_FULL[conta.marketplaceId] ? "full" : "coleta";
+      const tipoLogistica: TipoLogistica = (() => {
+        if (rand() < PROB_FULL[conta.marketplaceId]) return "full";
+        return rand() < PROB_FLEX_SE_NAO_FULL ? "flex" : "padrao";
+      })();
       const estado = escolherEstado(rand);
 
       const previsaoRepasseData = new Date(dataHora);
@@ -489,12 +520,15 @@ function gerarAnuncios(): Anuncio[] {
   const anuncios: Anuncio[] = [];
 
   for (const produto of PRODUTOS) {
+    const doCatalogo = PRODUTOS_CATALOGO.find((pc) => pc.sku === produto.sku)!;
+
     for (const conta of CONTAS_ATIVAS) {
       const sorteio = rand();
 
       // ~18% do catálogo sem produto vinculado -> sem CMV -> sem margem real
-      const produtoVinculado = sorteio > 0.18;
-      const cmv = produtoVinculado ? produto.cmv : null;
+      const vinculado = sorteio > 0.18;
+      const produtoId = vinculado ? doCatalogo.id : null;
+      const cmv = vinculado ? doCatalogo.cmv : null;
 
       // Alguns anúncios com preço agressivo demais para caírem no vermelho
       const agressivo = rand() > 0.82;
@@ -545,7 +579,7 @@ function gerarAnuncios(): Anuncio[] {
           conta.statusConexao === "conectado" && rand() > 0.35
             ? "liquidado"
             : "estimado",
-        produtoVinculado,
+        produtoId,
         status: rand() > 0.9 ? "pausado" : rand() > 0.95 ? "sem-estoque" : "ativo",
         elegivelPromocao: rand() > 0.55,
         unidadesVendidas: Math.floor(rand() * rand() * 90),
