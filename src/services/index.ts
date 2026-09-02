@@ -23,7 +23,7 @@ import {
   getConta,
   obterContasAtuais,
 } from "@/data/mock";
-import type { MarketplaceId, Produto } from "@/types";
+import type { Anuncio, ContaMarketplace, MarketplaceId, Produto } from "@/types";
 
 export const vendasService = {
   listar: () => PEDIDOS,
@@ -52,6 +52,59 @@ export const anunciosService = {
       usuario,
     });
     return anuncio;
+  },
+  /**
+   * Simula o "Sincronizar agora": no mundo real, isso chama o feed de
+   * LISTAGENS do marketplace (não o de vendas) e traz todo anúncio publicado,
+   * vendido ou não. Aqui, cada clique fabrica 1 anúncio novo com 0 vendas —
+   * às vezes com SKU que já existe no catálogo (auto-vínculo por SKU/EAN,
+   * o CMV já vem pronto), às vezes com SKU inédito (cai em Pendências, sem
+   * vínculo, até o seller resolver).
+   */
+  puxarNovoAnuncio: (conta: ContaMarketplace): Anuncio => {
+    const jaVinculados = new Set(
+      ANUNCIOS.filter((a) => a.contaId === conta.id && a.produtoId).map((a) => a.produtoId),
+    );
+    const catalogoDisponivel = PRODUTOS_CATALOGO.filter((p) => !jaVinculados.has(p.id));
+    const autoVincula = catalogoDisponivel.length > 0 && Math.random() > 0.5;
+    const produtoBase = autoVincula
+      ? catalogoDisponivel[Math.floor(Math.random() * catalogoDisponivel.length)]!
+      : null;
+
+    const sufixo = Math.random().toString(36).slice(2, 7).toUpperCase();
+    const sku = produtoBase ? produtoBase.sku : `NOVO-${sufixo}`;
+    const nome = produtoBase ? produtoBase.nome : `Produto novo ${sufixo}`;
+    const precoAtual = produtoBase
+      ? Math.round(produtoBase.cmv * 2.2 * 100) / 100
+      : Math.round((99 + Math.random() * 300) * 100) / 100;
+
+    const novoAnuncio: Anuncio = {
+      id: `${conta.id}-${sku}-${Date.now()}`,
+      marketplaceId: conta.marketplaceId,
+      contaId: conta.id,
+      sku,
+      produto: nome,
+      precoAtual,
+      precoCheio: null,
+      emPromocao: false,
+      cmv: produtoBase ? produtoBase.cmv : null,
+      impostoPercentual: 0.1,
+      comissaoPercentual: conta.comissaoPercentual,
+      taxaFixa: conta.taxaFixa,
+      freteUnitario: 0,
+      custoMidiaUnitario: 0,
+      custoAfiliadoUnitario: 0,
+      origemTaxas: "estimado",
+      produtoId: produtoBase ? produtoBase.id : null,
+      status: "ativo",
+      elegivelPromocao: false,
+      // Recém-publicado: ainda não vendeu nada — é isso que prova que ele
+      // vem da listagem, não do histórico de vendas.
+      unidadesVendidas: 0,
+    };
+
+    ANUNCIOS.push(novoAnuncio);
+    return novoAnuncio;
   },
 };
 
