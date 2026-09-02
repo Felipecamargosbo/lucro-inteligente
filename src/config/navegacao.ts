@@ -50,7 +50,9 @@ export const MENU: ItemMenu[] = [
     grupo: "Análise",
     descricao: "O CMV de cada produto, cadastrado uma vez só",
     usaPeriodo: false,
-    usaFiltroContas: false,
+    // Mesmo filtro global de canal/loja do Dashboard, na mesma posição —
+    // ao lado do título, lá na barra de cima.
+    usaFiltroContas: true,
   },
   {
     titulo: "Calculadora",
