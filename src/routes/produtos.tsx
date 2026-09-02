@@ -1,19 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Check, ChevronDown, Link2, Pencil, RefreshCw } from "lucide-react";
+import { Check, Link2, Pencil, RefreshCw } from "lucide-react";
 import { anunciosService, contasService, produtosService } from "@/services";
 import { useConfiguracoes } from "@/context/configuracoes";
-import { CANAIS } from "@/config/navegacao";
+import { useSelecaoContas } from "@/context/selecao-contas";
 import { formatBRL, formatNumero } from "@/lib/format";
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
-import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { DialogVincularProduto } from "@/components/comum/DialogVincularProduto";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -63,167 +60,15 @@ type LinhaCatalogo =
     }
   | { tipo: "pendente"; id: string; anuncio: Anuncio };
 
-/**
- * Filtro único de canal + loja, em árvore — igual o "Todas as contas" do
- * Dashboard: uma lista só, o canal por cima com sua caixinha, as lojas
- * daquele canal logo abaixo dele, indentadas. Nada de canal e loja em
- * caixinhas separadas — é a mesma pergunta ("onde eu quero olhar?"), então é
- * um filtro só.
- */
-function FiltroCanalConta({
-  contagemPorCanal,
-  contagemPorConta,
-  selecionadas,
-  aoMudarSelecionadas,
-}: {
-  contagemPorCanal: Map<MarketplaceId, number>;
-  contagemPorConta: Map<string, number>;
-  selecionadas: Set<string>;
-  aoMudarSelecionadas: (proximo: Set<string>) => void;
-}) {
-  const todasContas = contasService.listar();
-  const todasSelecionadas = todasContas.length > 0 && selecionadas.size === todasContas.length;
-
-  const contasDoCanal = (canalId: MarketplaceId) =>
-    todasContas.filter((c) => c.marketplaceId === canalId);
-
-  const estadoCanal = (canalId: MarketplaceId): "todas" | "parcial" | "nenhuma" => {
-    const doCanal = contasDoCanal(canalId);
-    if (doCanal.length === 0) return "nenhuma";
-    const marcadas = doCanal.filter((c) => selecionadas.has(c.id)).length;
-    if (marcadas === 0) return "nenhuma";
-    if (marcadas === doCanal.length) return "todas";
-    return "parcial";
-  };
-
-  const rotuloResumo = (() => {
-    if (todasSelecionadas) return "Todas as contas";
-    if (selecionadas.size === 0) return "Nenhuma conta";
-    for (const canal of CANAIS) {
-      const doCanal = contasDoCanal(canal.id);
-      if (
-        doCanal.length > 0 &&
-        doCanal.length === selecionadas.size &&
-        doCanal.every((c) => selecionadas.has(c.id))
-      ) {
-        return canal.titulo;
-      }
-    }
-    return `${selecionadas.size} conta${selecionadas.size > 1 ? "s" : ""}`;
-  })();
-
-  const alternarCanal = (canalId: MarketplaceId) => {
-    const doCanal = contasDoCanal(canalId);
-    const marcarTudo = estadoCanal(canalId) !== "todas";
-    const proximo = new Set(selecionadas);
-    for (const c of doCanal) {
-      if (marcarTudo) proximo.add(c.id);
-      else proximo.delete(c.id);
-    }
-    aoMudarSelecionadas(proximo);
-  };
-
-  const alternarConta = (contaId: string) => {
-    const proximo = new Set(selecionadas);
-    if (proximo.has(contaId)) proximo.delete(contaId);
-    else proximo.add(contaId);
-    aoMudarSelecionadas(proximo);
-  };
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 w-56 justify-between text-xs font-normal"
-        >
-          <span className="truncate">{rotuloResumo}</span>
-          <ChevronDown className="size-3.5 shrink-0 opacity-60" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 p-2">
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => aoMudarSelecionadas(new Set(todasContas.map((c) => c.id)))}
-            className={cn(
-              "flex-1 rounded-md px-3 py-2 text-left text-sm transition-colors",
-              todasSelecionadas
-                ? "bg-brand-soft font-semibold text-brand"
-                : "text-muted-foreground hover:bg-muted",
-            )}
-          >
-            Todas as contas
-          </button>
-          <button
-            onClick={() => aoMudarSelecionadas(new Set())}
-            className="shrink-0 rounded-md px-2.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            Limpar tudo
-          </button>
-        </div>
-
-        <div className="mt-1 max-h-80 space-y-0.5 overflow-y-auto border-t pt-1">
-          {CANAIS.map((canal) => {
-            const doCanal = contasDoCanal(canal.id);
-            if (doCanal.length === 0) return null;
-            const estado = estadoCanal(canal.id);
-
-            return (
-              <div key={canal.id} className="py-1">
-                <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted">
-                  <Checkbox
-                    checked={
-                      estado === "todas" ? true : estado === "parcial" ? "indeterminate" : false
-                    }
-                    onCheckedChange={() => alternarCanal(canal.id)}
-                  />
-                  <LogoMarketplace id={canal.id} tamanho="xs" />
-                  <span className="flex-1 text-sm font-medium">{canal.titulo}</span>
-                  <span className="num text-[10px] text-muted-foreground">
-                    {formatNumero(contagemPorCanal.get(canal.id) ?? 0)}
-                  </span>
-                </label>
-
-                {doCanal.length > 1 && (
-                  <div className="ml-6 space-y-0.5">
-                    {doCanal.map((c) => (
-                      <label
-                        key={c.id}
-                        className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted"
-                      >
-                        <Checkbox
-                          checked={selecionadas.has(c.id)}
-                          onCheckedChange={() => alternarConta(c.id)}
-                        />
-                        <span className="flex-1 truncate text-[13px] text-muted-foreground">
-                          {c.nome}
-                        </span>
-                        <span className="num text-[10px] text-muted-foreground">
-                          {formatNumero(contagemPorConta.get(c.id) ?? 0)}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 function Produtos() {
   const { atualizarConta } = useConfiguracoes();
+  // Mesmo filtro de contas do topo da tela (o "Todas as contas" ao lado do
+  // título, igual no Dashboard) — o Catálogo passou a usar esse filtro
+  // global em vez de ter um seletor próprio e separado.
+  const { selecionadas: contasSelecionadas, todasSelecionadas: semRestricaoDeConta } =
+    useSelecaoContas();
   const [busca, setBusca] = useState("");
   const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>("todos");
-  // Começa com todas as contas marcadas (= sem restrição nenhuma). Filtro
-  // único de canal + loja, em árvore, igual o "Todas as contas" do Dashboard.
-  const [contasSelecionadas, setContasSelecionadas] = useState<Set<string>>(
-    () => new Set(contasService.listar().map((c) => c.id)),
-  );
   const [editando, setEditando] = useState<string | null>(null);
   const [valorEdicao, setValorEdicao] = useState("");
   const [sincronizando, setSincronizando] = useState(false);
@@ -234,12 +79,6 @@ function Produtos() {
 
   const anuncios = useMemo(() => anunciosService.listar(), [tick]);
   const pendentes = useMemo(() => anuncios.filter((a) => !a.produtoId), [anuncios]);
-
-  // "Todas as contas" marcadas = sem restrição nenhuma (mantém, por exemplo,
-  // produto que ainda não tem nenhum anúncio em lugar nenhum). Só passa a
-  // exigir presença numa das contas marcadas quando o seller desmarca algo.
-  const totalContas = contasService.listar().length;
-  const semRestricaoDeConta = contasSelecionadas.size === totalContas;
 
   const vinculosDoProduto = (produtoId: string) => {
     const vinculados = anuncios.filter((a) => a.produtoId === produtoId);
@@ -292,34 +131,6 @@ function Produtos() {
     return [...doProdutos, ...doPendentes];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, pendentes, contasSelecionadas, semRestricaoDeConta]);
-
-  // Contagens que aparecem do lado de cada canal/loja no filtro — só
-  // respeitam o "Vínculo com CMV", pra servir de guia de qual opção marcar
-  // (não faz sentido uma contagem que já se esconde quando você desmarca a
-  // própria opção que ela descreve).
-  const contagemPorCanal = useMemo(() => {
-    // Começa com todos os canais em 0 — assim nenhum some da lista, mesmo
-    // sem nada vinculado ainda (é só entrar e ver zerado).
-    const mapa = new Map<MarketplaceId, number>(CANAIS.map((c) => [c.id, 0]));
-    for (const l of linhas) {
-      if (statusFiltro === "vinculado" && l.tipo !== "produto") continue;
-      if (statusFiltro === "sem-vinculo" && l.tipo !== "pendente") continue;
-      const canais = l.tipo === "produto" ? l.marketplaces : [l.anuncio.marketplaceId];
-      for (const c of canais) mapa.set(c, (mapa.get(c) ?? 0) + 1);
-    }
-    return mapa;
-  }, [linhas, statusFiltro]);
-
-  const contagemPorConta = useMemo(() => {
-    const mapa = new Map<string, number>(contasService.listar().map((c) => [c.id, 0]));
-    for (const l of linhas) {
-      if (statusFiltro === "vinculado" && l.tipo !== "produto") continue;
-      if (statusFiltro === "sem-vinculo" && l.tipo !== "pendente") continue;
-      const contas = l.tipo === "produto" ? l.contas : [l.anuncio.contaId];
-      for (const c of contas) mapa.set(c, (mapa.get(c) ?? 0) + 1);
-    }
-    return mapa;
-  }, [linhas, statusFiltro]);
 
   const linhasFiltradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -401,14 +212,6 @@ function Produtos() {
         descricao="O CMV mora aqui — uma vez só. Mudar o custo de um produto atualiza na hora todo anúncio vinculado a ele, em qualquer marketplace"
         acoes={
           <div className="flex items-center gap-2">
-            {/* Canal/loja fica aqui, do lado do nome do Catálogo — igual o
-                "Todas as contas" que já fica ao lado do título no Dashboard. */}
-            <FiltroCanalConta
-              contagemPorCanal={contagemPorCanal}
-              contagemPorConta={contagemPorConta}
-              selecionadas={contasSelecionadas}
-              aoMudarSelecionadas={setContasSelecionadas}
-            />
             <Button size="sm" variant="outline" disabled={sincronizando} onClick={sincronizarTodos}>
               <RefreshCw className={cn("size-3.5", sincronizando && "animate-spin")} />
               {sincronizando ? "Sincronizando..." : "Sincronizar todos os marketplaces"}
