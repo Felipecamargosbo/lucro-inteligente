@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { toast } from "sonner";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, RefreshCw, XCircle } from "lucide-react";
 import { ABAS_CANAL, type AbaCanal, type CanalMenu } from "@/config/navegacao";
 import { anunciosService, contasService } from "@/services";
 import { calcularCobertura } from "@/lib/finance";
@@ -12,6 +13,7 @@ import { RaioXAnuncios } from "@/components/marketplaces/RaioXAnuncios";
 import { PromocoesCanal } from "@/components/marketplaces/PromocoesCanal";
 import { ReputacaoCanal } from "@/components/marketplaces/ReputacaoCanal";
 import { PendenciasCanal } from "@/components/marketplaces/PendenciasCanal";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace } from "@/types";
 
@@ -61,12 +63,23 @@ export function ConteudoConta({
   voltarRotulo: string;
 }) {
   const [abaAtiva, setAbaAtiva] = useState<AbaCanal>("dashboard");
-  const { metasPorConta } = useConfiguracoes();
+  const [sincronizando, setSincronizando] = useState(false);
+  const { metasPorConta, atualizarConta } = useConfiguracoes();
 
   const anunciosDaConta = anunciosService.listar().filter((a) => a.contaId === conta.id);
   const cobertura = calcularCobertura(anunciosDaConta);
   const desconectado = conta.statusConexao === "desconectado";
   const outrasContasDoCanal = contasService.doCanal(canal.id).length > 1;
+
+  const sincronizarAgora = async () => {
+    setSincronizando(true);
+    // Fictício: simula o tempo de uma chamada real ao marketplace. Quando a
+    // API for integrada, aqui entra o "puxar" do feed de anúncios/listings.
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    atualizarConta(conta.id, { ultimaSincronizacao: new Date().toISOString() });
+    setSincronizando(false);
+    toast.success(`${conta.nome} sincronizada agora — anúncios e status atualizados.`);
+  };
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-5">
@@ -99,6 +112,15 @@ export function ConteudoConta({
                 ? `Sincronizado ${tempoRelativo(conta.ultimaSincronizacao)}`
                 : "Nunca sincronizado"}
             </span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={sincronizando}
+              onClick={sincronizarAgora}
+            >
+              <RefreshCw className={cn("size-3.5", sincronizando && "animate-spin")} />
+              {sincronizando ? "Sincronizando..." : "Sincronizar agora"}
+            </Button>
           </div>
         </div>
 
