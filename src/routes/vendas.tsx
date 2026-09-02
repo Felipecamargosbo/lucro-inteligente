@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { usePeriodo } from "@/context/periodo";
 import { useSelecaoContas } from "@/context/selecao-contas";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { vendasService } from "@/services";
-import { MARKETPLACES } from "@/data/mock";
-import { filtrarPorPeriodo, resumir } from "@/lib/finance";
+import { classificarFaixa, filtrarPorPeriodo, resumir } from "@/lib/finance";
 import { formatBRL, formatData, formatDataHora, formatPercentual } from "@/lib/format";
 import {
   CardKpi,
@@ -29,7 +30,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { Pedido } from "@/types";
+import { cn } from "@/lib/utils";
+import type { FaixaSaudeMargem, Pedido } from "@/types";
 
 export const Route = createFileRoute("/vendas")({
   head: () => ({
@@ -50,20 +52,140 @@ export const Route = createFileRoute("/vendas")({
   component: Vendas,
 });
 
+const ROTULO_FAIXA_MARGEM: Record<FaixaSaudeMargem, string> = {
+  prejuizo: "Prejuízo",
+  "abaixo-da-minima": "Abaixo da mínima",
+  "entre-minima-e-ideal": "Entre mínima e ideal",
+  saudavel: "Saudável",
+  "sem-meta": "Sem meta definida",
+  "sem-custo": "Sem cálculo",
+};
+
+// "sem-custo" não se aplica aqui: todo pedido já concluído tem CMV calculado,
+// diferente de um anúncio ainda sem custo cadastrado.
+const ORDEM_FAIXAS_MARGEM: FaixaSaudeMargem[] = [
+  "prejuizo",
+  "abaixo-da-minima",
+  "entre-minima-e-ideal",
+  "saudavel",
+  "sem-meta",
+];
+
+type CampoOrdenacao =
+  | "data"
+  | "quantidade"
+  | "faturamento"
+  | "cmv"
+  | "comissao"
+  | "taxaFixa"
+  | "descontos"
+  | "outrosCustos"
+  | "impostos"
+  | "lucroLiquido"
+  | "margem";
+
+interface Ordenacao {
+  campo: CampoOrdenacao;
+  direcao: "asc" | "desc";
+}
+
+function valorOrdenavel(p: Pedido, campo: CampoOrdenacao): number {
+  switch (campo) {
+    case "data":
+      return new Date(p.data).getTime();
+    case "quantidade":
+      return p.quantidade;
+    case "faturamento":
+      return p.faturamento;
+    case "cmv":
+      return p.cmv;
+    case "comissao":
+      return p.comissao;
+    case "taxaFixa":
+      return p.taxaFixa;
+    case "descontos":
+      return p.descontos;
+    case "outrosCustos":
+      return p.outrosCustos;
+    case "impostos":
+      return p.impostos;
+    case "lucroLiquido":
+      return p.lucroLiquido;
+    case "margem":
+      return p.margem;
+  }
+}
+
+/** Cabeçalho de coluna clicável: 1º clique ordena crescente (seta pra cima),
+ * 2º clique inverte pra decrescente (seta pra baixo), 3º clique volta ao
+ * normal (sem ordenação, seta neutra). */
+function CabecalhoOrdenavel({
+  campo,
+  ordenacao,
+  onClick,
+  className,
+  children,
+}: {
+  campo: CampoOrdenacao;
+  ordenacao: Ordenacao | null;
+  onClick: (campo: CampoOrdenacao) => void;
+  className?: string;
+  children: ReactNode;
+}) {
+  const ativo = ordenacao?.campo === campo;
+  return (
+    <th className={className}>
+      <button
+        type="button"
+        onClick={() => onClick(campo)}
+        className={cn(
+          "inline-flex items-center gap-1 font-bold uppercase tracking-wide transition-colors hover:text-foreground",
+          ativo ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        {children}
+        {ativo && ordenacao.direcao === "asc" ? (
+          <ArrowUp className="size-3" />
+        ) : ativo && ordenacao.direcao === "desc" ? (
+          <ArrowDown className="size-3" />
+        ) : (
+          <ArrowUpDown className="size-3 opacity-40" />
+        )}
+      </button>
+    </th>
+  );
+}
+
 function Vendas() {
   const { periodo } = usePeriodo();
   const { filtrarPorSelecao } = useSelecaoContas();
-  const [marketplace, setMarketplace] = useState("todos");
+  const { contas } = useConfiguracoes();
+  const [faixaMargem, setFaixaMargem] = useState<FaixaSaudeMargem | "todas">("todas");
   const [status, setStatus] = useState("todos");
   const [busca, setBusca] = useState("");
+  const [ordenacao, setOrdenacao] = useState<Ordenacao | null>(null);
   const [selecionado, setSelecionado] = useState<Pedido | null>(null);
+
+  const contaPorId = useMemo(() => new Map(contas.map((c) => [c.id, c])), [contas]);
+
+  function alternarOrdenacao(campo: CampoOrdenacao) {
+    setOrdenacao((atual) => {
+      if (!atual || atual.campo !== campo) return { campo, direcao: "asc" };
+      if (atual.direcao === "asc") return { campo, direcao: "desc" };
+      return null;
+    });
+  }
 
   const pedidos = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     const doPeriodo = filtrarPorPeriodo(filtrarPorSelecao(vendasService.listar()), periodo);
     return doPeriodo.filter((p) => {
-      if (marketplace !== "todos" && p.marketplaceId !== marketplace) return false;
       if (status !== "todos" && p.status !== status) return false;
+      if (faixaMargem !== "todas") {
+        const conta = contaPorId.get(p.contaId);
+        const faixa = classificarFaixa(p.margem, conta?.metas ?? null, false);
+        if (faixa !== faixaMargem) return false;
+      }
       if (
         termo &&
         ![p.sku, p.produto, p.id, p.cliente].some((c) => c.toLowerCase().includes(termo))
@@ -71,10 +193,27 @@ function Vendas() {
         return false;
       return true;
     });
-  }, [periodo, marketplace, status, busca, filtrarPorSelecao]);
+  }, [periodo, faixaMargem, status, busca, filtrarPorSelecao, contaPorId]);
+
+  const pedidosOrdenados = useMemo(() => {
+    if (!ordenacao) return pedidos;
+    const { campo, direcao } = ordenacao;
+    const sinal = direcao === "asc" ? 1 : -1;
+    return [...pedidos].sort((a, b) => (valorOrdenavel(a, campo) - valorOrdenavel(b, campo)) * sinal);
+  }, [pedidos, ordenacao]);
 
   const resumo = resumir(pedidos);
-  const visiveis = pedidos.slice(0, 100);
+  const visiveis = pedidosOrdenados.slice(0, 100);
+
+  // Devolução é diferente de cancelado: a venda foi concluída e entregue, e
+  // só DEPOIS o cliente devolveu o produto e pediu o dinheiro de volta.
+  const devolucoes = useMemo(() => {
+    const comDevolucao = pedidos.filter((p) => p.valorDevolvido > 0);
+    return {
+      quantidade: comDevolucao.length,
+      valor: comDevolucao.reduce((s, p) => s + p.valorDevolvido, 0),
+    };
+  }, [pedidos]);
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-6">
@@ -83,6 +222,15 @@ function Vendas() {
         <CardKpi titulo="Pedidos" valor={String(resumo.pedidos)} detalhe={`Ticket médio: ${formatBRL(resumo.ticketMedio)}`} />
         <CardKpi titulo="Lucro líquido" valor={formatBRL(resumo.lucroLiquido)} destaque />
         <CardKpi titulo="Margem líquida" valor={formatPercentual(resumo.margem)} />
+        <CardKpi titulo="CMV" valor={formatBRL(resumo.cmv)} />
+        <CardKpi titulo="Comissão" valor={formatBRL(resumo.comissoes)} />
+        <CardKpi titulo="Cancelados" valor={String(resumo.pedidosCancelados)} />
+        <CardKpi titulo="Vendas canceladas" valor={formatBRL(resumo.valorCancelado)} />
+        <CardKpi
+          titulo="Devoluções"
+          valor={formatBRL(devolucoes.valor)}
+          detalhe={`${devolucoes.quantidade} pedido${devolucoes.quantidade === 1 ? "" : "s"}`}
+        />
       </div>
 
       <Painel
@@ -91,10 +239,11 @@ function Vendas() {
         acoes={
           <ExportarDados
             nomeArquivo="vendas"
-            linhas={pedidos.map((p) => ({
+            linhas={pedidosOrdenados.map((p) => ({
               Data: formatData(p.data),
               Pedido: p.id,
               Marketplace: p.marketplaceId,
+              Conta: contaPorId.get(p.contaId)?.nome ?? "—",
               SKU: p.sku,
               Produto: p.produto,
               Quantidade: p.quantidade,
@@ -120,15 +269,18 @@ function Vendas() {
             onChange={(e) => setBusca(e.target.value)}
             className="xl:col-span-2"
           />
-          <Select value={marketplace} onValueChange={setMarketplace}>
+          <Select
+            value={faixaMargem}
+            onValueChange={(v) => setFaixaMargem(v as FaixaSaudeMargem | "todas")}
+          >
             <SelectTrigger>
-              <SelectValue placeholder="Marketplace" />
+              <SelectValue placeholder="Faixa de margem" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="todos">Todos os marketplaces</SelectItem>
-              {MARKETPLACES.map((m) => (
-                <SelectItem key={m.id} value={m.id}>
-                  {m.nome}
+              <SelectItem value="todas">Todas as faixas de margem</SelectItem>
+              {ORDEM_FAIXAS_MARGEM.map((f) => (
+                <SelectItem key={f} value={f}>
+                  {ROTULO_FAIXA_MARGEM[f]}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -148,21 +300,45 @@ function Vendas() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px] text-left">
+          <table className="w-full min-w-[1560px] text-left">
             <thead>
               <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-bold">Data</th>
+                <CabecalhoOrdenavel campo="data" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3">
+                  Data
+                </CabecalhoOrdenavel>
                 <th className="px-4 py-3 font-bold">Pedido</th>
                 <th className="px-4 py-3 font-bold">Canal</th>
                 <th className="px-4 py-3 font-bold">Produto / SKU</th>
-                <th className="px-4 py-3 text-center font-bold">Qtd</th>
-                <th className="px-4 py-3 text-right font-bold">Faturamento</th>
-                <th className="px-4 py-3 text-right font-bold">CMV</th>
-                <th className="px-4 py-3 text-right font-bold">Comissão</th>
-                <th className="px-4 py-3 text-right font-bold">Taxas</th>
-                <th className="px-4 py-3 text-right font-bold">Impostos</th>
-                <th className="px-4 py-3 text-right font-bold">Lucro</th>
-                <th className="px-4 py-3 text-center font-bold">Margem</th>
+                <CabecalhoOrdenavel campo="quantidade" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-center">
+                  Qtd
+                </CabecalhoOrdenavel>
+                <CabecalhoOrdenavel campo="faturamento" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                  Faturamento
+                </CabecalhoOrdenavel>
+                <CabecalhoOrdenavel campo="cmv" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                  CMV
+                </CabecalhoOrdenavel>
+                <CabecalhoOrdenavel campo="comissao" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                  Comissão
+                </CabecalhoOrdenavel>
+                <CabecalhoOrdenavel campo="taxaFixa" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                  Taxa fixa
+                </CabecalhoOrdenavel>
+                <CabecalhoOrdenavel campo="descontos" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                  Desconto
+                </CabecalhoOrdenavel>
+                <CabecalhoOrdenavel campo="outrosCustos" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                  Outros custos
+                </CabecalhoOrdenavel>
+                <CabecalhoOrdenavel campo="impostos" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                  Impostos
+                </CabecalhoOrdenavel>
+                <CabecalhoOrdenavel campo="lucroLiquido" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                  Lucro
+                </CabecalhoOrdenavel>
+                <CabecalhoOrdenavel campo="margem" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-center">
+                  Margem
+                </CabecalhoOrdenavel>
                 <th className="px-4 py-3 font-bold">Status</th>
               </tr>
             </thead>
@@ -177,6 +353,9 @@ function Vendas() {
                   <td className="num px-4 py-3 text-[11px] text-muted-foreground">#{p.id}</td>
                   <td className="px-4 py-3">
                     <SeloMarketplace id={p.marketplaceId} />
+                    <p className="mt-1 truncate text-[10px] text-muted-foreground">
+                      {contaPorId.get(p.contaId)?.nome ?? "—"}
+                    </p>
                   </td>
                   <td className="max-w-[240px] px-4 py-3">
                     <p className="truncate text-xs font-medium">{p.produto}</p>
@@ -193,7 +372,13 @@ function Vendas() {
                     {formatBRL(p.comissao)}
                   </td>
                   <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
-                    {formatBRL(p.taxaFixa + p.outrosCustos)}
+                    {formatBRL(p.taxaFixa)}
+                  </td>
+                  <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                    {formatBRL(p.descontos)}
+                  </td>
+                  <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                    {formatBRL(p.outrosCustos)}
                   </td>
                   <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
                     {formatBRL(p.impostos)}
@@ -218,7 +403,9 @@ function Vendas() {
         </div>
         {pedidos.length > visiveis.length && (
           <p className="border-t px-5 py-3 text-center text-[11px] text-muted-foreground">
-            Mostrando os 100 pedidos mais recentes de {pedidos.length}. Use os filtros para refinar.
+            Mostrando os 100 primeiros de {pedidos.length} pedidos
+            {ordenacao ? "" : " (mais recentes primeiro)"}. Use os filtros ou a ordenação das
+            colunas para refinar.
           </p>
         )}
       </Painel>
