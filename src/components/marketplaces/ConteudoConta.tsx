@@ -64,6 +64,10 @@ export function ConteudoConta({
 }) {
   const [abaAtiva, setAbaAtiva] = useState<AbaCanal>("dashboard");
   const [sincronizando, setSincronizando] = useState(false);
+  // Sincronizar pode inserir anúncio novo direto no array fora do React;
+  // este contador vira "key" das abas abaixo, forçando remontar (e reler os
+  // dados do zero) a aba que estiver aberta no momento do clique.
+  const [tick, setTick] = useState(0);
   const { metasPorConta, atualizarConta } = useConfiguracoes();
 
   const anunciosDaConta = anunciosService.listar().filter((a) => a.contaId === conta.id);
@@ -74,11 +78,19 @@ export function ConteudoConta({
   const sincronizarAgora = async () => {
     setSincronizando(true);
     // Fictício: simula o tempo de uma chamada real ao marketplace. Quando a
-    // API for integrada, aqui entra o "puxar" do feed de anúncios/listings.
+    // API for integrada, aqui entra o "puxar" de verdade do feed de
+    // LISTAGENS do canal (não o de vendas) — é dali que vem um anúncio
+    // recém-publicado, mesmo sem nenhuma venda ainda.
     await new Promise((resolve) => setTimeout(resolve, 900));
+    const novo = anunciosService.puxarNovoAnuncio(conta);
     atualizarConta(conta.id, { ultimaSincronizacao: new Date().toISOString() });
+    setTick((t) => t + 1);
     setSincronizando(false);
-    toast.success(`${conta.nome} sincronizada agora — anúncios e status atualizados.`);
+    toast.success(
+      novo.produtoId
+        ? `1 anúncio novo encontrado: "${novo.produto}" — já vinculado ao catálogo pelo SKU.`
+        : `1 anúncio novo encontrado: "${novo.produto}" — sem vínculo ainda, veja em Pendências.`,
+    );
   };
 
   return (
@@ -171,17 +183,17 @@ export function ConteudoConta({
         ))}
       </div>
 
-      {/* Conteúdo da aba */}
+      {/* Conteúdo da aba — key={tick} força reler os dados após sincronizar */}
       {abaAtiva === "dashboard" ? (
-        <DashboardCanal conta={conta} />
+        <DashboardCanal key={tick} conta={conta} />
       ) : abaAtiva === "raio-x" ? (
-        <RaioXAnuncios conta={conta} />
+        <RaioXAnuncios key={tick} conta={conta} />
       ) : abaAtiva === "promocoes" ? (
-        <PromocoesCanal conta={conta} />
+        <PromocoesCanal key={tick} conta={conta} />
       ) : abaAtiva === "reputacao" ? (
-        <ReputacaoCanal conta={conta} />
+        <ReputacaoCanal key={tick} conta={conta} />
       ) : (
-        <PendenciasCanal conta={conta} />
+        <PendenciasCanal key={tick} conta={conta} />
       )}
     </div>
   );
