@@ -4,12 +4,20 @@ import { toast } from "sonner";
 import { Check, Link2, Pencil, RefreshCw } from "lucide-react";
 import { anunciosService, contasService, produtosService } from "@/services";
 import { useConfiguracoes } from "@/context/configuracoes";
+import { CANAIS } from "@/config/navegacao";
 import { formatBRL, formatNumero } from "@/lib/format";
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { DialogVincularProduto } from "@/components/comum/DialogVincularProduto";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { Anuncio, MarketplaceId, Produto } from "@/types";
 
@@ -83,7 +91,9 @@ function Produtos() {
   }, [tick, pendentes]);
 
   const contagemPorCanal = useMemo(() => {
-    const mapa = new Map<MarketplaceId, number>();
+    // Começa com todos os canais em 0 — assim nenhum some da lista, mesmo
+    // sem nada vinculado ainda (é só entrar e ver zerado).
+    const mapa = new Map<MarketplaceId, number>(CANAIS.map((c) => [c.id, 0]));
     for (const l of linhas) {
       if (statusFiltro === "vinculado" && l.tipo !== "produto") continue;
       if (statusFiltro === "sem-vinculo" && l.tipo !== "pendente") continue;
@@ -217,7 +227,7 @@ function Produtos() {
           </div>
         </div>
 
-        {/* Um filtro só: status (vinculado/sem vínculo) + canal + busca, tudo junto */}
+        {/* Busca + duas listas suspensas: status (vinculado/sem vínculo) e canal */}
         <div className="flex flex-wrap items-center gap-2 border-b p-4">
           <Input
             placeholder="Buscar por SKU, EAN ou nome"
@@ -226,50 +236,37 @@ function Produtos() {
             className="h-8 max-w-xs text-xs"
           />
 
-          <div className="h-5 w-px bg-border" />
+          <Select value={statusFiltro} onValueChange={(v) => setStatusFiltro(v as StatusFiltro)}>
+            <SelectTrigger className="h-8 w-48 text-xs">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              {BOTOES_STATUS.map((b) => (
+                <SelectItem key={b.id} value={b.id}>
+                  {b.rotulo} ({formatNumero(b.qtd)})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          {BOTOES_STATUS.map((b) => (
-            <button
-              key={b.id}
-              onClick={() => setStatusFiltro(b.id)}
-              className={cn(
-                "rounded-full border px-3 py-1 text-[11px] font-medium transition-colors",
-                statusFiltro === b.id
-                  ? "border-brand bg-brand-soft text-brand"
-                  : "text-muted-foreground hover:bg-muted",
-              )}
-            >
-              {b.rotulo} ({formatNumero(b.qtd)})
-            </button>
-          ))}
-
-          <div className="h-5 w-px bg-border" />
-
-          <button
-            onClick={() => setCanalFiltro("todos")}
-            className={cn(
-              "rounded-full border px-3 py-1 text-[11px] font-medium transition-colors",
-              canalFiltro === "todos"
-                ? "border-brand bg-brand-soft text-brand"
-                : "text-muted-foreground hover:bg-muted",
-            )}
+          <Select
+            value={canalFiltro}
+            onValueChange={(v) => setCanalFiltro(v as MarketplaceId | "todos")}
           >
-            Todos os canais
-          </button>
-          {[...contagemPorCanal.entries()].map(([marketplaceId, qtd]) => (
-            <button
-              key={marketplaceId}
-              onClick={() => setCanalFiltro(marketplaceId)}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-medium transition-colors",
-                canalFiltro === marketplaceId
-                  ? "border-brand bg-brand-soft text-brand"
-                  : "text-muted-foreground hover:bg-muted",
-              )}
-            >
-              <SeloMarketplace id={marketplaceId} />({formatNumero(qtd)})
-            </button>
-          ))}
+            <SelectTrigger className="h-8 w-56 text-xs">
+              <SelectValue placeholder="Canal" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">
+                Todos os canais ({formatNumero([...contagemPorCanal.values()].reduce((s, n) => s + n, 0))})
+              </SelectItem>
+              {CANAIS.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.titulo} ({formatNumero(contagemPorCanal.get(c.id) ?? 0)})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="overflow-x-auto">
