@@ -401,6 +401,14 @@ function Produtos() {
         descricao="O CMV mora aqui — uma vez só. Mudar o custo de um produto atualiza na hora todo anúncio vinculado a ele, em qualquer marketplace"
         acoes={
           <div className="flex items-center gap-2">
+            {/* Canal/loja fica aqui, do lado do nome do Catálogo — igual o
+                "Todas as contas" que já fica ao lado do título no Dashboard. */}
+            <FiltroCanalConta
+              contagemPorCanal={contagemPorCanal}
+              contagemPorConta={contagemPorConta}
+              selecionadas={contasSelecionadas}
+              aoMudarSelecionadas={setContasSelecionadas}
+            />
             <Button size="sm" variant="outline" disabled={sincronizando} onClick={sincronizarTodos}>
               <RefreshCw className={cn("size-3.5", sincronizando && "animate-spin")} />
               {sincronizando ? "Sincronizando..." : "Sincronizar todos os marketplaces"}
@@ -447,10 +455,9 @@ function Produtos() {
           </div>
         </div>
 
-        {/* Busca + 2 filtros, cada um com sua etiqueta — pra nunca ficar
-            ambíguo o que "Todos" significa (todos os quê?). Canal e loja
-            moram juntos num filtro só, em árvore, igual o "Todas as contas"
-            do Dashboard — não faz sentido separar os dois. */}
+        {/* Busca + Vínculo com CMV — o filtro de canal/loja já fica lá em
+            cima, do lado do nome do Catálogo. Cada um com sua etiqueta, pra
+            nunca ficar ambíguo o que "Todos" significa (todos os quê?). */}
         <div className="flex flex-wrap items-end gap-3 border-b p-4">
           <div>
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -480,18 +487,6 @@ function Produtos() {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          <div>
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Canal / loja
-            </p>
-            <FiltroCanalConta
-              contagemPorCanal={contagemPorCanal}
-              contagemPorConta={contagemPorConta}
-              selecionadas={contasSelecionadas}
-              aoMudarSelecionadas={setContasSelecionadas}
-            />
           </div>
         </div>
 
