@@ -53,9 +53,13 @@ type LinhaCatalogo =
       tipo: "produto";
       id: string;
       produto: Produto;
+      /** Total vinculado em qualquer canal/loja — usado só nas contagens do filtro. */
       qtd: number;
       marketplaces: MarketplaceId[];
       contas: string[];
+      /** Recorte pro canal/loja marcado agora — é o que a linha MOSTRA na tabela. */
+      qtdNaSelecao: number;
+      marketplacesNaSelecao: MarketplaceId[];
     }
   | { tipo: "pendente"; id: string; anuncio: Anuncio };
 
@@ -231,11 +235,33 @@ function Produtos() {
   const anuncios = useMemo(() => anunciosService.listar(), [tick]);
   const pendentes = useMemo(() => anuncios.filter((a) => !a.produtoId), [anuncios]);
 
+  // "Todas as contas" marcadas = sem restrição nenhuma (mantém, por exemplo,
+  // produto que ainda não tem nenhum anúncio em lugar nenhum). Só passa a
+  // exigir presença numa das contas marcadas quando o seller desmarca algo.
+  const totalContas = contasService.listar().length;
+  const semRestricaoDeConta = contasSelecionadas.size === totalContas;
+
   const vinculosDoProduto = (produtoId: string) => {
     const vinculados = anuncios.filter((a) => a.produtoId === produtoId);
+    // "Totais": todo mundo que está vinculado, em qualquer canal/loja — usado
+    // pra decidir SE a linha aparece e pras contagens do próprio filtro (elas
+    // não podem se esconder quando você desmarca a opção que descrevem).
     const marketplaces = [...new Set(vinculados.map((a) => a.marketplaceId))];
     const contas = [...new Set(vinculados.map((a) => a.contaId))];
-    return { totalAnuncios: vinculados.length, marketplaces, contas };
+    // "Na seleção": só o que está dentro do canal/loja marcado agora — é o
+    // que a linha MOSTRA na coluna de canal, pra não exibir Mercado Livre e
+    // Amazon quando o seller marcou só Shopee.
+    const vinculadosNaSelecao = semRestricaoDeConta
+      ? vinculados
+      : vinculados.filter((a) => contasSelecionadas.has(a.contaId));
+    const marketplacesNaSelecao = [...new Set(vinculadosNaSelecao.map((a) => a.marketplaceId))];
+    return {
+      totalAnuncios: vinculados.length,
+      marketplaces,
+      contas,
+      totalAnunciosNaSelecao: vinculadosNaSelecao.length,
+      marketplacesNaSelecao,
+    };
   };
 
   const totalAnuncios = anuncios.length;
@@ -245,8 +271,18 @@ function Produtos() {
   // tudo na mesma tabela, filtrado do mesmo jeito.
   const linhas = useMemo<LinhaCatalogo[]>(() => {
     const doProdutos: LinhaCatalogo[] = produtosService.listar().map((p) => {
-      const { totalAnuncios: qtd, marketplaces, contas } = vinculosDoProduto(p.id);
-      return { tipo: "produto", id: p.id, produto: p, qtd, marketplaces, contas };
+      const { totalAnuncios: qtd, marketplaces, contas, totalAnunciosNaSelecao, marketplacesNaSelecao } =
+        vinculosDoProduto(p.id);
+      return {
+        tipo: "produto",
+        id: p.id,
+        produto: p,
+        qtd,
+        marketplaces,
+        contas,
+        qtdNaSelecao: totalAnunciosNaSelecao,
+        marketplacesNaSelecao,
+      };
     });
     const doPendentes: LinhaCatalogo[] = pendentes
       // Faturamento perdido primeiro: resolver o que mais vende rende mais
@@ -255,7 +291,7 @@ function Produtos() {
       .map((a) => ({ tipo: "pendente", id: a.id, anuncio: a }));
     return [...doProdutos, ...doPendentes];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, pendentes]);
+  }, [tick, pendentes, contasSelecionadas, semRestricaoDeConta]);
 
   // Contagens que aparecem do lado de cada canal/loja no filtro — só
   // respeitam o "Vínculo com CMV", pra servir de guia de qual opção marcar
@@ -284,12 +320,6 @@ function Produtos() {
     }
     return mapa;
   }, [linhas, statusFiltro]);
-
-  // "Todas as contas" marcadas = sem restrição nenhuma (mantém, por exemplo,
-  // produto que ainda não tem nenhum anúncio em lugar nenhum). Só passa a
-  // exigir presença numa das contas marcadas quando o seller desmarca algo.
-  const totalContas = contasService.listar().length;
-  const semRestricaoDeConta = contasSelecionadas.size === totalContas;
 
   const linhasFiltradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -520,13 +550,14 @@ function Produtos() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {linha.qtd > 0 ? (
+                        {linha.qtdNaSelecao > 0 ? (
                           <div className="flex flex-wrap items-center gap-1.5">
-                            {linha.marketplaces.map((m) => (
+                            {linha.marketplacesNaSelecao.map((m) => (
                               <SeloMarketplace key={m} id={m} />
                             ))}
                             <span className="text-[10px] text-muted-foreground">
-                              ({formatNumero(linha.qtd)} anúncio{linha.qtd > 1 ? "s" : ""})
+                              ({formatNumero(linha.qtdNaSelecao)} anúncio
+                              {linha.qtdNaSelecao > 1 ? "s" : ""})
                             </span>
                           </div>
                         ) : (
