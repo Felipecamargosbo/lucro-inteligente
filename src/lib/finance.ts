@@ -215,7 +215,7 @@ export interface CoberturaDados {
 export function calcularCobertura(anuncios: Anuncio[]): CoberturaDados {
   const total = anuncios.length;
   const comCusto = anuncios.filter((a) => a.cmv !== null).length;
-  const semVinculo = anuncios.filter((a) => !a.produtoVinculado).length;
+  const semVinculo = anuncios.filter((a) => !a.produtoId).length;
   const comTaxaEstimada = anuncios.filter((a) => a.origemTaxas === "estimado").length;
   return {
     total,
