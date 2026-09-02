@@ -1,14 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Check, Package, Pencil } from "lucide-react";
-import { anunciosService, produtosService } from "@/services";
+import { Check, Link2, Package, Pencil, RefreshCw } from "lucide-react";
+import { anunciosService, contasService, produtosService } from "@/services";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { formatBRL, formatNumero } from "@/lib/format";
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
+import { DialogVincularProduto } from "@/components/comum/DialogVincularProduto";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Produto } from "@/types";
+import { cn } from "@/lib/utils";
+import type { Anuncio, MarketplaceId, Produto } from "@/types";
 
 export const Route = createFileRoute("/produtos")({
   head: () => ({
@@ -30,11 +33,16 @@ export const Route = createFileRoute("/produtos")({
 });
 
 function Produtos() {
+  const { atualizarConta } = useConfiguracoes();
   const [busca, setBusca] = useState("");
   const [editando, setEditando] = useState<string | null>(null);
   const [valorEdicao, setValorEdicao] = useState("");
-  // O catálogo vive num array fora do React (src/data/mock.ts); este
-  // contador força a releitura depois de cada alteração de CMV.
+  const [sincronizando, setSincronizando] = useState(false);
+  const [canalFiltro, setCanalFiltro] = useState<MarketplaceId | "todos">("todos");
+  const [buscaPendentes, setBuscaPendentes] = useState("");
+  const [emVinculo, setEmVinculo] = useState<Anuncio | null>(null);
+  // O catálogo e os anúncios vivem fora do React (src/data/mock.ts); este
+  // contador força a releitura depois de cada sincronização/edição/vínculo.
   const [tick, setTick] = useState(0);
 
   const anuncios = useMemo(() => anunciosService.listar(), [tick]);
@@ -60,7 +68,26 @@ function Produtos() {
   };
 
   const totalAnuncios = anuncios.length;
-  const semVinculo = anuncios.filter((a) => !a.produtoId).length;
+  const pendentes = useMemo(() => anuncios.filter((a) => !a.produtoId), [anuncios]);
+  const semVinculo = pendentes.length;
+
+  const contagemPorCanal = useMemo(() => {
+    const mapa = new Map<MarketplaceId, number>();
+    for (const a of pendentes) mapa.set(a.marketplaceId, (mapa.get(a.marketplaceId) ?? 0) + 1);
+    return mapa;
+  }, [pendentes]);
+
+  const pendentesFiltrados = useMemo(() => {
+    const termo = buscaPendentes.trim().toLowerCase();
+    return pendentes
+      .filter((a) => canalFiltro === "todos" || a.marketplaceId === canalFiltro)
+      .filter(
+        (a) =>
+          !termo || a.produto.toLowerCase().includes(termo) || a.sku.toLowerCase().includes(termo),
+      )
+      // Faturamento perdido primeiro: resolver o que mais vende rende mais
+      .sort((a, b) => b.precoAtual * b.unidadesVendidas - a.precoAtual * a.unidadesVendidas);
+  }, [pendentes, canalFiltro, buscaPendentes]);
 
   const iniciarEdicao = (produto: Produto) => {
     setEditando(produto.id);
@@ -80,26 +107,55 @@ function Produtos() {
     );
   };
 
+  const sincronizarTodos = async () => {
+    setSincronizando(true);
+    // Fictício: simula puxar o feed de LISTAGENS de cada marketplace de uma
+    // vez, sem precisar entrar conta por conta. Quando a API real conectar,
+    // isso vira uma chamada por conta ativa, em paralelo.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const contasAtivas = contasService.ativas();
+    let vinculadosAuto = 0;
+    for (const conta of contasAtivas) {
+      const novo = anunciosService.puxarNovoAnuncio(conta);
+      if (novo.produtoId) vinculadosAuto++;
+      atualizarConta(conta.id, { ultimaSincronizacao: new Date().toISOString() });
+    }
+    setTick((n) => n + 1);
+    setSincronizando(false);
+    toast.success(
+      `${formatNumero(contasAtivas.length)} conta(s) sincronizada(s) — ${formatNumero(contasAtivas.length)} anúncio(s) novo(s) encontrado(s)` +
+        (vinculadosAuto > 0
+          ? `, ${formatNumero(vinculadosAuto)} já vinculado(s) automaticamente pelo SKU.`
+          : "."),
+    );
+  };
+
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
       <Painel
         titulo="Catálogo"
         descricao="O CMV mora aqui — uma vez só. Mudar o custo de um produto atualiza na hora todo anúncio vinculado a ele, em qualquer marketplace"
         acoes={
-          <ExportarDados
-            nomeArquivo="catalogo"
-            linhas={produtos.map((p) => {
-              const { totalAnuncios: qtd, marketplaces } = vinculosDoProduto(p.id);
-              return {
-                SKU: p.sku,
-                EAN: p.ean ?? "—",
-                Produto: p.nome,
-                CMV: p.cmv.toFixed(2),
-                "Anúncios vinculados": qtd,
-                Marketplaces: marketplaces.join(", ") || "—",
-              };
-            })}
-          />
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" disabled={sincronizando} onClick={sincronizarTodos}>
+              <RefreshCw className={cn("size-3.5", sincronizando && "animate-spin")} />
+              {sincronizando ? "Sincronizando..." : "Sincronizar todos os marketplaces"}
+            </Button>
+            <ExportarDados
+              nomeArquivo="catalogo"
+              linhas={produtos.map((p) => {
+                const { totalAnuncios: qtd, marketplaces } = vinculosDoProduto(p.id);
+                return {
+                  SKU: p.sku,
+                  EAN: p.ean ?? "—",
+                  Produto: p.nome,
+                  CMV: p.cmv.toFixed(2),
+                  "Anúncios vinculados": qtd,
+                  Marketplaces: marketplaces.join(", ") || "—",
+                };
+              })}
+            />
+          </div>
         }
       >
         <div className="grid gap-3 border-b p-4 sm:grid-cols-3">
@@ -221,12 +277,107 @@ function Produtos() {
         </div>
       </Painel>
 
-      {semVinculo > 0 && (
-        <p className="rounded-xl bg-muted px-4 py-3 text-[11px] text-muted-foreground">
-          {formatNumero(semVinculo)} anúncio(s) ainda sem vínculo com um produto do catálogo. Para
-          vinculá-los (ou criar um produto novo a partir deles), acesse{" "}
-          <strong>Marketplaces → a conta → aba Pendências</strong>.
-        </p>
+      <Painel
+        titulo="Anúncios sem vínculo"
+        descricao="De todos os marketplaces, juntos — filtre por canal ou procure pra resolver rápido"
+      >
+        <div className="flex flex-wrap items-center gap-2 border-b p-4">
+          <Input
+            placeholder="Buscar por SKU ou nome do anúncio"
+            value={buscaPendentes}
+            onChange={(e) => setBuscaPendentes(e.target.value)}
+            className="h-8 max-w-xs text-xs"
+          />
+          <button
+            onClick={() => setCanalFiltro("todos")}
+            className={cn(
+              "rounded-full border px-3 py-1 text-[11px] font-medium transition-colors",
+              canalFiltro === "todos"
+                ? "border-brand bg-brand-soft text-brand"
+                : "text-muted-foreground hover:bg-muted",
+            )}
+          >
+            Todos ({formatNumero(pendentes.length)})
+          </button>
+          {[...contagemPorCanal.entries()].map(([marketplaceId, qtd]) => (
+            <button
+              key={marketplaceId}
+              onClick={() => setCanalFiltro(marketplaceId)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-medium transition-colors",
+                canalFiltro === marketplaceId
+                  ? "border-brand bg-brand-soft text-brand"
+                  : "text-muted-foreground hover:bg-muted",
+              )}
+            >
+              <SeloMarketplace id={marketplaceId} />({formatNumero(qtd)})
+            </button>
+          ))}
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[820px] text-left">
+            <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-4 py-2 font-medium">Produto / SKU</th>
+                <th className="px-3 py-2 font-medium">Canal</th>
+                <th className="px-3 py-2 font-medium">Conta</th>
+                <th className="px-3 py-2 text-right font-medium">Preço</th>
+                <th className="px-3 py-2 text-right font-medium">Un. vendidas</th>
+                <th className="px-3 py-2 text-right font-medium">Ação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendentesFiltrados.map((a) => {
+                const conta = contasService.buscar(a.contaId);
+                return (
+                  <tr key={a.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="max-w-[260px] px-4 py-3">
+                      <p className="truncate text-xs font-medium">{a.produto}</p>
+                      <p className="num text-[10px] text-muted-foreground">{a.sku}</p>
+                    </td>
+                    <td className="px-3 py-3">
+                      <SeloMarketplace id={a.marketplaceId} />
+                    </td>
+                    <td className="px-3 py-3 text-xs text-muted-foreground">
+                      {conta?.nome ?? "—"}
+                    </td>
+                    <td className="num px-3 py-3 text-right text-xs">{formatBRL(a.precoAtual)}</td>
+                    <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                      {formatNumero(a.unidadesVendidas)}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <Button size="sm" variant="outline" onClick={() => setEmVinculo(a)}>
+                        <Link2 className="size-3.5" />
+                        Vincular
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {pendentesFiltrados.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                    {pendentes.length === 0
+                      ? "Nenhum anúncio sem vínculo — catálogo em dia."
+                      : "Nenhum anúncio encontrado com esses filtros."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Painel>
+
+      {emVinculo && (
+        <DialogVincularProduto
+          anuncio={emVinculo}
+          aoFechar={() => setEmVinculo(null)}
+          aoConcluir={() => {
+            setEmVinculo(null);
+            setTick((n) => n + 1);
+          }}
+        />
       )}
     </div>
   );
