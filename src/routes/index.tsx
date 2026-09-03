@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { VisaoGeral } from "@/components/dashboard/VisaoGeral";
+import { ProdutosMaisVendidos } from "@/components/dashboard/ProdutosMaisVendidos";
 import { Comparativos } from "@/components/dashboard/Comparativos";
 import { Canais } from "@/components/dashboard/Canais";
 import { Ads } from "@/components/dashboard/Ads";
@@ -30,6 +31,7 @@ export const Route = createFileRoute("/")({
 
 type AbaDashboard =
   | "visao-geral"
+  | "produtos"
   | "comparativos"
   | "canais"
   | "ads"
@@ -42,6 +44,11 @@ const ABAS: { id: AbaDashboard; titulo: string; descricao: string }[] = [
     id: "visao-geral",
     titulo: "Visão geral",
     descricao: "KPIs, meta do mês e faturamento dia a dia",
+  },
+  {
+    id: "produtos",
+    titulo: "Produtos",
+    descricao: "Ranking completo de produtos vendidos, com todas as métricas",
   },
   {
     id: "comparativos",
@@ -99,6 +106,8 @@ function Dashboard() {
 
       {aba === "visao-geral" ? (
         <VisaoGeral />
+      ) : aba === "produtos" ? (
+        <ProdutosMaisVendidos />
       ) : aba === "comparativos" ? (
         <Comparativos />
       ) : aba === "canais" ? (
