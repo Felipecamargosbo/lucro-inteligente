@@ -5,12 +5,19 @@ import { useSelecaoContas } from "@/context/selecao-contas";
 import { contasService, vendasService } from "@/services";
 import { CANAIS } from "@/config/navegacao";
 import { filtrarPorPeriodo } from "@/lib/finance";
-import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
-import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
+import { formatBRL, formatData, formatNumero, formatPercentual } from "@/lib/format";
+import { CardKpi, Painel, SeloMarketplace, SeloMargem } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { MarketplaceId, Pedido } from "@/types";
+import type { MarketplaceId, Pedido, Periodo } from "@/types";
 
 /** Um canal em que o produto vendeu, com a(s) loja(s)/subconta(s) daquele
  * canal que efetivamente venderam — é essa parte que faltava: sem ela, dois
@@ -30,6 +37,14 @@ interface ItemProduto {
   lucro: number;
   margem: number;
   canais: CanalDoProduto[];
+  // Soma de cada custo, de TODOS os pedidos deste SKU no período/seleção
+  // atual — é o que abre o detalhamento (o "de onde saiu essa margem?").
+  cmv: number;
+  comissao: number;
+  taxaFixa: number;
+  impostos: number;
+  descontos: number;
+  outrosCustos: number;
 }
 
 /** Agrupa os pedidos (já filtrados por período e pela seleção de contas lá de
@@ -50,12 +65,24 @@ function agruparProdutos(pedidos: Pedido[]): ItemProduto[] {
       faturamento: 0,
       lucro: 0,
       margem: 0,
+      cmv: 0,
+      comissao: 0,
+      taxaFixa: 0,
+      impostos: 0,
+      descontos: 0,
+      outrosCustos: 0,
       porCanal: new Map<MarketplaceId, Set<string>>(),
     };
     atual.unidades += p.quantidade;
     atual.pedidos += 1;
     atual.faturamento += p.faturamento;
     atual.lucro += p.lucroLiquido;
+    atual.cmv += p.cmv;
+    atual.comissao += p.comissao;
+    atual.taxaFixa += p.taxaFixa;
+    atual.impostos += p.impostos;
+    atual.descontos += p.descontos;
+    atual.outrosCustos += p.outrosCustos;
     const contasDoCanal = atual.porCanal.get(p.marketplaceId) ?? new Set<string>();
     contasDoCanal.add(p.contaId);
     atual.porCanal.set(p.marketplaceId, contasDoCanal);
@@ -94,6 +121,7 @@ export function ProdutosMaisVendidos() {
   const [busca, setBusca] = useState("");
   const [ordenarPor, setOrdenarPor] = useState<Coluna>("unidades");
   const [direcao, setDirecao] = useState<"desc" | "asc">("desc");
+  const [selecionado, setSelecionado] = useState<ItemProduto | null>(null);
 
   const pedidos = filtrarPorSelecao(vendasService.listar());
   const pedidosDoPeriodo = useMemo(
@@ -221,7 +249,11 @@ export function ProdutosMaisVendidos() {
             </thead>
             <tbody className="divide-y">
               {linhas.map((p) => (
-                <tr key={p.sku} className="transition-colors hover:bg-muted/40">
+                <tr
+                  key={p.sku}
+                  onClick={() => setSelecionado(p)}
+                  className="cursor-pointer transition-colors hover:bg-muted/40"
+                >
                   <td className="max-w-[260px] px-4 py-3">
                     <p className="truncate text-xs font-medium">{p.produto}</p>
                     <p className="num text-[10px] text-muted-foreground">{p.sku}</p>
@@ -276,6 +308,106 @@ export function ProdutosMaisVendidos() {
           </table>
         </div>
       </Painel>
+
+      <DetalheProduto
+        produto={selecionado}
+        periodo={periodo}
+        aoFechar={() => setSelecionado(null)}
+      />
     </div>
+  );
+}
+
+/**
+ * Abre ao clicar numa linha da tabela — mesmo painel de "de onde saiu essa
+ * margem" que já existe em Vendas para um pedido, só que aqui somado: o
+ * produto pode ter vendido em vários pedidos, canais e lojas dentro do
+ * período, então cada custo é a soma de todos eles, não um valor único.
+ */
+function DetalheProduto({
+  produto,
+  periodo,
+  aoFechar,
+}: {
+  produto: ItemProduto | null;
+  periodo: Periodo;
+  aoFechar: () => void;
+}) {
+  if (!produto) return null;
+
+  const linhas = [
+    { rotulo: "CMV (custo do produto)", valor: produto.cmv },
+    { rotulo: "Comissão do marketplace", valor: produto.comissao },
+    { rotulo: "Taxa fixa", valor: produto.taxaFixa },
+    { rotulo: "Impostos", valor: produto.impostos },
+    { rotulo: "Descontos", valor: produto.descontos },
+    { rotulo: "Outros custos", valor: produto.outrosCustos },
+  ];
+  const precoMedio = produto.unidades ? produto.faturamento / produto.unidades : 0;
+
+  return (
+    <Dialog open onOpenChange={aoFechar}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Detalhamento de {produto.produto}</DialogTitle>
+          <DialogDescription>
+            {formatData(periodo.inicio)} a {formatData(periodo.fim)} · soma de{" "}
+            {formatNumero(produto.pedidos)} pedido{produto.pedidos > 1 ? "s" : ""}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="rounded-xl border p-4">
+            <p className="text-xs font-semibold">{produto.produto}</p>
+            <p className="num text-[11px] text-muted-foreground">
+              SKU {produto.sku} · {formatNumero(produto.unidades)} un. ·{" "}
+              {formatBRL(precoMedio)} em média cada
+            </p>
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1.5">
+              {produto.canais.map((c) => (
+                <div key={c.marketplaceId} className="flex items-center gap-1.5">
+                  <SeloMarketplace id={c.marketplaceId} />
+                  <span className="text-[10px] text-muted-foreground">
+                    {c.lojas.join(", ")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <span className="text-xs font-semibold">Faturamento</span>
+              <span className="num text-sm font-bold">{formatBRL(produto.faturamento)}</span>
+            </div>
+            <div className="divide-y">
+              {linhas.map((l) => (
+                <div key={l.rotulo} className="flex items-center justify-between px-4 py-2.5">
+                  <span className="text-[11px] text-muted-foreground">− {l.rotulo}</span>
+                  <span className="num text-[11px] text-loss">{formatBRL(l.valor)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between border-t bg-profit-soft px-4 py-3">
+              <span className="text-xs font-bold text-profit">Lucro líquido</span>
+              <span className="num text-sm font-bold text-profit">
+                {formatBRL(produto.lucro)}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-xl bg-muted px-4 py-3">
+            <span className="text-xs font-medium">Margem média no período</span>
+            <SeloMargem margem={produto.margem} />
+          </div>
+
+          <p className="text-[10px] leading-relaxed text-muted-foreground">
+            Soma de todos os pedidos deste produto no período e na seleção de contas atuais.
+            Cálculo demonstrativo com dados fictícios — com as APIs conectadas, os valores virão
+            direto do marketplace.
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
