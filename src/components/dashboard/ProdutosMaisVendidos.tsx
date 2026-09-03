@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { usePeriodo } from "@/context/periodo";
 import { useSelecaoContas } from "@/context/selecao-contas";
-import { vendasService } from "@/services";
+import { contasService, vendasService } from "@/services";
+import { CANAIS } from "@/config/navegacao";
 import { filtrarPorPeriodo } from "@/lib/finance";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
@@ -10,6 +11,15 @@ import { ExportarDados } from "@/components/comum/ExportarDados";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { MarketplaceId, Pedido } from "@/types";
+
+/** Um canal em que o produto vendeu, com a(s) loja(s)/subconta(s) daquele
+ * canal que efetivamente venderam — é essa parte que faltava: sem ela, dois
+ * produtos vendidos em lojas diferentes do mesmo Mercado Livre pareciam a
+ * mesma coisa, e não dava pra identificar qual loja vendeu o quê. */
+interface CanalDoProduto {
+  marketplaceId: MarketplaceId;
+  lojas: string[];
+}
 
 interface ItemProduto {
   sku: string;
@@ -19,7 +29,7 @@ interface ItemProduto {
   faturamento: number;
   lucro: number;
   margem: number;
-  marketplaces: MarketplaceId[];
+  canais: CanalDoProduto[];
 }
 
 /** Agrupa os pedidos (já filtrados por período e pela seleção de contas lá de
@@ -28,7 +38,7 @@ interface ItemProduto {
 function agruparProdutos(pedidos: Pedido[]): ItemProduto[] {
   const mapa = new Map<
     string,
-    Omit<ItemProduto, "marketplaces"> & { canais: Set<MarketplaceId> }
+    Omit<ItemProduto, "canais"> & { porCanal: Map<MarketplaceId, Set<string>> }
   >();
   for (const p of pedidos) {
     if (p.status === "cancelado") continue;
@@ -40,19 +50,24 @@ function agruparProdutos(pedidos: Pedido[]): ItemProduto[] {
       faturamento: 0,
       lucro: 0,
       margem: 0,
-      canais: new Set<MarketplaceId>(),
+      porCanal: new Map<MarketplaceId, Set<string>>(),
     };
     atual.unidades += p.quantidade;
     atual.pedidos += 1;
     atual.faturamento += p.faturamento;
     atual.lucro += p.lucroLiquido;
-    atual.canais.add(p.marketplaceId);
+    const contasDoCanal = atual.porCanal.get(p.marketplaceId) ?? new Set<string>();
+    contasDoCanal.add(p.contaId);
+    atual.porCanal.set(p.marketplaceId, contasDoCanal);
     mapa.set(p.sku, atual);
   }
-  return [...mapa.values()].map(({ canais, ...item }) => ({
+  return [...mapa.values()].map(({ porCanal, ...item }) => ({
     ...item,
     margem: item.faturamento ? item.lucro / item.faturamento : 0,
-    marketplaces: [...canais],
+    canais: [...porCanal.entries()].map(([marketplaceId, contaIds]) => ({
+      marketplaceId,
+      lojas: [...contaIds].map((id) => contasService.buscar(id)?.nome ?? id),
+    })),
   }));
 }
 
@@ -150,7 +165,12 @@ export function ProdutosMaisVendidos() {
               Faturamento: p.faturamento.toFixed(2),
               "Lucro líquido": p.lucro.toFixed(2),
               "Margem (%)": (p.margem * 100).toFixed(1),
-              Marketplaces: p.marketplaces.join(", "),
+              "Canais e lojas": p.canais
+                .map((c) => {
+                  const titulo = CANAIS.find((canal) => canal.id === c.marketplaceId)?.titulo ?? c.marketplaceId;
+                  return `${titulo}: ${c.lojas.join("/")}`;
+                })
+                .join("; "),
             }))}
           />
         }
@@ -207,9 +227,14 @@ export function ProdutosMaisVendidos() {
                     <p className="num text-[10px] text-muted-foreground">{p.sku}</p>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {p.marketplaces.map((m) => (
-                        <SeloMarketplace key={m} id={m} />
+                    <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                      {p.canais.map((c) => (
+                        <div key={c.marketplaceId} className="flex items-center gap-1.5">
+                          <SeloMarketplace id={c.marketplaceId} />
+                          <span className="text-[10px] text-muted-foreground">
+                            {c.lojas.join(", ")}
+                          </span>
+                        </div>
                       ))}
                     </div>
                   </td>
