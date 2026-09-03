@@ -248,7 +248,7 @@ function Calculadora() {
       </div>
 
       {aba === "todos" || !dadosAtivos || !simulacaoAtiva ? (
-        <TelaTodos simulacoes={simulacoes} aoAbrirDetalhe={(id) => setDetalheAberto(id)} />
+        <TelaTodos dados={dados} simulacoes={simulacoes} aoAbrirDetalhe={(id) => setDetalheAberto(id)} />
       ) : (
         <div className="grid items-start gap-4 lg:grid-cols-2">
           {/* Coluna esquerda */}
@@ -501,9 +501,11 @@ function Calculadora() {
 /* ------------------------------------------------------------------ */
 
 function TelaTodos({
+  dados,
   simulacoes,
   aoAbrirDetalhe,
 }: {
+  dados: Record<CanalId, CamposCanal>;
   simulacoes: Record<CanalId, SimulacaoCanal>;
   aoAbrirDetalhe: (id: CanalId) => void;
 }) {
@@ -518,139 +520,88 @@ function TelaTodos({
         dividido entre canais. Para editar, selecione um marketplace específico na barra acima.
       </div>
 
-      <div className="rounded-2xl border bg-card shadow-card">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-3 text-left font-semibold">Métrica</th>
-              {CANAIS_INFO.map((c) => (
-                <th key={c.id} className="px-4 py-3 text-right font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => aoAbrirDetalhe(c.id)}
-                    className="inline-flex items-center gap-1.5 rounded-md p-1 hover:bg-muted"
-                  >
-                    <SeloMarketplace id={c.id as MarketplaceId} />
-                    {c.id === melhorMargemId && (
-                      <span className="rounded-full bg-profit-soft px-1.5 py-0.5 text-[9px] font-semibold text-profit">
-                        Melhor margem
-                      </span>
-                    )}
-                  </button>
-                </th>
-              ))}
+      <div className="overflow-x-auto rounded-2xl border bg-card shadow-card">
+        <table className="w-full text-[10px]">
+          <thead className="bg-muted/40 text-[8px] uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-2 py-1.5 text-left font-semibold">Canal</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Preço</th>
+              <th className="px-2 py-1.5 text-right font-semibold">CMV</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Comissão</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Taxa fixa</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Frete</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Imposto</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Embalagem</th>
+              <th className="px-2 py-1.5 text-right font-semibold">ADS</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Custo total</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Lucro líquido</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Margem</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Preço sugerido</th>
             </tr>
           </thead>
           <tbody>
-            <LinhaTodos
-              rotulo="Preço de venda"
-              valores={CANAIS_INFO.map((c) => formatBRL(simulacoes[c.id].preco))}
-            />
-            <LinhaTodos
-              rotulo="Custo do produto (CMV)"
-              valores={CANAIS_INFO.map((c) => formatBRL(simulacoes[c.id].custoProduto))}
-            />
-            <LinhaTodos
-              rotulo="Comissão do marketplace"
-              valores={CANAIS_INFO.map((c) => formatBRL(simulacoes[c.id].comissaoValor))}
-            />
-            <LinhaTodos
-              rotulo="Taxa fixa"
-              valores={CANAIS_INFO.map((c) => formatBRL(simulacoes[c.id].taxaFixa))}
-            />
-            <LinhaTodos
-              rotulo="Frete"
-              valores={CANAIS_INFO.map((c) => formatBRL(simulacoes[c.id].valorFrete))}
-            />
-            <LinhaTodos
-              rotulo="Imposto"
-              valores={CANAIS_INFO.map((c) => formatBRL(simulacoes[c.id].impostos))}
-            />
-            <LinhaTodos
-              rotulo="Embalagem / operacional"
-              valores={CANAIS_INFO.map((c) => formatBRL(simulacoes[c.id].valorEmbalagem))}
-            />
-            <LinhaTodos
-              rotulo="Investimento em ADS"
-              valores={CANAIS_INFO.map((c) => formatBRL(simulacoes[c.id].adsValor))}
-            />
-            <LinhaTodos
-              rotulo="Custo total"
-              destaque
-              valores={CANAIS_INFO.map((c) => formatBRL(simulacoes[c.id].custoTotal))}
-            />
-            <LinhaTodos
-              rotulo="Lucro líquido"
-              destaque
-              valores={CANAIS_INFO.map((c) => ({
-                texto: formatBRL(simulacoes[c.id].lucroLiquido),
-                positivo: simulacoes[c.id].lucroLiquido >= 0,
-              }))}
-            />
-            <LinhaTodos
-              rotulo="Margem líquida"
-              destaque
-              valores={CANAIS_INFO.map((c) => ({
-                texto: formatPercentual(simulacoes[c.id].margem),
-                positivo: simulacoes[c.id].margem >= 0,
-              }))}
-            />
-            <LinhaTodos
-              rotulo="Preço de venda sugerido"
-              destaque
-              valores={CANAIS_INFO.map((c) => ({
-                texto: formatBRL(simulacoes[c.id].precoSugerido),
-                cor: "text-brand",
-              }))}
-            />
+            {CANAIS_INFO.map((c) => {
+              const d = dados[c.id];
+              const s = simulacoes[c.id];
+              return (
+                <tr
+                  key={c.id}
+                  onClick={() => aoAbrirDetalhe(c.id)}
+                  className="cursor-pointer border-t transition-colors hover:bg-muted/40"
+                >
+                  <td className="px-2 py-1.5 font-medium">
+                    <div className="flex items-center gap-1.5">
+                      <SeloMarketplace id={c.id as MarketplaceId} />
+                      {c.id === melhorMargemId && (
+                        <span className="rounded-full bg-profit-soft px-1 py-0.5 text-[8px] font-semibold text-profit">
+                          Melhor margem
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.preco)}</td>
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.custoProduto)}</td>
+                  <td className="num px-2 py-1.5 text-right">
+                    {formatBRL(s.comissaoValor)}{" "}
+                    <span className="text-muted-foreground">({d.comissao}%)</span>
+                  </td>
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.taxaFixa)}</td>
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.valorFrete)}</td>
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.impostos)}</td>
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.valorEmbalagem)}</td>
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.adsValor)}</td>
+                  <td className="num px-2 py-1.5 text-right font-medium">
+                    {formatBRL(s.custoTotal)}
+                  </td>
+                  <td
+                    className={cn(
+                      "num px-2 py-1.5 text-right font-semibold",
+                      s.lucroLiquido >= 0 ? "text-profit" : "text-loss",
+                    )}
+                  >
+                    {formatBRL(s.lucroLiquido)}
+                  </td>
+                  <td
+                    className={cn(
+                      "num px-2 py-1.5 text-right font-semibold",
+                      s.margem >= 0 ? "text-profit" : "text-loss",
+                    )}
+                  >
+                    {formatPercentual(s.margem)}
+                  </td>
+                  <td className="num px-2 py-1.5 text-right text-brand">
+                    {formatBRL(s.precoSugerido)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
       <p className="text-[10px] text-muted-foreground">
-        Clique no nome de um marketplace para ver o detalhamento completo daquele canal (inclui % de
-        comissão, imposto e ADS).
+        Clique em uma linha para ver o detalhamento completo daquele canal.
       </p>
     </div>
-  );
-}
-
-type ValorLinhaTodos = string | { texto: string; positivo?: boolean; cor?: string };
-
-function LinhaTodos({
-  rotulo,
-  valores,
-  destaque,
-}: {
-  rotulo: string;
-  valores: ValorLinhaTodos[];
-  destaque?: boolean;
-}) {
-  return (
-    <tr className={cn("border-t", destaque && "bg-muted/20")}>
-      <td
-        className={cn(
-          "px-4 py-2.5 text-muted-foreground",
-          destaque && "font-semibold text-foreground",
-        )}
-      >
-        {rotulo}
-      </td>
-      {valores.map((v, i) => {
-        const texto = typeof v === "string" ? v : v.texto;
-        const cor =
-          typeof v === "string"
-            ? undefined
-            : (v.cor ?? (v.positivo === undefined ? undefined : v.positivo ? "text-profit" : "text-loss"));
-        return (
-          <td
-            key={CANAIS_INFO[i]!.id}
-            className={cn("num px-4 py-2.5 text-right", destaque ? "text-sm font-bold" : "font-medium", cor)}
-          >
-            {texto}
-          </td>
-        );
-      })}
-    </tr>
   );
 }
 
