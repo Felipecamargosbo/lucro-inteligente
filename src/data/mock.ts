@@ -4,6 +4,7 @@
 
 import type {
   AlteracaoPreco,
+  Campanha,
   ContaMarketplace,
   Anuncio,
   CanalNotificacao,
@@ -18,8 +19,10 @@ import type {
   Pedido,
   Produto,
   Promocao,
+  OrigemCampanha,
   StatusOportunidadeRecuperacao,
   StatusPedido,
+  TipoCampanha,
   TipoLogistica,
   TipoOportunidadeRecuperacao,
   Usuario,
@@ -397,27 +400,189 @@ const MOTIVOS_DEVOLUCAO = [
   "Item incompleto",
 ];
 
+/* ------------------------------------------------------------------ */
+/* Campanhas de promoção                                              */
+/* ------------------------------------------------------------------ */
+
+interface CampanhaSeed {
+  id: string;
+  nome: string | null;
+  marketplaceId: MarketplaceId;
+  tipo: TipoCampanha;
+  origem: OrigemCampanha;
+  /** Início da vigência, em dias atrás a partir de hoje */
+  inicioDiasAtras: number;
+  /** Fim da vigência em dias atrás; negativo = termina no futuro (campanha ativa) */
+  fimDiasAtras: number;
+  skus: string[];
+  descontoPercentual: number;
+  /**
+   * Quanto a campanha REALMENTE multiplica o volume dos SKUs dela. É o número
+   * que separa campanha boa de desconto jogado fora: 1.6 = trouxe venda nova;
+   * 1.0 = você só deu desconto pra quem compraria de qualquer jeito. Existe
+   * aqui pra a análise de lucro incremental ter um sinal honesto pra medir —
+   * com a API conectada, isso vem da comparação com o período anterior real.
+   */
+  lift: number;
+  /** Fração das vendas dos SKUs no período que sai pela campanha */
+  adesao: number;
+}
+
+const CAMPANHAS_SEED: CampanhaSeed[] = [
+  {
+    id: "P-MLB1789042",
+    nome: "Semana do Consumidor",
+    marketplaceId: "mercado-livre",
+    tipo: "oferta",
+    origem: "nexo",
+    inicioDiasAtras: 12,
+    fimDiasAtras: -5,
+    skus: ["SW-X-BLK-001", "AU-G3-2026", "PWR-GAN-65W"],
+    descontoPercentual: 0.12,
+    lift: 1.65,
+    adesao: 0.8,
+  },
+  {
+    id: "P-MLB1774218",
+    nome: "Queima de Estoque",
+    marketplaceId: "mercado-livre",
+    tipo: "oferta-inteligente",
+    origem: "nexo",
+    inicioDiasAtras: 35,
+    fimDiasAtras: 20,
+    skus: ["HUB-USBC-7X1", "TEC-MEC-RGB", "LUM-RING-18"],
+    descontoPercentual: 0.18,
+    lift: 1.15,
+    adesao: 0.85,
+  },
+  {
+    // Entrou direto no painel do canal, sem passar por aqui: o marketplace
+    // não devolve o nome, então a tela mostra o id + "entrou sem análise".
+    id: "P-SHP0093117",
+    nome: null,
+    marketplaceId: "shopee",
+    tipo: "oferta",
+    origem: "externa",
+    inicioDiasAtras: 60,
+    fimDiasAtras: 45,
+    skus: ["PEL-IP15-PM", "MOU-SF-2K"],
+    descontoPercentual: 0.22,
+    lift: 1.05,
+    adesao: 0.9,
+  },
+  {
+    id: "P-AMZ0041920",
+    nome: "Frete Grátis Ampliado",
+    marketplaceId: "amazon",
+    tipo: "oferta",
+    origem: "nexo",
+    inicioDiasAtras: 8,
+    fimDiasAtras: -12,
+    skus: ["SSD-1TB-NVME", "CAM-WEB-4K"],
+    descontoPercentual: 0.08,
+    lift: 1.4,
+    adesao: 0.7,
+  },
+  {
+    id: "P-MGL0007745",
+    nome: "Cupom Primeira Compra",
+    marketplaceId: "magalu",
+    tipo: "cupom",
+    origem: "nexo",
+    inicioDiasAtras: 28,
+    fimDiasAtras: 14,
+    skus: ["MON-27-QHD", "CAD-ERG-PRO"],
+    descontoPercentual: 0.1,
+    lift: 1.25,
+    adesao: 0.6,
+  },
+  {
+    // O caso didático: desconto permanente que não traz volume nenhum.
+    id: "P-MLB1801556",
+    nome: null,
+    marketplaceId: "mercado-livre",
+    tipo: "equiparacao-preco",
+    origem: "externa",
+    inicioDiasAtras: 20,
+    fimDiasAtras: -10,
+    skus: ["MOU-SF-2K"],
+    descontoPercentual: 0.15,
+    lift: 1,
+    adesao: 0.95,
+  },
+];
+
+function construirCampanhas(): Campanha[] {
+  const hoje = new Date();
+  return CAMPANHAS_SEED.map((s) => {
+    const inicio = new Date(hoje);
+    inicio.setDate(hoje.getDate() - s.inicioDiasAtras);
+    inicio.setHours(0, 0, 0, 0);
+
+    const fim = new Date(hoje);
+    fim.setDate(hoje.getDate() - s.fimDiasAtras);
+    fim.setHours(23, 59, 59, 999);
+
+    return {
+      id: s.id,
+      nome: s.nome,
+      marketplaceId: s.marketplaceId,
+      tipo: s.tipo,
+      status: fim.getTime() >= hoje.getTime() ? "ativa" : "encerrada",
+      inicio: inicio.toISOString(),
+      fim: fim.toISOString(),
+      origem: s.origem,
+      skus: s.skus,
+      descontoPercentual: s.descontoPercentual,
+    } satisfies Campanha;
+  });
+}
+
+export const CAMPANHAS: Campanha[] = construirCampanhas();
+
+export const getCampanha = (id: string | null) =>
+  id ? CAMPANHAS.find((c) => c.id === id) : undefined;
+
+/** Nome pra exibir quando o canal não devolveu o nome da campanha. */
+export const rotuloCampanha = (campanha: Campanha) => campanha.nome ?? campanha.id;
+
+const PARAMETROS_CAMPANHA = new Map(
+  CAMPANHAS_SEED.map((s) => [s.id, { lift: s.lift, adesao: s.adesao }]),
+);
+
+/** Campanha vigente para este SKU, neste canal, nesta data. */
+function campanhaVigente(sku: string, marketplaceId: MarketplaceId, data: Date) {
+  const t = data.getTime();
+  return CAMPANHAS.find(
+    (c) =>
+      c.marketplaceId === marketplaceId &&
+      c.skus.includes(sku) &&
+      t >= +new Date(c.inicio) &&
+      t <= +new Date(c.fim),
+  );
+}
+
 function gerarPedidos(): Pedido[] {
   const rand = criarRandom(20260821);
   const pedidos: Pedido[] = [];
   const hoje = new Date();
 
-  for (let d = DIAS_HISTORICO; d >= 0; d--) {
-    const data = new Date(hoje);
-    data.setDate(hoje.getDate() - d);
-    // Tendência de crescimento suave + variação de fim de semana
-    const fimDeSemana = data.getDay() === 0 || data.getDay() === 6;
-    const base = 9 + Math.round((DIAS_HISTORICO - d) / 22);
-    const qtdPedidos = Math.max(
-      2,
-      Math.round((base + rand() * 6) * (fimDeSemana ? 0.65 : 1)),
-    );
-
-    for (let i = 0; i < qtdPedidos; i++) {
-      const produto = PRODUTOS[Math.floor(rand() * PRODUTOS.length)]!;
-      const conta = CONTAS_ATIVAS[Math.floor(rand() * CONTAS_ATIVAS.length)]!;
+  /** Monta um pedido. `campanha` vem preenchida quando a venda saiu por uma
+   * promoção — é o que liga a tela de Vendas à de Resultados. */
+  const criarPedido = (
+    produto: ProdutoSeed,
+    conta: ContaMarketplace,
+    data: Date,
+    campanha: Campanha | undefined,
+  ): Pedido => {
       const quantidade = rand() > 0.82 ? 2 : 1;
-      const desconto = rand() > 0.7 ? Math.round(produto.preco * 0.05 * 100) / 100 : 0;
+      // Em campanha o desconto é o da campanha; fora dela, o seller ainda pode
+      // ter dado um desconto pontual no anúncio.
+      const desconto = campanha
+        ? Math.round(produto.preco * campanha.descontoPercentual * 100) / 100
+        : rand() > 0.7
+          ? Math.round(produto.preco * 0.05 * 100) / 100
+          : 0;
       const precoUnitario = Math.round((produto.preco - desconto) * 100) / 100;
       const faturamento = Math.round(precoUnitario * quantidade * 100) / 100;
       const cmv = Math.round(produto.cmv * quantidade * 100) / 100;
@@ -473,7 +638,7 @@ function gerarPedidos(): Pedido[] {
         ? MOTIVOS_DEVOLUCAO[Math.floor(rand() * MOTIVOS_DEVOLUCAO.length)]!
         : null;
 
-      pedidos.push({
+      return {
         id: `${conta.marketplaceId.slice(0, 3).toUpperCase()}-${(100000 + Math.floor(rand() * 899999)).toString()}`,
         data: dataHora.toISOString(),
         marketplaceId: conta.marketplaceId,
@@ -501,7 +666,61 @@ function gerarPedidos(): Pedido[] {
         valorDevolvido,
         dataDevolucao,
         motivoDevolucao,
-      });
+        campanhaId: campanha?.id ?? null,
+      };
+  };
+
+  for (let d = DIAS_HISTORICO; d >= 0; d--) {
+    const data = new Date(hoje);
+    data.setDate(hoje.getDate() - d);
+    // Tendência de crescimento suave + variação de fim de semana
+    const fimDeSemana = data.getDay() === 0 || data.getDay() === 6;
+    const base = 9 + Math.round((DIAS_HISTORICO - d) / 22);
+    const qtdPedidos = Math.max(
+      2,
+      Math.round((base + rand() * 6) * (fimDeSemana ? 0.65 : 1)),
+    );
+
+    // 1) Demanda normal do dia. Quando o SKU está em campanha, parte dessas
+    //    vendas sai pela promoção — é a parcela que teria acontecido de
+    //    qualquer jeito, só que agora com desconto.
+    for (let i = 0; i < qtdPedidos; i++) {
+      const produto = PRODUTOS[Math.floor(rand() * PRODUTOS.length)]!;
+      const conta = CONTAS_ATIVAS[Math.floor(rand() * CONTAS_ATIVAS.length)]!;
+      const vigente = campanhaVigente(produto.sku, conta.marketplaceId, data);
+      const adesao = vigente ? (PARAMETROS_CAMPANHA.get(vigente.id)?.adesao ?? 0) : 0;
+      const campanha = vigente && rand() < adesao ? vigente : undefined;
+      pedidos.push(criarPedido(produto, conta, data, campanha));
+    }
+
+    // 2) Volume EXTRA que a campanha trouxe de verdade. Campanha com lift 1
+    //    não gera nada aqui — e é exatamente esse o caso em que o desconto
+    //    saiu do bolso do seller sem trazer venda nova.
+    for (const campanha of CAMPANHAS) {
+      const dentroDaJanela =
+        data.getTime() >= +new Date(campanha.inicio) &&
+        data.getTime() <= +new Date(campanha.fim);
+      if (!dentroDaJanela) continue;
+
+      const lift = PARAMETROS_CAMPANHA.get(campanha.id)?.lift ?? 1;
+      if (lift <= 1) continue;
+
+      const contasDoCanal = CONTAS_ATIVAS.filter(
+        (c) => c.marketplaceId === campanha.marketplaceId,
+      );
+      if (contasDoCanal.length === 0) continue;
+
+      const baseDiariaPorSku = qtdPedidos / PRODUTOS.length;
+      const esperado = baseDiariaPorSku * campanha.skus.length * (lift - 1);
+      const extras = Math.max(0, Math.round(esperado + (rand() - 0.5)));
+
+      for (let e = 0; e < extras; e++) {
+        const sku = campanha.skus[Math.floor(rand() * campanha.skus.length)]!;
+        const produto = PRODUTOS.find((p) => p.sku === sku);
+        if (!produto) continue;
+        const conta = contasDoCanal[Math.floor(rand() * contasDoCanal.length)]!;
+        pedidos.push(criarPedido(produto, conta, data, campanha));
+      }
     }
   }
 
