@@ -1,10 +1,23 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertTriangle, ArrowLeft, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip as ChartTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { campanhasService, vendasService } from "@/services";
 import {
+  campanhasDoProduto,
+  historicoDoProduto,
   lucroIncremental,
   produtosDaCampanha,
   resultadoDaCampanha,
+  resumoDoProduto,
 } from "@/lib/campanhas";
 import { formatBRL, formatData, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
@@ -271,10 +284,23 @@ function DetalheCampanha({
   campanha: Campanha;
   aoFechar: () => void;
 }) {
+  const [produtoAberto, setProdutoAberto] = useState<{ sku: string; nome: string } | null>(null);
   const pedidos = vendasService.listar();
   const resultado = resultadoDaCampanha(campanha, pedidos);
   const incremental = lucroIncremental(campanha, pedidos);
   const produtos = produtosDaCampanha(campanha, pedidos);
+
+  if (produtoAberto) {
+    return (
+      <DetalheProduto
+        sku={produtoAberto.sku}
+        nome={produtoAberto.nome}
+        campanha={campanha}
+        aoVoltar={() => setProdutoAberto(null)}
+        aoFechar={aoFechar}
+      />
+    );
+  }
 
   return (
     <Dialog open onOpenChange={aoFechar}>
@@ -358,6 +384,9 @@ function DetalheCampanha({
           <div className="rounded-xl border">
             <div className="border-b px-4 py-2.5">
               <p className="text-xs font-semibold">Produtos nesta campanha</p>
+              <p className="text-[10px] text-muted-foreground">
+                Clique em um produto para ver o histórico dele
+              </p>
             </div>
             {produtos.length === 0 ? (
               <p className="px-4 py-6 text-center text-[11px] text-muted-foreground">
@@ -377,7 +406,11 @@ function DetalheCampanha({
                   </thead>
                   <tbody className="divide-y">
                     {produtos.map((p) => (
-                      <tr key={p.sku}>
+                      <tr
+                        key={p.sku}
+                        onClick={() => setProdutoAberto({ sku: p.sku, nome: p.produto })}
+                        className="cursor-pointer transition-colors hover:bg-muted/40"
+                      >
                         <td className="max-w-[240px] px-4 py-2.5">
                           <p className="truncate font-medium">{p.produto}</p>
                           <p className="num text-[10px] text-muted-foreground">{p.sku}</p>
@@ -405,6 +438,258 @@ function DetalheCampanha({
                   </tbody>
                 </table>
               </div>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Detalhe de um produto                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Duas séries, e elas não são categorias iguais: "em promoção" é o que se quer
+ * estudar, "preço cheio" é a referência. Por isso uma cor da marca e um neutro,
+ * e não duas cores concorrendo por atenção.
+ *
+ * O neutro é quente de propósito: o cinza-azulado do app fica perto demais do
+ * roxo da marca para quem tem daltonismo tritan (separação 7,4, abaixo do piso
+ * de 8). Este passa em protan, deutan e tritan. A identidade também não depende
+ * só da cor — tem legenda fixa, tooltip por barra e a tabela de campanhas logo
+ * abaixo com os mesmos números.
+ */
+const COR_PROMOCAO = "var(--brand)";
+const COR_PRECO_CHEIO = "#6b6560";
+
+function DetalheProduto({
+  sku,
+  nome,
+  campanha,
+  aoVoltar,
+  aoFechar,
+}: {
+  sku: string;
+  nome: string;
+  campanha: Campanha;
+  aoVoltar: () => void;
+  aoFechar: () => void;
+}) {
+  const pedidos = vendasService.listar();
+  const campanhas = campanhasService.listar();
+
+  const historico = useMemo(
+    () => historicoDoProduto(sku, campanha.marketplaceId, pedidos),
+    [sku, campanha.marketplaceId, pedidos],
+  );
+  const resumo = useMemo(
+    () => resumoDoProduto(sku, campanha.marketplaceId, pedidos),
+    [sku, campanha.marketplaceId, pedidos],
+  );
+  const historicoCampanhas = useMemo(
+    () => campanhasDoProduto(sku, campanha.marketplaceId, campanhas, pedidos),
+    [sku, campanha.marketplaceId, campanhas, pedidos],
+  );
+
+  const dadosGrafico = historico.map((d) => ({
+    ...d,
+    rotulo: formatData(d.dia),
+  }));
+  const temVenda = historico.some((d) => d.precoCheio > 0 || d.emPromocao > 0);
+
+  const melhor = historicoCampanhas[0];
+  const pior = historicoCampanhas.length > 1 ? historicoCampanhas.at(-1) : undefined;
+
+  return (
+    <Dialog open onOpenChange={aoFechar}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <button
+            type="button"
+            onClick={aoVoltar}
+            className="mb-1 inline-flex w-fit items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="size-3" />
+            Voltar para {campanha.nome ?? campanha.id}
+          </button>
+          <DialogTitle className="text-left">{nome}</DialogTitle>
+          <DialogDescription>
+            <span className="num">{sku}</span> · histórico neste canal nos últimos 60 dias
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Bloco rotulo="Unidades em promoção" valor={String(resumo.promocao.unidades)} />
+            <Bloco rotulo="Unidades a preço cheio" valor={String(resumo.precoCheio.unidades)} />
+            <Bloco
+              rotulo="Margem em promoção"
+              valor={
+                resumo.promocao.receita ? formatPercentual(resumo.promocao.margem) : "—"
+              }
+              cor={resumo.promocao.margem >= 0 ? "text-profit" : "text-loss"}
+            />
+            <Bloco
+              rotulo="Margem a preço cheio"
+              valor={
+                resumo.precoCheio.receita ? formatPercentual(resumo.precoCheio.margem) : "—"
+              }
+              cor={resumo.precoCheio.margem >= 0 ? "text-profit" : "text-loss"}
+            />
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <p className="text-xs font-semibold">Unidades vendidas por dia</p>
+            <p className="mb-3 text-[10px] text-muted-foreground">
+              Barras mais altas durante a promoção significam venda nova; altura parecida
+              significa que o desconto só trocou venda cheia por venda com desconto.
+            </p>
+            {temVenda ? (
+              <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dadosGrafico} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis
+                      dataKey="rotulo"
+                      tick={{ fontSize: 9, fill: "var(--muted-foreground)" }}
+                      tickLine={false}
+                      axisLine={{ stroke: "var(--border)" }}
+                      interval={Math.max(0, Math.floor(dadosGrafico.length / 6) - 1)}
+                    />
+                    <YAxis
+                      allowDecimals={false}
+                      tick={{ fontSize: 9, fill: "var(--muted-foreground)" }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={32}
+                    />
+                    <ChartTooltip
+                      cursor={{ fill: "var(--muted)" }}
+                      contentStyle={{
+                        borderRadius: 12,
+                        border: "1px solid var(--border)",
+                        background: "var(--card)",
+                        fontSize: 11,
+                      }}
+                      formatter={(valor: number, nomeSerie: string) => [
+                        `${valor} un.`,
+                        nomeSerie,
+                      ]}
+                    />
+                    <Legend
+                      verticalAlign="bottom"
+                      height={24}
+                      iconType="circle"
+                      wrapperStyle={{ fontSize: 10 }}
+                    />
+                    <Bar
+                      dataKey="precoCheio"
+                      name="A preço cheio"
+                      stackId="un"
+                      fill={COR_PRECO_CHEIO}
+                    />
+                    <Bar
+                      dataKey="emPromocao"
+                      name="Em promoção"
+                      stackId="un"
+                      fill={COR_PROMOCAO}
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="py-8 text-center text-[11px] text-muted-foreground">
+                Sem vendas deste produto neste canal no período.
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-xl border">
+            <div className="border-b px-4 py-2.5">
+              <p className="text-xs font-semibold">Campanhas deste produto</p>
+              <p className="text-[10px] text-muted-foreground">
+                Em qual delas ele rendeu mais — da melhor margem para a pior
+              </p>
+            </div>
+            {historicoCampanhas.length === 0 ? (
+              <p className="px-4 py-6 text-center text-[11px] text-muted-foreground">
+                Este produto ainda não vendeu em nenhuma campanha.
+              </p>
+            ) : (
+              <>
+                {melhor && historicoCampanhas.length > 1 && (
+                  <div className="grid gap-2 border-b p-3 sm:grid-cols-2">
+                    <div className="rounded-lg bg-profit-soft p-2.5">
+                      <p className="text-[9px] font-semibold uppercase tracking-wide text-profit">
+                        Melhor margem
+                      </p>
+                      <p className="text-[11px] font-medium">
+                        {melhor.campanha.nome ?? melhor.campanha.id}
+                      </p>
+                      <p className="num text-[10px] text-muted-foreground">
+                        {formatPercentual(melhor.margem)} · {melhor.unidades} un.
+                      </p>
+                    </div>
+                    {pior && (
+                      <div className="rounded-lg bg-loss-soft p-2.5">
+                        <p className="text-[9px] font-semibold uppercase tracking-wide text-loss">
+                          Pior margem
+                        </p>
+                        <p className="text-[11px] font-medium">
+                          {pior.campanha.nome ?? pior.campanha.id}
+                        </p>
+                        <p className="num text-[10px] text-muted-foreground">
+                          {formatPercentual(pior.margem)} · {pior.unidades} un.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="max-h-52 overflow-y-auto">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-muted/40 text-[9px] uppercase tracking-wide text-muted-foreground">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-semibold">Campanha</th>
+                        <th className="px-4 py-2 text-right font-semibold">Unidades</th>
+                        <th className="px-4 py-2 text-right font-semibold">Receita</th>
+                        <th className="px-4 py-2 text-right font-semibold">Margem</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {historicoCampanhas.map((h) => (
+                        <tr
+                          key={h.campanha.id}
+                          className={cn(h.campanha.id === campanha.id && "bg-brand-soft/40")}
+                        >
+                          <td className="px-4 py-2.5">
+                            <span className="font-medium">
+                              {h.campanha.nome ?? <span className="num">{h.campanha.id}</span>}
+                            </span>
+                            {h.campanha.id === campanha.id && (
+                              <span className="ml-1.5 text-[9px] text-muted-foreground">
+                                (a que você está vendo)
+                              </span>
+                            )}
+                          </td>
+                          <td className="num px-4 py-2.5 text-right">{h.unidades}</td>
+                          <td className="num px-4 py-2.5 text-right">{formatBRL(h.receita)}</td>
+                          <td
+                            className={cn(
+                              "num px-4 py-2.5 text-right font-semibold",
+                              h.margem >= 0 ? "text-profit" : "text-loss",
+                            )}
+                          >
+                            {formatPercentual(h.margem)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </div>

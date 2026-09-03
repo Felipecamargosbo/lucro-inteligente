@@ -123,6 +123,103 @@ export function lucroIncremental(
   };
 }
 
+/**
+ * Unidades vendidas por dia de um SKU num canal, separando o que saiu a preço
+ * cheio do que saiu em promoção. É o gráfico que mostra, de olho, se a
+ * campanha trouxe venda nova ou só trocou venda cheia por venda com desconto.
+ */
+export function historicoDoProduto(
+  sku: string,
+  marketplaceId: Campanha["marketplaceId"],
+  pedidos: Pedido[],
+  dias = 60,
+  agora: Date = new Date(),
+) {
+  const fim = new Date(agora);
+  fim.setHours(23, 59, 59, 999);
+  const inicio = new Date(fim);
+  inicio.setDate(fim.getDate() - (dias - 1));
+  inicio.setHours(0, 0, 0, 0);
+
+  const chave = (d: Date) => d.toISOString().slice(0, 10);
+  const porDia = new Map<string, { dia: string; precoCheio: number; emPromocao: number }>();
+
+  for (let i = 0; i < dias; i++) {
+    const d = new Date(inicio);
+    d.setDate(inicio.getDate() + i);
+    porDia.set(chave(d), { dia: chave(d), precoCheio: 0, emPromocao: 0 });
+  }
+
+  for (const p of pedidos) {
+    if (p.sku !== sku || p.marketplaceId !== marketplaceId) continue;
+    if (p.status === "cancelado") continue;
+    const registro = porDia.get(chave(new Date(p.data)));
+    if (!registro) continue;
+    if (p.campanhaId) registro.emPromocao += p.quantidade;
+    else registro.precoCheio += p.quantidade;
+  }
+
+  return [...porDia.values()];
+}
+
+/**
+ * Todas as campanhas em que este SKU já vendeu, da que deu mais margem para a
+ * que deu menos. É a comparação que responde "em qual campanha vale a pena
+ * colocar este produto" — pergunta que só faz sentido olhando o produto, não
+ * dentro de uma campanha específica.
+ */
+export function campanhasDoProduto(
+  sku: string,
+  marketplaceId: Campanha["marketplaceId"],
+  campanhas: Campanha[],
+  pedidos: Pedido[],
+) {
+  return campanhas
+    .filter((c) => c.marketplaceId === marketplaceId && c.skus.includes(sku))
+    .map((campanha) => {
+      const itens = pedidos.filter(
+        (p) => p.campanhaId === campanha.id && p.sku === sku && p.status !== "cancelado",
+      );
+      const receita = itens.reduce((s, p) => s + p.faturamento, 0);
+      const lucro = itens.reduce((s, p) => s + p.lucroLiquido, 0);
+      return {
+        campanha,
+        pedidos: itens.length,
+        unidades: itens.reduce((s, p) => s + p.quantidade, 0),
+        receita,
+        lucro,
+        margem: receita ? lucro / receita : 0,
+      };
+    })
+    .filter((i) => i.pedidos > 0)
+    .sort((a, b) => b.margem - a.margem);
+}
+
+/** Números do SKU dentro e fora de promoção, no canal. */
+export function resumoDoProduto(
+  sku: string,
+  marketplaceId: Campanha["marketplaceId"],
+  pedidos: Pedido[],
+) {
+  const doSku = pedidos.filter(
+    (p) => p.sku === sku && p.marketplaceId === marketplaceId && p.status !== "cancelado",
+  );
+  const calcular = (itens: Pedido[]) => {
+    const receita = itens.reduce((s, p) => s + p.faturamento, 0);
+    const lucro = itens.reduce((s, p) => s + p.lucroLiquido, 0);
+    return {
+      unidades: itens.reduce((s, p) => s + p.quantidade, 0),
+      receita,
+      lucro,
+      margem: receita ? lucro / receita : 0,
+    };
+  };
+  return {
+    promocao: calcular(doSku.filter((p) => p.campanhaId)),
+    precoCheio: calcular(doSku.filter((p) => !p.campanhaId)),
+  };
+}
+
 /** Resultado por produto dentro de uma campanha, do que mais rendeu pro que menos. */
 export function produtosDaCampanha(campanha: Campanha, pedidos: Pedido[]) {
   const daCampanha = pedidos.filter(
