@@ -4,6 +4,7 @@
 
 import {
   ANUNCIOS,
+  CAMPANHAS,
   CANAIS_NOTIFICACAO,
   ESTOQUE,
   ESTOQUE_DETALHADO,
@@ -20,6 +21,7 @@ import {
   PROMOCOES,
   USUARIOS,
   contasDoCanal,
+  getCampanha,
   getConta,
   obterContasAtuais,
 } from "@/data/mock";
@@ -171,6 +173,14 @@ export const produtosService = {
 
 export const promocoesService = {
   listar: () => PROMOCOES,
+};
+
+export const campanhasService = {
+  listar: () => CAMPANHAS,
+  buscarPorId: (id: string | null) => getCampanha(id) ?? null,
+  /** Pedidos que saíram por esta campanha. */
+  pedidosDaCampanha: (campanhaId: string) =>
+    PEDIDOS.filter((p) => p.campanhaId === campanhaId),
 };
 
 export const estoqueService = {
