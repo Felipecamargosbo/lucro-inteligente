@@ -248,11 +248,7 @@ function Calculadora() {
       </div>
 
       {aba === "todos" || !dadosAtivos || !simulacaoAtiva ? (
-        <TelaTodos
-          dados={dados}
-          simulacoes={simulacoes}
-          aoAbrirDetalhe={(id) => setDetalheAberto(id)}
-        />
+        <TelaTodos dados={dados} simulacoes={simulacoes} aoAbrirDetalhe={(id) => setDetalheAberto(id)} />
       ) : (
         <div className="grid items-start gap-4 lg:grid-cols-2">
           {/* Coluna esquerda */}
@@ -525,22 +521,22 @@ function TelaTodos({
       </div>
 
       <div className="overflow-x-auto rounded-2xl border bg-card shadow-card">
-        <table className="w-full text-xs">
-          <thead className="bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
+        <table className="w-full text-[10px]">
+          <thead className="bg-muted/40 text-[8px] uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-4 py-2 text-left font-semibold">Canal</th>
-              <th className="px-4 py-2 text-right font-semibold">Preço</th>
-              <th className="px-4 py-2 text-right font-semibold">CMV</th>
-              <th className="px-4 py-2 text-right font-semibold">Comissão</th>
-              <th className="px-4 py-2 text-right font-semibold">Taxa fixa</th>
-              <th className="px-4 py-2 text-right font-semibold">Frete</th>
-              <th className="px-4 py-2 text-right font-semibold">Imposto</th>
-              <th className="px-4 py-2 text-right font-semibold">Embalagem</th>
-              <th className="px-4 py-2 text-right font-semibold">ADS</th>
-              <th className="px-4 py-2 text-right font-semibold">Custo total</th>
-              <th className="px-4 py-2 text-right font-semibold">Lucro líquido</th>
-              <th className="px-4 py-2 text-right font-semibold">Margem</th>
-              <th className="px-4 py-2 text-right font-semibold">Preço sugerido</th>
+              <th className="px-2 py-1.5 text-left font-semibold">Canal</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Preço</th>
+              <th className="px-2 py-1.5 text-right font-semibold">CMV</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Comissão</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Taxa fixa</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Frete</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Imposto</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Embalagem</th>
+              <th className="px-2 py-1.5 text-right font-semibold">ADS</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Custo total</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Lucro líquido</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Margem</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Preço sugerido</th>
             </tr>
           </thead>
           <tbody>
@@ -553,33 +549,33 @@ function TelaTodos({
                   onClick={() => aoAbrirDetalhe(c.id)}
                   className="cursor-pointer border-t transition-colors hover:bg-muted/40"
                 >
-                  <td className="px-4 py-2.5 font-medium">
-                    <div className="flex items-center gap-2">
+                  <td className="px-2 py-1.5 font-medium">
+                    <div className="flex items-center gap-1.5">
                       <SeloMarketplace id={c.id as MarketplaceId} />
                       {c.id === melhorMargemId && (
-                        <span className="rounded-full bg-profit-soft px-1.5 py-0.5 text-[9px] font-semibold text-profit">
+                        <span className="rounded-full bg-profit-soft px-1 py-0.5 text-[8px] font-semibold text-profit">
                           Melhor margem
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="num px-4 py-2.5 text-right">{formatBRL(s.preco)}</td>
-                  <td className="num px-4 py-2.5 text-right">{formatBRL(s.custoProduto)}</td>
-                  <td className="num px-4 py-2.5 text-right">
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.preco)}</td>
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.custoProduto)}</td>
+                  <td className="num px-2 py-1.5 text-right">
                     {formatBRL(s.comissaoValor)}{" "}
                     <span className="text-muted-foreground">({d.comissao}%)</span>
                   </td>
-                  <td className="num px-4 py-2.5 text-right">{formatBRL(s.taxaFixa)}</td>
-                  <td className="num px-4 py-2.5 text-right">{formatBRL(s.valorFrete)}</td>
-                  <td className="num px-4 py-2.5 text-right">{formatBRL(s.impostos)}</td>
-                  <td className="num px-4 py-2.5 text-right">{formatBRL(s.valorEmbalagem)}</td>
-                  <td className="num px-4 py-2.5 text-right">{formatBRL(s.adsValor)}</td>
-                  <td className="num px-4 py-2.5 text-right font-medium">
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.taxaFixa)}</td>
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.valorFrete)}</td>
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.impostos)}</td>
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.valorEmbalagem)}</td>
+                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.adsValor)}</td>
+                  <td className="num px-2 py-1.5 text-right font-medium">
                     {formatBRL(s.custoTotal)}
                   </td>
                   <td
                     className={cn(
-                      "num px-4 py-2.5 text-right font-semibold",
+                      "num px-2 py-1.5 text-right font-semibold",
                       s.lucroLiquido >= 0 ? "text-profit" : "text-loss",
                     )}
                   >
@@ -587,13 +583,13 @@ function TelaTodos({
                   </td>
                   <td
                     className={cn(
-                      "num px-4 py-2.5 text-right font-semibold",
+                      "num px-2 py-1.5 text-right font-semibold",
                       s.margem >= 0 ? "text-profit" : "text-loss",
                     )}
                   >
                     {formatPercentual(s.margem)}
                   </td>
-                  <td className="num px-4 py-2.5 text-right text-brand">
+                  <td className="num px-2 py-1.5 text-right text-brand">
                     {formatBRL(s.precoSugerido)}
                   </td>
                 </tr>
