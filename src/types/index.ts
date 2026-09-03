@@ -135,9 +135,52 @@ export interface Pedido {
   dataDevolucao: string | null;
   /** Motivo informado pelo cliente/canal; null quando não houve devolução */
   motivoDevolucao: string | null;
+  /**
+   * Campanha de promoção em que esta venda saiu; null quando foi venda a
+   * preço cheio. Guardamos só o id — nome, tipo e período vivem na Campanha,
+   * pra não duplicar informação que pode divergir depois.
+   */
+  campanhaId: string | null;
 }
 
+/** Full = estoque no CD do marketplace; Flex = o seller entrega no mesmo dia;
+ * Coleta = o marketplace busca com o seller (cross-docking). O valor interno
+ * segue "padrao" por compatibilidade — o rótulo exibido vive em lib/logistica. */
 export type TipoLogistica = "full" | "flex" | "padrao";
+
+export type StatusCampanha = "ativa" | "encerrada";
+
+export type TipoCampanha =
+  | "oferta"
+  | "oferta-inteligente"
+  | "cupom"
+  | "equiparacao-preco";
+
+/**
+ * Como o seller entrou na campanha. "nexo" = entrou por aqui, passando pela
+ * análise de margem. "externa" = entrou direto no painel do marketplace, sem
+ * análise prévia — nesses casos o canal quase nunca devolve o nome da
+ * campanha, e é por isso que `nome` pode vir null.
+ */
+export type OrigemCampanha = "nexo" | "externa";
+
+export interface Campanha {
+  id: string;
+  /** null quando o canal não expôs o nome (típico de entrada externa) */
+  nome: string | null;
+  marketplaceId: MarketplaceId;
+  tipo: TipoCampanha;
+  status: StatusCampanha;
+  /** Início da vigência (ISO) */
+  inicio: string;
+  /** Fim da vigência (ISO). Campanha ativa tem fim no futuro. */
+  fim: string;
+  origem: OrigemCampanha;
+  /** SKUs inscritos na campanha */
+  skus: string[];
+  /** Desconto ofertado sobre o preço cheio, de 0 a 1 */
+  descontoPercentual: number;
+}
 
 export type StatusAnuncio = "ativo" | "pausado" | "sem-estoque";
 
