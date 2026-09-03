@@ -27,6 +27,7 @@ import {
 import { formatBRL, formatBRLCompacto, formatData, formatNumero, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
+import { ExportarDados } from "@/components/comum/ExportarDados";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace, MarketplaceId, Pedido, Periodo } from "@/types";
 
@@ -205,8 +206,54 @@ export function Comparativos() {
     return mapa;
   }, [dados, contas]);
 
+  // Mesmas linhas da tabela "Comparativo por canal", organizadas por canal —
+  // mas SEM linha de "Total do canal": ela é sempre a soma das contas que já
+  // aparecem logo ali, então mostrar as duas é repetir a mesma informação.
+  // Cada loja rastreada vira uma linha; só quando o canal não tem nenhuma
+  // conta rastreada (não há detalhe de loja pra mostrar) usamos a linha do
+  // canal como a única linha dele.
+  const linhasExport = useMemo(() => {
+    const linhas: Record<string, string | number>[] = [];
+    for (const c of porCanal) {
+      const contasDoCanal = contasPorCanal.get(c.id) ?? [];
+
+      if (contasDoCanal.length > 0) {
+        for (const conta of contasDoCanal) {
+          const vAtualConta = valorTotais(conta.atual, metrica);
+          const vComparadoConta = valorTotais(conta.comparado, metrica);
+          linhas.push({
+            Canal: c.titulo,
+            Conta: conta.nome,
+            Métrica: METRICAS.find((m) => m.id === metrica)?.rotulo ?? metrica,
+            Atual: formata(metrica, vAtualConta),
+            "Período anterior": formata(metrica, vComparadoConta),
+            "Variação (%)": formatPercentual(variacao(vAtualConta, vComparadoConta)),
+          });
+        }
+      } else {
+        // Nenhuma conta rastreada pra esse canal — mantém a linha do canal,
+        // já que não há detalhe de loja pra mostrar em vez dela.
+        const vAtualCanal = valorTotais(c.atual, metrica);
+        const vComparadoCanal = valorTotais(c.comparado, metrica);
+        linhas.push({
+          Canal: c.titulo,
+          Conta: c.titulo,
+          Métrica: METRICAS.find((m) => m.id === metrica)?.rotulo ?? metrica,
+          Atual: formata(metrica, vAtualCanal),
+          "Período anterior": formata(metrica, vComparadoCanal),
+          "Variação (%)": formatPercentual(variacao(vAtualCanal, vComparadoCanal)),
+        });
+      }
+    }
+    return linhas;
+  }, [porCanal, contasPorCanal, metrica]);
+
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <ExportarDados nomeArquivo="comparativos" linhas={linhasExport} />
+      </div>
+
       {/* Controles */}
       <div className="flex flex-wrap items-end gap-4 rounded-xl border bg-card p-4">
         <div className="space-y-1.5">
