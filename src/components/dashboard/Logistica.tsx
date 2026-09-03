@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Truck, Warehouse } from "lucide-react";
+import { Truck, Warehouse, Zap } from "lucide-react";
 import { usePeriodo } from "@/context/periodo";
 import { periodoAnterior } from "@/lib/period";
 import { useSelecaoContas } from "@/context/selecao-contas";
@@ -23,16 +23,12 @@ import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace, MarketplaceId, Pedido, TipoLogistica } from "@/types";
-
-const ROTULO_LOGISTICA: Record<TipoLogistica, string> = {
-  full: "Full",
-  coleta: "Coleta",
-};
-
-const COR_LOGISTICA: Record<TipoLogistica, string> = {
-  full: "var(--brand)",
-  coleta: "var(--warning)",
-};
+import {
+  COR_LOGISTICA,
+  PONTO_LOGISTICA,
+  ROTULO_LOGISTICA,
+  TIPOS_LOGISTICA,
+} from "@/lib/logistica";
 
 interface ResumoLogistica {
   tipo: TipoLogistica;
@@ -45,7 +41,7 @@ interface ResumoLogistica {
 }
 
 function resumirPorLogistica(atuais: Pedido[], anteriores: Pedido[]): ResumoLogistica[] {
-  return (["full", "coleta"] as const).map((tipo) => {
+  return TIPOS_LOGISTICA.map((tipo) => {
     const doTipo = atuais.filter((p) => p.tipoLogistica === tipo && p.status !== "cancelado");
     const doTipoAnterior = anteriores.filter(
       (p) => p.tipoLogistica === tipo && p.status !== "cancelado",
@@ -71,9 +67,11 @@ interface SplitLogistica {
   margem: number;
 }
 
-/** Calcula o resultado de Full e de Coleta para um conjunto qualquer de
+type SplitPorLogistica = Record<TipoLogistica, SplitLogistica>;
+
+/** Calcula o resultado de Full, Flex e Coleta para um conjunto qualquer de
  * pedidos já filtrado (por canal ou por conta) — reaproveitado nos dois. */
-function splitLogistica(itensDoEscopo: Pedido[]): { full: SplitLogistica; coleta: SplitLogistica } {
+function splitLogistica(itensDoEscopo: Pedido[]): SplitPorLogistica {
   const calcular = (tipo: TipoLogistica): SplitLogistica => {
     const itens = itensDoEscopo.filter((p) => p.tipoLogistica === tipo);
     const faturamento = itens.reduce((s, p) => s + p.faturamento, 0);
@@ -85,14 +83,19 @@ function splitLogistica(itensDoEscopo: Pedido[]): { full: SplitLogistica; coleta
       margem: faturamento ? lucro / faturamento : 0,
     };
   };
-  return { full: calcular("full"), coleta: calcular("coleta") };
+  return {
+    full: calcular("full"),
+    flex: calcular("flex"),
+    padrao: calcular("padrao"),
+  };
 }
 
 interface LinhaCanalLogistica {
   id: MarketplaceId;
   titulo: string;
   full: SplitLogistica;
-  coleta: SplitLogistica;
+  flex: SplitLogistica;
+  padrao: SplitLogistica;
 }
 
 function resumirPorCanalELogistica(pedidos: Pedido[]): LinhaCanalLogistica[] {
@@ -101,17 +104,18 @@ function resumirPorCanalELogistica(pedidos: Pedido[]): LinhaCanalLogistica[] {
       (p) => p.marketplaceId === canal.id && p.status !== "cancelado",
     );
     return { id: canal.id, titulo: canal.titulo, ...splitLogistica(doCanal) };
-  }).filter((c) => c.full.pedidos > 0 || c.coleta.pedidos > 0);
+  }).filter((c) => c.full.pedidos > 0 || c.flex.pedidos > 0 || c.padrao.pedidos > 0);
 }
 
 interface LinhaContaLogistica {
   id: string;
   nome: string;
   full: SplitLogistica;
-  coleta: SplitLogistica;
+  flex: SplitLogistica;
+  padrao: SplitLogistica;
 }
 
-/** Mesma quebra Full/Coleta, mas por CONTA — pra abrir o canal e ver o
+/** Mesma quebra Full/Flex/Coleta, mas por CONTA — pra abrir o canal e ver o
  * resultado de cada loja individual, igual já é feito em Canais. */
 function resumirPorContaELogistica(
   pedidos: Pedido[],
@@ -124,8 +128,18 @@ function resumirPorContaELogistica(
       );
       return { id: conta.id, nome: conta.nome, ...splitLogistica(daConta) };
     })
-    .filter((c) => c.full.pedidos > 0 || c.coleta.pedidos > 0);
+    .filter((c) => c.full.pedidos > 0 || c.flex.pedidos > 0 || c.padrao.pedidos > 0);
 }
+
+const PARTICIPACAO_LOGISTICA: {
+  tipo: TipoLogistica;
+  icone: typeof Warehouse;
+  corIcone: string;
+}[] = [
+  { tipo: "full", icone: Warehouse, corIcone: "bg-brand-soft text-brand" },
+  { tipo: "flex", icone: Zap, corIcone: "bg-info-soft text-info" },
+  { tipo: "padrao", icone: Truck, corIcone: "bg-warning-soft text-foreground" },
+];
 
 export function Logistica() {
   const { periodo } = usePeriodo();
@@ -155,76 +169,60 @@ export function Logistica() {
     return mapa;
   }, [dados.atuais, contas]);
 
-  // Mesmas linhas da tabela "Full vs Coleta por canal" — canal, modelo e,
-  // quando tem mais de uma conta, cada loja individual — prontas pra exportar.
+  // Mesmas linhas da tabela "Full, Flex e Coleta por canal" — canal, modelo
+  // e, quando tem mais de uma conta, cada loja individual — prontas pra exportar.
   const linhasExport = useMemo(() => {
     const linhas: Record<string, string | number>[] = [];
     for (const c of porCanal) {
-      linhas.push({
-        Canal: c.titulo,
-        Conta: "Total do canal",
-        Modelo: "Full",
-        Pedidos: c.full.pedidos,
-        Faturamento: c.full.faturamento.toFixed(2),
-        Lucro: c.full.lucro.toFixed(2),
-        Margem: c.full.pedidos ? formatPercentual(c.full.margem) : "—",
-      });
-      linhas.push({
-        Canal: c.titulo,
-        Conta: "Total do canal",
-        Modelo: "Coleta",
-        Pedidos: c.coleta.pedidos,
-        Faturamento: c.coleta.faturamento.toFixed(2),
-        Lucro: c.coleta.lucro.toFixed(2),
-        Margem: c.coleta.pedidos ? formatPercentual(c.coleta.margem) : "—",
-      });
+      for (const tipo of TIPOS_LOGISTICA) {
+        const d = c[tipo];
+        linhas.push({
+          Canal: c.titulo,
+          Conta: "Total do canal",
+          Modelo: ROTULO_LOGISTICA[tipo],
+          Pedidos: d.pedidos,
+          Faturamento: d.faturamento.toFixed(2),
+          Lucro: d.lucro.toFixed(2),
+          Margem: d.pedidos ? formatPercentual(d.margem) : "—",
+        });
+      }
       for (const conta of contasPorCanal.get(c.id) ?? []) {
-        linhas.push({
-          Canal: c.titulo,
-          Conta: conta.nome,
-          Modelo: "Full",
-          Pedidos: conta.full.pedidos,
-          Faturamento: conta.full.faturamento.toFixed(2),
-          Lucro: conta.full.lucro.toFixed(2),
-          Margem: conta.full.pedidos ? formatPercentual(conta.full.margem) : "—",
-        });
-        linhas.push({
-          Canal: c.titulo,
-          Conta: conta.nome,
-          Modelo: "Coleta",
-          Pedidos: conta.coleta.pedidos,
-          Faturamento: conta.coleta.faturamento.toFixed(2),
-          Lucro: conta.coleta.lucro.toFixed(2),
-          Margem: conta.coleta.pedidos ? formatPercentual(conta.coleta.margem) : "—",
-        });
+        for (const tipo of TIPOS_LOGISTICA) {
+          const d = conta[tipo];
+          linhas.push({
+            Canal: c.titulo,
+            Conta: conta.nome,
+            Modelo: ROTULO_LOGISTICA[tipo],
+            Pedidos: d.pedidos,
+            Faturamento: d.faturamento.toFixed(2),
+            Lucro: d.lucro.toFixed(2),
+            Margem: d.pedidos ? formatPercentual(d.margem) : "—",
+          });
+        }
       }
     }
     return linhas;
   }, [porCanal, contasPorCanal]);
 
   const full = resumo.find((r) => r.tipo === "full")!;
-  const coleta = resumo.find((r) => r.tipo === "coleta")!;
-  const totalFaturamento = full.faturamento + coleta.faturamento;
-  const totalPedidos = full.pedidos + coleta.pedidos;
+  const flex = resumo.find((r) => r.tipo === "flex")!;
+  const padrao = resumo.find((r) => r.tipo === "padrao")!;
+  const totalFaturamento = full.faturamento + flex.faturamento + padrao.faturamento;
+  const totalPedidos = full.pedidos + flex.pedidos + padrao.pedidos;
 
-  const dadosGrafico = [
-    {
-      tipo: ROTULO_LOGISTICA.full,
-      chave: "full" as const,
-      faturamento: full.faturamento,
-      lucro: full.lucro,
-    },
-    {
-      tipo: ROTULO_LOGISTICA.coleta,
-      chave: "coleta" as const,
-      faturamento: coleta.faturamento,
-      lucro: coleta.lucro,
-    },
-  ];
+  const dadosGrafico = TIPOS_LOGISTICA.map((tipo) => {
+    const r = resumo.find((x) => x.tipo === tipo)!;
+    return {
+      tipo: ROTULO_LOGISTICA[tipo],
+      chave: tipo,
+      faturamento: r.faturamento,
+      lucro: r.lucro,
+    };
+  });
 
   if (atuais.length === 0) {
     return (
-      <Painel titulo="Logística" descricao="Full vs coleta — faturamento e margem">
+      <Painel titulo="Logística" descricao="Full, Flex e Coleta — faturamento e margem">
         <div className="px-5 py-14 text-center text-sm text-muted-foreground">
           Nenhuma venda no período (ou nenhuma conta selecionada no filtro).
         </div>
@@ -240,21 +238,28 @@ export function Logistica() {
 
       <div className="rounded-xl bg-muted/40 px-4 py-2.5 text-[11px] text-muted-foreground">
         <strong>Full</strong> = estoque enviado com antecedência ao centro de distribuição do
-        marketplace, que cuida da separação e do envio. <strong>Coleta</strong> = o próprio seller
-        despacha cada pedido (Correios, transportadora ou coleta agendada). Cada modelo tem um
-        custo diferente embutido nas taxas — por isso vale comparar a margem dos dois separado.
+        marketplace, que cuida da separação e do envio. <strong>Flex</strong> = o próprio seller
+        entrega, geralmente no mesmo dia, usando a logística própria do marketplace.{" "}
+        <strong>Coleta</strong> = o marketplace coleta com o seller e despacha. Cada
+        modelo tem um custo diferente embutido nas taxas — por isso vale comparar a margem dos
+        três separado.
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
         <CardKpi
           titulo="Pedidos via Full"
           valor={formatNumero(full.pedidos)}
           detalhe={totalPedidos ? `${formatPercentual(full.pedidos / totalPedidos)} do total` : undefined}
         />
         <CardKpi
+          titulo="Pedidos via Flex"
+          valor={formatNumero(flex.pedidos)}
+          detalhe={totalPedidos ? `${formatPercentual(flex.pedidos / totalPedidos)} do total` : undefined}
+        />
+        <CardKpi
           titulo="Pedidos via Coleta"
-          valor={formatNumero(coleta.pedidos)}
-          detalhe={totalPedidos ? `${formatPercentual(coleta.pedidos / totalPedidos)} do total` : undefined}
+          valor={formatNumero(padrao.pedidos)}
+          detalhe={totalPedidos ? `${formatPercentual(padrao.pedidos / totalPedidos)} do total` : undefined}
         />
         <CardKpi
           titulo="Margem Full"
@@ -262,9 +267,14 @@ export function Logistica() {
           variacaoPercentual={variacao(full.faturamento, full.faturamentoAnterior)}
         />
         <CardKpi
+          titulo="Margem Flex"
+          valor={formatPercentual(flex.margem)}
+          variacaoPercentual={variacao(flex.faturamento, flex.faturamentoAnterior)}
+        />
+        <CardKpi
           titulo="Margem Coleta"
-          valor={formatPercentual(coleta.margem)}
-          variacaoPercentual={variacao(coleta.faturamento, coleta.faturamentoAnterior)}
+          valor={formatPercentual(padrao.margem)}
+          variacaoPercentual={variacao(padrao.faturamento, padrao.faturamentoAnterior)}
         />
       </div>
 
@@ -272,7 +282,7 @@ export function Logistica() {
         <Painel
           className="lg:col-span-3"
           titulo="Faturamento e lucro por modelo"
-          descricao="Full vs Coleta no período selecionado"
+          descricao="Full, Flex e Coleta no período selecionado"
         >
           <div className="h-72 p-4">
             <ResponsiveContainer width="100%" height="100%">
@@ -302,63 +312,54 @@ export function Logistica() {
         <Painel
           className="lg:col-span-2"
           titulo="Participação no faturamento"
-          descricao="Full vs Coleta"
+          descricao="Full, Flex e Coleta"
         >
           <div className="flex flex-col justify-center gap-5 p-5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-9 items-center justify-center rounded-full bg-brand-soft text-brand">
-                <Warehouse className="size-4" />
-              </span>
-              <div className="flex-1">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium">Full</span>
-                  <span className="num font-semibold">{formatBRL(full.faturamento)}</span>
+            {PARTICIPACAO_LOGISTICA.map(({ tipo, icone: Icone, corIcone }) => {
+              const d = resumo.find((r) => r.tipo === tipo)!;
+              return (
+                <div key={tipo} className="flex items-center gap-3">
+                  <span
+                    className={cn(
+                      "flex size-9 items-center justify-center rounded-full",
+                      corIcone,
+                    )}
+                  >
+                    <Icone className="size-4" />
+                  </span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium">{ROTULO_LOGISTICA[tipo]}</span>
+                      <span className="num font-semibold">{formatBRL(d.faturamento)}</span>
+                    </div>
+                    <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={cn("h-full rounded-full", PONTO_LOGISTICA[tipo])}
+                        style={{
+                          width: `${totalFaturamento ? (d.faturamento / totalFaturamento) * 100 : 0}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <span className="num w-12 shrink-0 text-right text-[11px] text-muted-foreground">
+                    {totalFaturamento ? formatPercentual(d.faturamento / totalFaturamento) : "—"}
+                  </span>
                 </div>
-                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-brand"
-                    style={{
-                      width: `${totalFaturamento ? (full.faturamento / totalFaturamento) * 100 : 0}%`,
-                    }}
-                  />
-                </div>
-              </div>
-              <span className="num w-12 shrink-0 text-right text-[11px] text-muted-foreground">
-                {totalFaturamento ? formatPercentual(full.faturamento / totalFaturamento) : "—"}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <span className="flex size-9 items-center justify-center rounded-full bg-warning-soft text-foreground">
-                <Truck className="size-4" />
-              </span>
-              <div className="flex-1">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium">Coleta</span>
-                  <span className="num font-semibold">{formatBRL(coleta.faturamento)}</span>
-                </div>
-                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-warning"
-                    style={{
-                      width: `${totalFaturamento ? (coleta.faturamento / totalFaturamento) * 100 : 0}%`,
-                    }}
-                  />
-                </div>
-              </div>
-              <span className="num w-12 shrink-0 text-right text-[11px] text-muted-foreground">
-                {totalFaturamento ? formatPercentual(coleta.faturamento / totalFaturamento) : "—"}
-              </span>
-            </div>
+              );
+            })}
 
             <p className="rounded-xl bg-muted/40 p-3 text-[11px] leading-relaxed text-muted-foreground">
               Ticket médio Full:{" "}
               <strong className="num text-foreground">
                 {formatBRL(full.pedidos ? full.faturamento / full.pedidos : 0)}
               </strong>{" "}
+              · Ticket médio Flex:{" "}
+              <strong className="num text-foreground">
+                {formatBRL(flex.pedidos ? flex.faturamento / flex.pedidos : 0)}
+              </strong>{" "}
               · Ticket médio Coleta:{" "}
               <strong className="num text-foreground">
-                {formatBRL(coleta.pedidos ? coleta.faturamento / coleta.pedidos : 0)}
+                {formatBRL(padrao.pedidos ? padrao.faturamento / padrao.pedidos : 0)}
               </strong>
             </p>
           </div>
@@ -366,11 +367,11 @@ export function Logistica() {
       </div>
 
       <Painel
-        titulo="Full vs Coleta por canal"
-        descricao="Cada canal com o resultado dos dois modelos lado a lado"
+        titulo="Full, Flex e Coleta por canal"
+        descricao="Cada canal com o resultado dos três modelos lado a lado"
       >
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left">
+          <table className="w-full min-w-[760px] text-left">
             <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-5 py-2.5 font-medium">Canal</th>
@@ -387,127 +388,100 @@ export function Logistica() {
                 const temVariasContas = contasDoCanal.length > 1;
                 return (
                   <Fragment key={c.id}>
-                    <tr className={cn("border-b", temVariasContas && "bg-muted/10")}>
-                      <td className="px-5 py-3" rowSpan={2}>
-                        <div className="flex items-center gap-2">
-                          <LogoMarketplace id={c.id} tamanho="xs" />
-                          <span className="text-xs font-medium">{c.titulo}</span>
-                          {temVariasContas && (
-                            <span className="text-[10px] text-muted-foreground">
-                              ({contasDoCanal.length} contas)
-                            </span>
+                    {TIPOS_LOGISTICA.map((tipo, i) => {
+                      const d = c[tipo];
+                      return (
+                        <tr
+                          key={tipo}
+                          className={cn(
+                            "border-b last:border-0",
+                            temVariasContas && "bg-muted/10",
                           )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3">
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
-                          <span className="size-2 rounded-full bg-brand" /> Full
-                        </span>
-                      </td>
-                      <td className="num px-3 py-3 text-right text-xs">
-                        {formatNumero(c.full.pedidos)}
-                      </td>
-                      <td className="num px-3 py-3 text-right text-xs font-semibold">
-                        {formatBRL(c.full.faturamento)}
-                      </td>
-                      <td
-                        className={cn(
-                          "num px-3 py-3 text-right text-xs font-bold",
-                          c.full.lucro >= 0 ? "text-profit" : "text-loss",
-                        )}
-                      >
-                        {formatBRL(c.full.lucro)}
-                      </td>
-                      <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
-                        {c.full.pedidos ? formatPercentual(c.full.margem) : "—"}
-                      </td>
-                    </tr>
-                    <tr className={cn("border-b", !temVariasContas && "last:border-0")}>
-                      <td className="px-3 py-3">
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
-                          <span className="size-2 rounded-full bg-warning" /> Coleta
-                        </span>
-                      </td>
-                      <td className="num px-3 py-3 text-right text-xs">
-                        {formatNumero(c.coleta.pedidos)}
-                      </td>
-                      <td className="num px-3 py-3 text-right text-xs font-semibold">
-                        {formatBRL(c.coleta.faturamento)}
-                      </td>
-                      <td
-                        className={cn(
-                          "num px-3 py-3 text-right text-xs font-bold",
-                          c.coleta.lucro >= 0 ? "text-profit" : "text-loss",
-                        )}
-                      >
-                        {formatBRL(c.coleta.lucro)}
-                      </td>
-                      <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
-                        {c.coleta.pedidos ? formatPercentual(c.coleta.margem) : "—"}
-                      </td>
-                    </tr>
+                        >
+                          {i === 0 && (
+                            <td className="px-5 py-3" rowSpan={TIPOS_LOGISTICA.length}>
+                              <div className="flex items-center gap-2">
+                                <LogoMarketplace id={c.id} tamanho="xs" />
+                                <span className="text-xs font-medium">{c.titulo}</span>
+                                {temVariasContas && (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    ({contasDoCanal.length} contas)
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                          <td className="px-3 py-3">
+                            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
+                              <span className={cn("size-2 rounded-full", PONTO_LOGISTICA[tipo])} />{" "}
+                              {ROTULO_LOGISTICA[tipo]}
+                            </span>
+                          </td>
+                          <td className="num px-3 py-3 text-right text-xs">
+                            {formatNumero(d.pedidos)}
+                          </td>
+                          <td className="num px-3 py-3 text-right text-xs font-semibold">
+                            {formatBRL(d.faturamento)}
+                          </td>
+                          <td
+                            className={cn(
+                              "num px-3 py-3 text-right text-xs font-bold",
+                              d.lucro >= 0 ? "text-profit" : "text-loss",
+                            )}
+                          >
+                            {formatBRL(d.lucro)}
+                          </td>
+                          <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                            {d.pedidos ? formatPercentual(d.margem) : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
 
                     {temVariasContas &&
-                      contasDoCanal.map((conta, i) => {
-                        const ultimaConta = i === contasDoCanal.length - 1;
-                        return (
-                          <Fragment key={conta.id}>
-                            <tr className="border-b">
-                              <td className="py-2.5 pl-11 pr-5" rowSpan={2}>
-                                <span className="text-[11px] text-muted-foreground">
-                                  {conta.nome}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2.5">
-                                <span className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                                  <span className="size-1.5 rounded-full bg-brand" /> Full
-                                </span>
-                              </td>
-                              <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
-                                {formatNumero(conta.full.pedidos)}
-                              </td>
-                              <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
-                                {formatBRL(conta.full.faturamento)}
-                              </td>
-                              <td
-                                className={cn(
-                                  "num px-3 py-2.5 text-right text-[11px]",
-                                  conta.full.lucro >= 0 ? "text-profit" : "text-loss",
+                      contasDoCanal.map((conta) => (
+                        <Fragment key={conta.id}>
+                          {TIPOS_LOGISTICA.map((tipo, i) => {
+                            const d = conta[tipo];
+                            return (
+                              <tr key={tipo} className="border-b last:border-0">
+                                {i === 0 && (
+                                  <td className="py-2.5 pl-11 pr-5" rowSpan={TIPOS_LOGISTICA.length}>
+                                    <span className="text-[11px] text-muted-foreground">
+                                      {conta.nome}
+                                    </span>
+                                  </td>
                                 )}
-                              >
-                                {formatBRL(conta.full.lucro)}
-                              </td>
-                              <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
-                                {conta.full.pedidos ? formatPercentual(conta.full.margem) : "—"}
-                              </td>
-                            </tr>
-                            <tr className={cn("border-b", ultimaConta && "last:border-0")}>
-                              <td className="px-3 py-2.5">
-                                <span className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                                  <span className="size-1.5 rounded-full bg-warning" /> Coleta
-                                </span>
-                              </td>
-                              <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
-                                {formatNumero(conta.coleta.pedidos)}
-                              </td>
-                              <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
-                                {formatBRL(conta.coleta.faturamento)}
-                              </td>
-                              <td
-                                className={cn(
-                                  "num px-3 py-2.5 text-right text-[11px]",
-                                  conta.coleta.lucro >= 0 ? "text-profit" : "text-loss",
-                                )}
-                              >
-                                {formatBRL(conta.coleta.lucro)}
-                              </td>
-                              <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
-                                {conta.coleta.pedidos ? formatPercentual(conta.coleta.margem) : "—"}
-                              </td>
-                            </tr>
-                          </Fragment>
-                        );
-                      })}
+                                <td className="px-3 py-2.5">
+                                  <span className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                    <span
+                                      className={cn("size-1.5 rounded-full", PONTO_LOGISTICA[tipo])}
+                                    />{" "}
+                                    {ROTULO_LOGISTICA[tipo]}
+                                  </span>
+                                </td>
+                                <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                                  {formatNumero(d.pedidos)}
+                                </td>
+                                <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                                  {formatBRL(d.faturamento)}
+                                </td>
+                                <td
+                                  className={cn(
+                                    "num px-3 py-2.5 text-right text-[11px]",
+                                    d.lucro >= 0 ? "text-profit" : "text-loss",
+                                  )}
+                                >
+                                  {formatBRL(d.lucro)}
+                                </td>
+                                <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                                  {d.pedidos ? formatPercentual(d.margem) : "—"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </Fragment>
+                      ))}
                   </Fragment>
                 );
               })}
