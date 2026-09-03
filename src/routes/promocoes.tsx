@@ -5,6 +5,7 @@ import { anunciosService, promocoesService } from "@/services";
 import { calcularResultado, resultadoAnuncio } from "@/lib/finance";
 import { formatBRL, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
+import { ResultadosPromocoes } from "@/components/promocoes/ResultadosPromocoes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,7 +61,54 @@ function resultadoComPreco(a: Anuncio | Promocao, preco: number) {
   });
 }
 
+type AbaPromocoes = "decidir" | "resultados";
+
+const ABAS: { id: AbaPromocoes; titulo: string; descricao: string }[] = [
+  {
+    id: "decidir",
+    titulo: "Decidir",
+    descricao: "Simule antes de entrar e veja o que sobra de lucro",
+  },
+  {
+    id: "resultados",
+    titulo: "Resultados",
+    descricao: "O que as campanhas que você já fez entregaram de verdade",
+  },
+];
+
 function Promocoes() {
+  const [aba, setAba] = useState<AbaPromocoes>("decidir");
+
+  return (
+    <div className="mx-auto max-w-[1500px] space-y-5">
+      <div className="flex flex-wrap gap-1 border-b">
+        {ABAS.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            onClick={() => setAba(a.id)}
+            className={cn(
+              "-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors",
+              aba === a.id
+                ? "border-brand text-brand"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {a.titulo}
+          </button>
+        ))}
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        {ABAS.find((a) => a.id === aba)?.descricao}
+      </p>
+
+      {aba === "decidir" ? <Decidir /> : <ResultadosPromocoes />}
+    </div>
+  );
+}
+
+function Decidir() {
   const promocoesBase = promocoesService.listar();
   const anuncios = anunciosService.listar();
 
@@ -101,7 +149,7 @@ function Promocoes() {
   const criticos = linhas.filter((l) => l.promo.margem < MARGEM_MINIMA).length;
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-6">
+    <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <CardKpi
           titulo="Promoções ativas"

@@ -4,9 +4,15 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { usePeriodo } from "@/context/periodo";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { useConfiguracoes } from "@/context/configuracoes";
-import { vendasService } from "@/services";
+import { campanhasService, vendasService } from "@/services";
 import { classificarFaixa, filtrarPorPeriodo, resumir } from "@/lib/finance";
 import { formatBRL, formatData, formatDataHora, formatPercentual } from "@/lib/format";
+import {
+  ETIQUETA_LOGISTICA,
+  PONTO_LOGISTICA,
+  ROTULO_LOGISTICA,
+  TIPOS_LOGISTICA,
+} from "@/lib/logistica";
 import {
   CardKpi,
   Painel,
@@ -31,7 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { FaixaSaudeMargem, Pedido } from "@/types";
+import type { FaixaSaudeMargem, Pedido, TipoLogistica } from "@/types";
 
 export const Route = createFileRoute("/vendas")({
   head: () => ({
@@ -162,6 +168,7 @@ function Vendas() {
   const { contas } = useConfiguracoes();
   const [faixaMargem, setFaixaMargem] = useState<FaixaSaudeMargem | "todas">("todas");
   const [status, setStatus] = useState("todos");
+  const [logistica, setLogistica] = useState<TipoLogistica | "todas">("todas");
   const [busca, setBusca] = useState("");
   const [ordenacao, setOrdenacao] = useState<Ordenacao | null>(null);
   const [selecionado, setSelecionado] = useState<Pedido | null>(null);
@@ -176,7 +183,10 @@ function Vendas() {
     });
   }
 
-  const pedidos = useMemo(() => {
+  // Tudo que passou pelos demais filtros, menos o de logística. É a base da
+  // faixa comparativa: ela precisa continuar mostrando Full, Flex e Coleta
+  // lado a lado mesmo quando você está olhando só um deles na tabela.
+  const pedidosAntesDeLogistica = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     const doPeriodo = filtrarPorPeriodo(filtrarPorSelecao(vendasService.listar()), periodo);
     return doPeriodo.filter((p) => {
@@ -194,6 +204,39 @@ function Vendas() {
       return true;
     });
   }, [periodo, faixaMargem, status, busca, filtrarPorSelecao, contaPorId]);
+
+  const pedidos = useMemo(
+    () =>
+      logistica === "todas"
+        ? pedidosAntesDeLogistica
+        : pedidosAntesDeLogistica.filter((p) => p.tipoLogistica === logistica),
+    [pedidosAntesDeLogistica, logistica],
+  );
+
+  /** Faturamento e margem de cada modelo de envio no período. Muito seller jura
+   * que Full é o mais lucrativo até ver a tarifa de armazenagem entrar na conta. */
+  const resumoLogistica = useMemo(
+    () =>
+      TIPOS_LOGISTICA.map((tipo) => {
+        const doTipo = pedidosAntesDeLogistica.filter(
+          (p) => p.tipoLogistica === tipo && p.status !== "cancelado",
+        );
+        const faturamento = doTipo.reduce((s, p) => s + p.faturamento, 0);
+        const lucro = doTipo.reduce((s, p) => s + p.lucroLiquido, 0);
+        return {
+          tipo,
+          pedidos: doTipo.length,
+          faturamento,
+          margem: faturamento ? lucro / faturamento : 0,
+        };
+      }),
+    [pedidosAntesDeLogistica],
+  );
+
+  const campanhaPorId = useMemo(
+    () => new Map(campanhasService.listar().map((c) => [c.id, c])),
+    [],
+  );
 
   const pedidosOrdenados = useMemo(() => {
     if (!ordenacao) return pedidos;
@@ -233,6 +276,34 @@ function Vendas() {
         />
       </div>
 
+      <div className="rounded-2xl border bg-card p-4 shadow-card">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Resultado por modelo de envio
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {resumoLogistica.map((l) => (
+            <button
+              key={l.tipo}
+              type="button"
+              onClick={() => setLogistica(logistica === l.tipo ? "todas" : l.tipo)}
+              className={cn(
+                "rounded-xl border p-3 text-left transition-colors hover:bg-muted/50",
+                logistica === l.tipo && "border-brand bg-brand-soft/40",
+              )}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className={cn("size-2 shrink-0 rounded-full", PONTO_LOGISTICA[l.tipo])} />
+                <span className="text-xs font-semibold">{ROTULO_LOGISTICA[l.tipo]}</span>
+              </div>
+              <p className="num mt-1.5 text-base font-bold">{formatPercentual(l.margem)}</p>
+              <p className="num text-[10px] text-muted-foreground">
+                {formatBRL(l.faturamento)} · {l.pedidos} pedido{l.pedidos === 1 ? "" : "s"}
+              </p>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <Painel
         titulo="Pedidos"
         descricao={`${pedidos.length} pedidos entre ${formatData(periodo.inicio)} e ${formatData(periodo.fim)} · clique numa linha para ver o detalhamento`}
@@ -258,6 +329,10 @@ function Vendas() {
               "Lucro líquido": p.lucroLiquido.toFixed(2),
               Margem: formatPercentual(p.margem),
               Status: p.status,
+              Envio: ROTULO_LOGISTICA[p.tipoLogistica],
+              Campanha: p.campanhaId
+                ? (campanhaPorId.get(p.campanhaId)?.nome ?? p.campanhaId)
+                : "—",
             }))}
           />
         }
@@ -297,6 +372,24 @@ function Vendas() {
               <SelectItem value="cancelado">Cancelado</SelectItem>
             </SelectContent>
           </Select>
+          <div className="flex flex-wrap items-center gap-1.5 md:col-span-3 xl:col-span-4">
+            <span className="mr-1 text-[11px] font-medium text-muted-foreground">Envio:</span>
+            {(["todas", ...TIPOS_LOGISTICA] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setLogistica(t)}
+                className={cn(
+                  "rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  logistica === t
+                    ? "border-brand bg-brand text-brand-foreground"
+                    : "text-muted-foreground hover:bg-muted",
+                )}
+              >
+                {t === "todas" ? "Todas" : ROTULO_LOGISTICA[t]}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -359,7 +452,28 @@ function Vendas() {
                   </td>
                   <td className="max-w-[240px] px-4 py-3">
                     <p className="truncate text-xs font-medium">{p.produto}</p>
-                    <p className="num text-[10px] text-muted-foreground">{p.sku}</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                      <span className="num text-[10px] text-muted-foreground">{p.sku}</span>
+                      <span
+                        className={cn(
+                          "rounded px-1 py-px text-[9px] font-semibold",
+                          ETIQUETA_LOGISTICA[p.tipoLogistica],
+                        )}
+                      >
+                        {ROTULO_LOGISTICA[p.tipoLogistica]}
+                      </span>
+                      {p.campanhaId && (
+                        <span
+                          className="rounded bg-brand-soft px-1 py-px text-[9px] font-semibold text-brand"
+                          title={
+                            campanhaPorId.get(p.campanhaId)?.nome ??
+                            `Campanha ${p.campanhaId} — entrou sem análise`
+                          }
+                        >
+                          Promo
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="num px-4 py-3 text-center text-xs">{p.quantidade}</td>
                   <td className="num px-4 py-3 text-right text-xs font-semibold">
@@ -424,6 +538,8 @@ function DetalheVenda({
 }) {
   if (!pedido) return null;
 
+  const campanha = campanhasService.buscarPorId(pedido.campanhaId);
+
   const linhas = [
     { rotulo: "CMV (custo do produto)", valor: pedido.cmv },
     { rotulo: "Comissão do marketplace", valor: pedido.comissao },
@@ -449,6 +565,28 @@ function DetalheVenda({
             <p className="num text-[11px] text-muted-foreground">
               SKU {pedido.sku} · {pedido.quantidade} un. · {formatBRL(pedido.precoUnitario)} cada
             </p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                  ETIQUETA_LOGISTICA[pedido.tipoLogistica],
+                )}
+              >
+                {ROTULO_LOGISTICA[pedido.tipoLogistica]}
+              </span>
+              {campanha ? (
+                <span className="rounded bg-brand-soft px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                  {campanha.nome ?? campanha.id}
+                </span>
+              ) : (
+                <span className="text-[10px] text-muted-foreground">Venda a preço cheio</span>
+              )}
+              {campanha?.origem === "externa" && (
+                <span className="rounded bg-warning-soft px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+                  Entrou sem análise
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="rounded-xl border">
