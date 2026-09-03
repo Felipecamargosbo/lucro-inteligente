@@ -23,26 +23,12 @@ import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace, MarketplaceId, Pedido, TipoLogistica } from "@/types";
-
-const TIPOS_LOGISTICA: TipoLogistica[] = ["full", "flex", "padrao"];
-
-const ROTULO_LOGISTICA: Record<TipoLogistica, string> = {
-  full: "Full",
-  flex: "Flex",
-  padrao: "Padrão",
-};
-
-const COR_LOGISTICA: Record<TipoLogistica, string> = {
-  full: "var(--brand)",
-  flex: "var(--info)",
-  padrao: "var(--warning)",
-};
-
-const PONTO_LOGISTICA: Record<TipoLogistica, string> = {
-  full: "bg-brand",
-  flex: "bg-info",
-  padrao: "bg-warning",
-};
+import {
+  COR_LOGISTICA,
+  PONTO_LOGISTICA,
+  ROTULO_LOGISTICA,
+  TIPOS_LOGISTICA,
+} from "@/lib/logistica";
 
 interface ResumoLogistica {
   tipo: TipoLogistica;
@@ -83,7 +69,7 @@ interface SplitLogistica {
 
 type SplitPorLogistica = Record<TipoLogistica, SplitLogistica>;
 
-/** Calcula o resultado de Full, Flex e Padrão para um conjunto qualquer de
+/** Calcula o resultado de Full, Flex e Coleta para um conjunto qualquer de
  * pedidos já filtrado (por canal ou por conta) — reaproveitado nos dois. */
 function splitLogistica(itensDoEscopo: Pedido[]): SplitPorLogistica {
   const calcular = (tipo: TipoLogistica): SplitLogistica => {
@@ -129,7 +115,7 @@ interface LinhaContaLogistica {
   padrao: SplitLogistica;
 }
 
-/** Mesma quebra Full/Flex/Padrão, mas por CONTA — pra abrir o canal e ver o
+/** Mesma quebra Full/Flex/Coleta, mas por CONTA — pra abrir o canal e ver o
  * resultado de cada loja individual, igual já é feito em Canais. */
 function resumirPorContaELogistica(
   pedidos: Pedido[],
@@ -183,7 +169,7 @@ export function Logistica() {
     return mapa;
   }, [dados.atuais, contas]);
 
-  // Mesmas linhas da tabela "Full, Flex e Padrão por canal" — canal, modelo
+  // Mesmas linhas da tabela "Full, Flex e Coleta por canal" — canal, modelo
   // e, quando tem mais de uma conta, cada loja individual — prontas pra exportar.
   const linhasExport = useMemo(() => {
     const linhas: Record<string, string | number>[] = [];
@@ -236,7 +222,7 @@ export function Logistica() {
 
   if (atuais.length === 0) {
     return (
-      <Painel titulo="Logística" descricao="Full, Flex e Padrão — faturamento e margem">
+      <Painel titulo="Logística" descricao="Full, Flex e Coleta — faturamento e margem">
         <div className="px-5 py-14 text-center text-sm text-muted-foreground">
           Nenhuma venda no período (ou nenhuma conta selecionada no filtro).
         </div>
@@ -254,7 +240,7 @@ export function Logistica() {
         <strong>Full</strong> = estoque enviado com antecedência ao centro de distribuição do
         marketplace, que cuida da separação e do envio. <strong>Flex</strong> = o próprio seller
         entrega, geralmente no mesmo dia, usando a logística própria do marketplace.{" "}
-        <strong>Padrão</strong> = o seller despacha via Correios ou transportadora comum. Cada
+        <strong>Coleta</strong> = o marketplace coleta com o seller e despacha. Cada
         modelo tem um custo diferente embutido nas taxas — por isso vale comparar a margem dos
         três separado.
       </div>
@@ -271,7 +257,7 @@ export function Logistica() {
           detalhe={totalPedidos ? `${formatPercentual(flex.pedidos / totalPedidos)} do total` : undefined}
         />
         <CardKpi
-          titulo="Pedidos via Padrão"
+          titulo="Pedidos via Coleta"
           valor={formatNumero(padrao.pedidos)}
           detalhe={totalPedidos ? `${formatPercentual(padrao.pedidos / totalPedidos)} do total` : undefined}
         />
@@ -286,7 +272,7 @@ export function Logistica() {
           variacaoPercentual={variacao(flex.faturamento, flex.faturamentoAnterior)}
         />
         <CardKpi
-          titulo="Margem Padrão"
+          titulo="Margem Coleta"
           valor={formatPercentual(padrao.margem)}
           variacaoPercentual={variacao(padrao.faturamento, padrao.faturamentoAnterior)}
         />
@@ -296,7 +282,7 @@ export function Logistica() {
         <Painel
           className="lg:col-span-3"
           titulo="Faturamento e lucro por modelo"
-          descricao="Full, Flex e Padrão no período selecionado"
+          descricao="Full, Flex e Coleta no período selecionado"
         >
           <div className="h-72 p-4">
             <ResponsiveContainer width="100%" height="100%">
@@ -326,7 +312,7 @@ export function Logistica() {
         <Painel
           className="lg:col-span-2"
           titulo="Participação no faturamento"
-          descricao="Full, Flex e Padrão"
+          descricao="Full, Flex e Coleta"
         >
           <div className="flex flex-col justify-center gap-5 p-5">
             {PARTICIPACAO_LOGISTICA.map(({ tipo, icone: Icone, corIcone }) => {
@@ -371,7 +357,7 @@ export function Logistica() {
               <strong className="num text-foreground">
                 {formatBRL(flex.pedidos ? flex.faturamento / flex.pedidos : 0)}
               </strong>{" "}
-              · Ticket médio Padrão:{" "}
+              · Ticket médio Coleta:{" "}
               <strong className="num text-foreground">
                 {formatBRL(padrao.pedidos ? padrao.faturamento / padrao.pedidos : 0)}
               </strong>
@@ -381,7 +367,7 @@ export function Logistica() {
       </div>
 
       <Painel
-        titulo="Full, Flex e Padrão por canal"
+        titulo="Full, Flex e Coleta por canal"
         descricao="Cada canal com o resultado dos três modelos lado a lado"
       >
         <div className="overflow-x-auto">
