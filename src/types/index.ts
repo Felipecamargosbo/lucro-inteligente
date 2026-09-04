@@ -391,37 +391,23 @@ export type TipoOportunidadeRecuperacao =
   | "pix-nao-pago"
   | "cancelamento-solicitado";
 
-export type StatusOportunidadeRecuperacao =
-  | "aguardando-acao"
-  | "mensagem-enviada"
-  | "recuperado";
-
-export type CanalRecuperacao = "whatsapp" | "email" | "sms";
+export type StatusOportunidadeRecuperacao = "aguardando-acao" | "mensagem-enviada";
 
 export interface OportunidadeRecuperacao {
   id: string;
   cliente: string;
+  telefone: string;
   pedidoId: string;
+  sku: string;
+  produto: string;
   marketplaceId: MarketplaceId;
   contaId: string;
   valor: number;
   tipo: TipoOportunidadeRecuperacao;
   tempoRestante: string;
   status: StatusOportunidadeRecuperacao;
-  canal: CanalRecuperacao;
   dataCriacao: string; // ISO
   dataUltimoContato: string | null; // ISO
-}
-
-export interface CanalNotificacao {
-  id: CanalRecuperacao;
-  nome: string;
-  icone: string; // lucide icon name
-  conectado: boolean;
-  disparosAutomaticos: boolean;
-  ultimoDisparo: string | null; // ISO
-  taxaAbertura: number; // 0-1
-  custoEstimado: number; // R$ por disparo
 }
 
 
