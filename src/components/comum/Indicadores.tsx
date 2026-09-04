@@ -114,13 +114,16 @@ export function Painel({
   );
 }
 
+/** Cor de marca de cada marketplace (forte, não o tom suave usado no resto do
+ * app), com o texto em branco ou preto — o que der mais contraste em cada
+ * uma. Mesmas cores de fundo usadas em LogoMarketplace.tsx e Canais.tsx. */
 const CORES_MARKETPLACE: Record<MarketplaceId, string> = {
-  "mercado-livre": "bg-warning-soft text-foreground",
-  shopee: "bg-loss-soft text-loss",
-  amazon: "bg-primary text-primary-foreground",
-  magalu: "bg-info-soft text-info",
-  "tiktok-shop": "bg-muted text-foreground",
-  shein: "bg-brand-soft text-brand",
+  "mercado-livre": "bg-[#FFE600] text-black",
+  shopee: "bg-[#EE4D2D] text-white",
+  amazon: "bg-[#FF9900] text-black",
+  magalu: "bg-[#0086FF] text-white",
+  "tiktok-shop": "bg-[#111111] text-white",
+  shein: "bg-[#222222] text-white",
 };
 
 export function SeloMarketplace({ id }: { id: MarketplaceId }) {
