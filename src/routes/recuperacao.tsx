@@ -277,8 +277,7 @@ function Recuperacao() {
                       <div className="flex items-center justify-end gap-2">
                         <Button
                           size="sm"
-                          variant="outline"
-                          className="gap-1.5 border-profit/40 text-profit hover:bg-profit-soft"
+                          className="gap-1.5 bg-profit text-white hover:bg-profit/90"
                           onClick={() => setContato({ oportunidade: o, canal: "whatsapp" })}
                         >
                           <IconeWhatsApp className="size-3.5" />
@@ -286,8 +285,7 @@ function Recuperacao() {
                         </Button>
                         <Button
                           size="sm"
-                          variant="outline"
-                          className="gap-1.5 border-info/40 text-info hover:bg-info-soft"
+                          className="gap-1.5 bg-info text-white hover:bg-info/90"
                           onClick={() => setContato({ oportunidade: o, canal: "email" })}
                         >
                           <Mail className="size-3.5" />
