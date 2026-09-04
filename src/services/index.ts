@@ -5,7 +5,6 @@
 import {
   ANUNCIOS,
   CAMPANHAS,
-  CANAIS_NOTIFICACAO,
   ESTOQUE,
   ESTOQUE_DETALHADO,
   RESUMO_ESTOQUE,
@@ -225,5 +224,4 @@ export const logsService = {
 
 export const recuperacaoService = {
   listar: () => OPORTUNIDADES_RECUPERACAO,
-  listarCanais: () => CANAIS_NOTIFICACAO,
 };
