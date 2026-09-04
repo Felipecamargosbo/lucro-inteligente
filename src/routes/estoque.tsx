@@ -50,7 +50,8 @@ const ABAS: { id: Aba; rotulo: string }[] = [
 ];
 
 const OPCOES_RUPTURA = [
-  { valor: "10", rotulo: "Cobertura < 10 dias" },
+  { valor: "7", rotulo: "Cobertura < 7 dias" },
+  { valor: "15", rotulo: "Cobertura < 15 dias" },
   { valor: "30", rotulo: "Cobertura < 30 dias" },
   { valor: "60", rotulo: "Cobertura < 60 dias" },
 ];
