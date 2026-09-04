@@ -7,8 +7,6 @@ import type {
   Campanha,
   ContaMarketplace,
   Anuncio,
-  CanalNotificacao,
-  CanalRecuperacao,
   ItemEstoque,
   ItemEstoqueDetalhado,
   LogAlteracao,
@@ -1025,57 +1023,47 @@ const TIPOS_RECUPERACAO: TipoOportunidadeRecuperacao[] = [
   "pix-nao-pago",
   "cancelamento-solicitado",
 ];
-const CANAIS_RECUPERACAO: CanalRecuperacao[] = ["whatsapp", "email", "sms"];
 
 function gerarOportunidadesRecuperacao(): OportunidadeRecuperacao[] {
   const rand = criarRandom(20260915);
-  const alvos = { total: 38450, recuperado: 14210 };
+  const alvoTotal = 38450;
 
   const oportunidades: OportunidadeRecuperacao[] = [];
   for (let i = 0; i < 67; i++) {
-    const recuperado = i < 25;
-    const status: StatusOportunidadeRecuperacao = recuperado
-      ? "recuperado"
-      : i < 55
-        ? "aguardando-acao"
-        : "mensagem-enviada";
+    // ~45% já foram contatadas, o resto ainda está esperando uma primeira ação.
+    const status: StatusOportunidadeRecuperacao = i < 30 ? "mensagem-enviada" : "aguardando-acao";
     const tipo = TIPOS_RECUPERACAO[Math.floor(rand() * TIPOS_RECUPERACAO.length)]!;
-    const canal = CANAIS_RECUPERACAO[Math.floor(rand() * CANAIS_RECUPERACAO.length)]!;
     const conta = CONTAS_ATIVAS[Math.floor(rand() * CONTAS_ATIVAS.length)]!;
     const produto = PRODUTOS[Math.floor(rand() * PRODUTOS.length)]!;
     const cliente = CLIENTES[Math.floor(rand() * CLIENTES.length)]!;
+    const ddd = 11 + Math.floor(rand() * 78);
     const valor = Math.round((200 + rand() * 800) * 100) / 100;
     const horas = Math.floor(1 + rand() * 47);
 
     oportunidades.push({
       id: `REC-${1000 + i}`,
       cliente,
+      telefone: `(${ddd}) 9${Math.floor(1000 + rand() * 8999)}-${Math.floor(1000 + rand() * 8999)}`,
       pedidoId: `${conta.marketplaceId.slice(0, 3).toUpperCase()}-${(100000 + Math.floor(rand() * 899999)).toString()}`,
+      sku: produto.sku,
+      produto: produto.nome,
       marketplaceId: conta.marketplaceId,
       contaId: conta.id,
       valor,
       tipo,
-      tempoRestante: recuperado ? "—" : `${horas}h`,
+      tempoRestante: `${horas}h`,
       status,
-      canal,
       dataCriacao: new Date(Date.now() - Math.floor(rand() * 10 * 24 * 3600000)).toISOString(),
-      dataUltimoContato: recuperado
-        ? new Date(Date.now() - Math.floor(rand() * 5 * 24 * 3600000)).toISOString()
-        : null,
+      dataUltimoContato:
+        status === "mensagem-enviada"
+          ? new Date(Date.now() - Math.floor(rand() * 5 * 24 * 3600000)).toISOString()
+          : null,
     });
   }
 
   const somaTotal = oportunidades.reduce((acc, o) => acc + o.valor, 0);
-  const somaRecuperado = oportunidades
-    .filter((o) => o.status === "recuperado")
-    .reduce((acc, o) => acc + o.valor, 0);
-  const somaPendente = somaTotal - somaRecuperado;
-
-  const fatorRecuperado = alvos.recuperado / somaRecuperado;
-  const fatorPendente = (alvos.total - alvos.recuperado) / somaPendente;
-
+  const fator = alvoTotal / somaTotal;
   for (const o of oportunidades) {
-    const fator = o.status === "recuperado" ? fatorRecuperado : fatorPendente;
     o.valor = Math.round(o.valor * fator * 100) / 100;
   }
 
@@ -1084,39 +1072,6 @@ function gerarOportunidadesRecuperacao(): OportunidadeRecuperacao[] {
 
 export const OPORTUNIDADES_RECUPERACAO: OportunidadeRecuperacao[] =
   gerarOportunidadesRecuperacao();
-
-export const CANAIS_NOTIFICACAO: CanalNotificacao[] = [
-  {
-    id: "whatsapp",
-    nome: "WhatsApp",
-    icone: "MessageCircle",
-    conectado: true,
-    disparosAutomaticos: true,
-    ultimoDisparo: new Date(Date.now() - 12 * 60000).toISOString(),
-    taxaAbertura: 0.78,
-    custoEstimado: 0.08,
-  },
-  {
-    id: "email",
-    nome: "E-mail",
-    icone: "Mail",
-    conectado: true,
-    disparosAutomaticos: false,
-    ultimoDisparo: new Date(Date.now() - 3 * 3600000).toISOString(),
-    taxaAbertura: 0.42,
-    custoEstimado: 0.02,
-  },
-  {
-    id: "sms",
-    nome: "SMS",
-    icone: "Smartphone",
-    conectado: false,
-    disparosAutomaticos: false,
-    ultimoDisparo: new Date(Date.now() - 2 * 24 * 3600000).toISOString(),
-    taxaAbertura: 0.65,
-    custoEstimado: 0.12,
-  },
-];
 
 
 // ---------------------------------------------------------------------------
