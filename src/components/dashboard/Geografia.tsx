@@ -1,45 +1,20 @@
 import { useMemo, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip as ChartTooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { usePeriodo } from "@/context/periodo";
 import { periodoAnterior } from "@/lib/period";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { vendasService } from "@/services";
 import { filtrarPorPeriodo, variacao } from "@/lib/finance";
-import { formatBRL, formatBRLCompacto, formatNumero, formatPercentual } from "@/lib/format";
+import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
+import {
+  COR_REGIAO,
+  MapaBrasilEstados,
+  REGIAO_POR_UF,
+  type Regiao,
+} from "@/components/dashboard/MapaBrasilEstados";
 import { cn } from "@/lib/utils";
 import type { Pedido } from "@/types";
-
-type Regiao = "Norte" | "Nordeste" | "Centro-Oeste" | "Sudeste" | "Sul";
-
-const REGIAO_POR_UF: Record<string, Regiao> = {
-  AC: "Norte", AP: "Norte", AM: "Norte", PA: "Norte", RO: "Norte", RR: "Norte", TO: "Norte",
-  AL: "Nordeste", BA: "Nordeste", CE: "Nordeste", MA: "Nordeste", PB: "Nordeste",
-  PE: "Nordeste", PI: "Nordeste", RN: "Nordeste", SE: "Nordeste",
-  DF: "Centro-Oeste", GO: "Centro-Oeste", MT: "Centro-Oeste", MS: "Centro-Oeste",
-  ES: "Sudeste", MG: "Sudeste", RJ: "Sudeste", SP: "Sudeste",
-  PR: "Sul", RS: "Sul", SC: "Sul",
-};
-
-const COR_REGIAO: Record<Regiao, string> = {
-  Sudeste: "var(--brand)",
-  Sul: "var(--info)",
-  Nordeste: "var(--warning)",
-  "Centro-Oeste": "var(--profit)",
-  Norte: "var(--loss)",
-};
 
 type Metrica = "faturamento" | "pedidos";
 
@@ -116,14 +91,9 @@ export function Geografia() {
   const totalPedidos = porEstado.reduce((s, e) => s + e.pedidos, 0);
   const estadoLider = porEstado[0];
 
-  const dadosPizzaRegiao = (["Sudeste", "Sul", "Nordeste", "Centro-Oeste", "Norte"] as const)
+  const resumoPorRegiao = (["Sudeste", "Sul", "Nordeste", "Centro-Oeste", "Norte"] as const)
     .map((r) => ({ regiao: r, valor: porRegiao.get(r) ?? 0 }))
     .filter((r) => r.valor > 0);
-
-  const top10 = porEstado
-    .slice()
-    .sort((a, b) => (metrica === "faturamento" ? b.faturamento - a.faturamento : b.pedidos - a.pedidos))
-    .slice(0, 10);
 
   // Mesmas linhas do "Ranking completo por estado" — prontas pra exportar.
   const linhasExport = useMemo(
@@ -135,7 +105,9 @@ export function Geografia() {
         Faturamento: e.faturamento.toFixed(2),
         Lucro: e.lucro.toFixed(2),
         Margem: formatPercentual(e.margem),
-        "% do total": totalFaturamento ? formatPercentual(e.faturamento / totalFaturamento) : "—",
+        "Fatia do faturamento": totalFaturamento
+          ? formatPercentual(e.faturamento / totalFaturamento)
+          : "—",
       })),
     [porEstado, totalFaturamento],
   );
@@ -180,7 +152,9 @@ export function Geografia() {
           titulo="Variação do líder"
           valor={
             estadoLider
-              ? formatPercentual(Math.abs(variacao(estadoLider.faturamento, estadoLider.faturamentoAnterior)))
+              ? formatPercentual(
+                  Math.abs(variacao(estadoLider.faturamento, estadoLider.faturamentoAnterior)),
+                )
               : "—"
           }
           detalhe="Vs. período anterior"
@@ -190,8 +164,8 @@ export function Geografia() {
       <div className="grid gap-6 lg:grid-cols-5">
         <Painel
           className="lg:col-span-3"
-          titulo="Top 10 estados"
-          descricao="Os estados com mais resultado no período"
+          titulo="Vendas por estado"
+          descricao="Cada bolinha é um estado — o tamanho mostra o resultado no período"
           acoes={
             <div className="flex overflow-hidden rounded-lg border">
               {(["faturamento", "pedidos"] as const).map((m) => (
@@ -211,38 +185,8 @@ export function Geografia() {
             </div>
           }
         >
-          <div className="h-96 p-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={top10} layout="vertical" margin={{ left: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
-                <XAxis
-                  type="number"
-                  tick={{ fontSize: 10 }}
-                  stroke="var(--muted-foreground)"
-                  tickFormatter={(v) =>
-                    metrica === "faturamento" ? formatBRLCompacto(Number(v)) : formatNumero(Number(v))
-                  }
-                />
-                <YAxis
-                  type="category"
-                  dataKey="uf"
-                  tick={{ fontSize: 11 }}
-                  stroke="var(--muted-foreground)"
-                  width={36}
-                />
-                <ChartTooltip
-                  formatter={(v: number | string) =>
-                    metrica === "faturamento" ? formatBRL(Number(v)) : formatNumero(Number(v))
-                  }
-                  contentStyle={{ fontSize: 12, borderRadius: 12 }}
-                />
-                <Bar dataKey={metrica} radius={[0, 6, 6, 0]}>
-                  {top10.map((e) => (
-                    <Cell key={e.uf} fill={COR_REGIAO[e.regiao]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="p-5">
+            <MapaBrasilEstados dados={porEstado} metrica={metrica} />
           </div>
         </Painel>
 
@@ -252,31 +196,8 @@ export function Geografia() {
           descricao="Participação de cada região no faturamento"
         >
           <div className="p-5">
-            <div className="h-52">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={dadosPizzaRegiao}
-                    dataKey="valor"
-                    nameKey="regiao"
-                    innerRadius="55%"
-                    outerRadius="90%"
-                    paddingAngle={2}
-                    stroke="none"
-                  >
-                    {dadosPizzaRegiao.map((d) => (
-                      <Cell key={d.regiao} fill={COR_REGIAO[d.regiao]} />
-                    ))}
-                  </Pie>
-                  <ChartTooltip
-                    formatter={(v: number) => formatBRL(v)}
-                    contentStyle={{ fontSize: 12, borderRadius: 12 }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <ul className="mt-3 space-y-1.5">
-              {dadosPizzaRegiao.map((r) => (
+            <ul className="space-y-1.5">
+              {resumoPorRegiao.map((r) => (
                 <li key={r.regiao} className="flex items-center gap-2 text-[11px]">
                   <span
                     className="size-2.5 shrink-0 rounded-full ring-1 ring-black/10"
@@ -308,7 +229,7 @@ export function Geografia() {
                 <th className="px-3 py-2.5 text-right font-medium">Faturamento</th>
                 <th className="px-3 py-2.5 text-right font-medium">Lucro</th>
                 <th className="px-3 py-2.5 text-right font-medium">Margem</th>
-                <th className="px-3 py-2.5 text-right font-medium">% do total</th>
+                <th className="px-3 py-2.5 text-right font-medium">Fatia do faturamento</th>
               </tr>
             </thead>
             <tbody>
@@ -318,9 +239,7 @@ export function Geografia() {
                     <span className="text-xs font-medium">{e.uf}</span>
                   </td>
                   <td className="px-3 py-3">
-                    <span
-                      className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
-                    >
+                    <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
                       <span
                         className="size-2 rounded-full"
                         style={{ background: COR_REGIAO[e.regiao] }}
