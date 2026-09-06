@@ -1,4 +1,11 @@
 import { useMemo, useState } from "react";
+import {
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip as ChartTooltip,
+} from "recharts";
 import { usePeriodo } from "@/context/periodo";
 import { periodoAnterior } from "@/lib/period";
 import { useSelecaoContas } from "@/context/selecao-contas";
@@ -196,7 +203,30 @@ export function Geografia() {
           descricao="Participação de cada região no faturamento"
         >
           <div className="p-5">
-            <ul className="space-y-1.5">
+            <div className="h-52">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={resumoPorRegiao}
+                    dataKey="valor"
+                    nameKey="regiao"
+                    innerRadius="55%"
+                    outerRadius="90%"
+                    paddingAngle={2}
+                    stroke="none"
+                  >
+                    {resumoPorRegiao.map((d) => (
+                      <Cell key={d.regiao} fill={COR_REGIAO[d.regiao]} />
+                    ))}
+                  </Pie>
+                  <ChartTooltip
+                    formatter={(v: number) => formatBRL(v)}
+                    contentStyle={{ fontSize: 12, borderRadius: 12 }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <ul className="mt-3 space-y-1.5">
               {resumoPorRegiao.map((r) => (
                 <li key={r.regiao} className="flex items-center gap-2 text-[11px]">
                   <span
@@ -269,7 +299,7 @@ export function Geografia() {
               ))}
               <tr className="bg-muted/20 font-semibold">
                 <td className="px-5 py-3 text-xs" colSpan={2}>
-                  Total
+                  Faturamento total de todos os estados
                 </td>
                 <td className="num px-3 py-3 text-right text-xs">{formatNumero(totalPedidos)}</td>
                 <td className="num px-3 py-3 text-right text-xs">{formatBRL(totalFaturamento)}</td>
