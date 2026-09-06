@@ -1,13 +1,10 @@
-import { Fragment, useMemo } from "react";
-import { Link } from "@tanstack/react-router";
+import { useMemo } from "react";
 import {
   Area,
   AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
-  Legend,
-  Line,
   ResponsiveContainer,
   Tooltip as ChartTooltip,
   XAxis,
@@ -17,13 +14,15 @@ import { usePeriodo } from "@/context/periodo";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { vendasService } from "@/services";
-import { CANAIS } from "@/config/navegacao";
 import {
   filtrarPorPeriodo,
   projetarMes,
   resumir,
+  serieSaudeMargem,
   seriePorDia,
   variacao,
+  type PontoDia,
+  type PontoSaudeMargem,
 } from "@/lib/finance";
 import { periodoAnterior } from "@/lib/period";
 import {
@@ -33,80 +32,117 @@ import {
   formatNumero,
   formatPercentual,
 } from "@/lib/format";
-import { CardKpi, Painel, SeloMarketplace, SeloMargem } from "@/components/comum/Indicadores";
+import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
-import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
-import { MetaFaturamento } from "@/components/dashboard/MetaFaturamento";
-import { cn } from "@/lib/utils";
-import type { ContaMarketplace, MarketplaceId, Pedido } from "@/types";
 
-interface ResumoCanalVisaoGeral {
-  id: MarketplaceId;
-  titulo: string;
-  pedidos: number;
-  faturamento: number;
-  lucro: number;
-  margem: number;
+/* ------------------------------------------------------------------ */
+/* Tooltips                                                            */
+/* ------------------------------------------------------------------ */
+
+function LinhaTooltip({
+  cor,
+  rotulo,
+  valor,
+}: {
+  cor?: string;
+  rotulo: string;
+  valor: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-6 text-[11px]">
+      <span className="flex items-center gap-1.5 text-muted-foreground">
+        {cor && <span className="size-2 rounded-full" style={{ background: cor }} />}
+        {rotulo}
+      </span>
+      <span className="num font-semibold">{valor}</span>
+    </div>
+  );
 }
 
-/** Mesma lógica usada em Canais.tsx — reaproveitada aqui pra dar uma visão
- * por canal já na Visão Geral, sem precisar trocar de aba. */
-function resumirPorCanalVisaoGeral(atuais: Pedido[]): ResumoCanalVisaoGeral[] {
-  return CANAIS.map((canal) => {
-    const doCanal = atuais.filter(
-      (p) => p.marketplaceId === canal.id && p.status !== "cancelado",
-    );
-    const faturamento = doCanal.reduce((s, p) => s + p.faturamento, 0);
-    const lucro = doCanal.reduce((s, p) => s + p.lucroLiquido, 0);
-    return {
-      id: canal.id,
-      titulo: canal.titulo,
-      pedidos: doCanal.length,
-      faturamento,
-      lucro,
-      margem: faturamento ? lucro / faturamento : 0,
-    };
-  }).filter((c) => c.pedidos > 0);
+/** Tooltip do Resumo de receitas: além das linhas do gráfico, mostra ticket
+ * médio, vendas e unidades daquele dia — números de escala bem diferente,
+ * que ficariam ilegíveis se virassem linha no mesmo eixo. */
+function TooltipReceitas(props: {
+  active?: boolean;
+  payload?: { payload?: PontoDia }[];
+}) {
+  const ponto = props.payload?.[0]?.payload;
+  if (!props.active || !ponto) return null;
+
+  return (
+    <div className="min-w-52 rounded-xl border bg-card p-3 shadow-float">
+      <p className="mb-2 text-[11px] font-bold">{ponto.dia}</p>
+      <div className="space-y-1">
+        <LinhaTooltip
+          cor="var(--brand)"
+          rotulo="Faturamento"
+          valor={formatBRL(ponto.faturamento)}
+        />
+        <LinhaTooltip
+          cor="var(--info)"
+          rotulo="Líq. do marketplace"
+          valor={formatBRL(ponto.liquidoMarketplace)}
+        />
+        <LinhaTooltip cor="var(--profit)" rotulo="Lucro" valor={formatBRL(ponto.lucro)} />
+        <div className="mt-2 space-y-1 border-t pt-2">
+          <LinhaTooltip rotulo="Ticket médio" valor={formatBRL(ponto.ticketMedio)} />
+          <LinhaTooltip rotulo="Vendas" valor={formatNumero(ponto.pedidos)} />
+          <LinhaTooltip rotulo="Unidades vendidas" valor={formatNumero(ponto.unidades)} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
-interface ResumoContaVisaoGeral {
-  id: string;
-  nome: string;
-  pedidos: number;
-  faturamento: number;
-  lucro: number;
-  margem: number;
+function TooltipSaude(props: {
+  active?: boolean;
+  payload?: { payload?: PontoSaudeMargem }[];
+}) {
+  const ponto = props.payload?.[0]?.payload;
+  if (!props.active || !ponto) return null;
+
+  const detalhe = (percentual: number, qtd: number, valor: number) =>
+    `${percentual.toFixed(1)}%  ·  ${formatNumero(qtd)} ped.  ·  ${formatBRL(valor)}`;
+
+  return (
+    <div className="min-w-60 rounded-xl border bg-card p-3 shadow-float">
+      <p className="mb-2 text-[11px] font-bold">{ponto.dia}</p>
+      <div className="space-y-1">
+        <LinhaTooltip
+          cor="var(--profit)"
+          rotulo="Excelente"
+          valor={detalhe(ponto.excelente, ponto.qtdExcelente, ponto.valorExcelente)}
+        />
+        <LinhaTooltip
+          cor="var(--warning)"
+          rotulo="Saudável"
+          valor={detalhe(ponto.saudavel, ponto.qtdSaudavel, ponto.valorSaudavel)}
+        />
+        <LinhaTooltip
+          cor="var(--loss)"
+          rotulo="Crítica"
+          valor={detalhe(ponto.critica, ponto.qtdCritica, ponto.valorCritica)}
+        />
+      </div>
+    </div>
+  );
 }
 
-/** Mesma quebra por canal, mas por CONTA — pra abrir o canal e ver o
- * resultado de cada loja individual, igual em Canais. */
-function resumirPorContaVisaoGeral(
-  atuais: Pedido[],
-  contasDoCanal: ContaMarketplace[],
-): ResumoContaVisaoGeral[] {
-  return contasDoCanal
-    .map((conta) => {
-      const daConta = atuais.filter(
-        (p) => p.contaId === conta.id && p.status !== "cancelado",
-      );
-      const faturamento = daConta.reduce((s, p) => s + p.faturamento, 0);
-      const lucro = daConta.reduce((s, p) => s + p.lucroLiquido, 0);
-      return {
-        id: conta.id,
-        nome: conta.nome,
-        pedidos: daConta.length,
-        faturamento,
-        lucro,
-        margem: faturamento ? lucro / faturamento : 0,
-      };
-    })
-    .filter((c) => c.pedidos > 0);
+function LegendaFaixa({ cor, texto }: { cor: string; texto: string }) {
+  return (
+    <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <span className="size-2 rounded-full" style={{ background: cor }} />
+      {texto}
+    </span>
+  );
 }
+
+/* ------------------------------------------------------------------ */
 
 export function VisaoGeral() {
   const { periodo, preset } = usePeriodo();
   const { filtrarPorSelecao } = useSelecaoContas();
-  const { metaFaturamentoMensal, salvarMetaFaturamento, contas } = useConfiguracoes();
+  const { metasPorConta } = useConfiguracoes();
 
   const pedidos = filtrarPorSelecao(vendasService.listar());
 
@@ -124,27 +160,12 @@ export function VisaoGeral() {
       resumo: resumir(atuais),
       resumoAnterior: resumir(anteriores),
       serie: seriePorDia(atuais, periodo),
+      saude: serieSaudeMargem(atuais, periodo, metasPorConta),
       projecao: projetarMes(pedidos),
     };
-  }, [pedidos, periodo]);
+  }, [pedidos, periodo, metasPorConta]);
 
-  const { resumo, resumoAnterior, serie, projecao } = dados;
-
-  const porCanal = useMemo(
-    () =>
-      resumirPorCanalVisaoGeral(dados.atuais).sort((a, b) => b.faturamento - a.faturamento),
-    [dados.atuais],
-  );
-
-  // Contas por canal, só pra abrir o detalhe na tabela — mesmo padrão de Canais.
-  const contasPorCanal = useMemo(() => {
-    const mapa = new Map<MarketplaceId, ResumoContaVisaoGeral[]>();
-    for (const canal of CANAIS) {
-      const doCanal = contas.filter((c) => c.marketplaceId === canal.id);
-      mapa.set(canal.id, resumirPorContaVisaoGeral(dados.atuais, doCanal));
-    }
-    return mapa;
-  }, [dados.atuais, contas]);
+  const { resumo, resumoAnterior, serie, saude, projecao } = dados;
 
   const cardTerciario = ehMesEmAndamento
     ? {
@@ -164,46 +185,18 @@ export function VisaoGeral() {
           detalhe: `No período selecionado (${serie.length} dias)`,
         };
 
-  const drenagem = [
-    { rotulo: "CMV (custo do produto)", valor: resumo.cmv },
-    { rotulo: "Comissões do marketplace", valor: resumo.comissoes },
-    { rotulo: "Impostos", valor: resumo.impostos },
-    { rotulo: "Taxas, fretes e descontos", valor: resumo.outrosCustos },
-  ];
-
-  const evolucao = [
-    {
-      rotulo: "Faturamento",
-      atual: resumo.faturamento,
-      anterior: resumoAnterior.faturamento,
-      formato: formatBRL,
-    },
-    {
-      rotulo: "Lucro líquido",
-      atual: resumo.lucroLiquido,
-      anterior: resumoAnterior.lucroLiquido,
-      formato: formatBRL,
-    },
-    {
-      rotulo: "Margem líquida",
-      atual: resumo.margem,
-      anterior: resumoAnterior.margem,
-      formato: (v: number) => formatPercentual(v),
-    },
-  ];
-
-  const ultimas = dados.atuais.slice(0, 6);
-
-  // Média diária "de verdade", independente do card que está sendo mostrado
-  // ali em cima (que muda de nome/conteúdo se o mês está em andamento,
-  // fechado, ou é um período livre) — pro export sempre ter esse número.
   const mediaDiariaPeriodo = serie.length ? resumo.faturamento / serie.length : 0;
+
+  const percentualLiquido = resumo.faturamento
+    ? resumo.liquidoMarketplace / resumo.faturamento
+    : 0;
 
   // Linha única com TODOS os indicadores gerais, coluna por coluna.
   const linhasResumoExport = useMemo(
     () => [
       {
         Faturamento: formatBRL(resumo.faturamento),
+        "Líquido do marketplace": formatBRL(resumo.liquidoMarketplace),
         Pedidos: resumo.pedidos,
         Unidades: resumo.unidades,
         "SKUs distintos": resumo.skusDistintos,
@@ -222,65 +215,26 @@ export function VisaoGeral() {
     [resumo, mediaDiariaPeriodo],
   );
 
-  // Faturamento, lucro e margem já separados por marketplace — e, quando o
-  // canal tem mais de uma conta, o detalhe de cada loja logo abaixo. Com só
-  // 1 conta no canal, mostra direto a loja (sem duplicar com um "Total do
-  // canal" idêntico); sem nenhuma conta rastreada, mantém a linha do canal.
-  const linhasPorCanalExport = useMemo(() => {
-    const linhas: Record<string, string | number>[] = [];
-    for (const c of porCanal) {
-      const contasDoCanal = contasPorCanal.get(c.id) ?? [];
-      const temVariasContas = contasDoCanal.length > 1;
-
-      if (temVariasContas) {
-        linhas.push({
-          Canal: c.titulo,
-          Conta: "Total do canal",
-          Pedidos: c.pedidos,
-          Faturamento: formatBRL(c.faturamento),
-          Lucro: formatBRL(c.lucro),
-          Margem: formatPercentual(c.margem),
-        });
-        for (const conta of contasDoCanal) {
-          linhas.push({
-            Canal: c.titulo,
-            Conta: conta.nome,
-            Pedidos: conta.pedidos,
-            Faturamento: formatBRL(conta.faturamento),
-            Lucro: formatBRL(conta.lucro),
-            Margem: formatPercentual(conta.margem),
-          });
-        }
-      } else if (contasDoCanal.length === 1) {
-        const unica = contasDoCanal[0]!;
-        linhas.push({
-          Canal: c.titulo,
-          Conta: unica.nome,
-          Pedidos: unica.pedidos,
-          Faturamento: formatBRL(unica.faturamento),
-          Lucro: formatBRL(unica.lucro),
-          Margem: formatPercentual(unica.margem),
-        });
-      } else {
-        linhas.push({
-          Canal: c.titulo,
-          Conta: c.titulo,
-          Pedidos: c.pedidos,
-          Faturamento: formatBRL(c.faturamento),
-          Lucro: formatBRL(c.lucro),
-          Margem: formatPercentual(c.margem),
-        });
-      }
-    }
-    return linhas;
-  }, [porCanal, contasPorCanal]);
+  const linhasDiaExport = useMemo(
+    () =>
+      serie.map((d) => ({
+        Dia: d.dia,
+        Faturamento: formatBRL(d.faturamento),
+        "Líquido do marketplace": formatBRL(d.liquidoMarketplace),
+        Lucro: formatBRL(d.lucro),
+        "Ticket médio": formatBRL(d.ticketMedio),
+        Vendas: d.pedidos,
+        Unidades: d.unidades,
+      })),
+    [serie],
+  );
 
   const secoesExport = useMemo(
     () => [
       { titulo: "Resumo geral", linhas: linhasResumoExport },
-      { titulo: "Faturamento e lucro por canal", linhas: linhasPorCanalExport },
+      { titulo: "Resumo de receitas (dia a dia)", linhas: linhasDiaExport },
     ],
-    [linhasResumoExport, linhasPorCanalExport],
+    [linhasResumoExport, linhasDiaExport],
   );
 
   return (
@@ -293,13 +247,7 @@ export function VisaoGeral() {
         <ExportarDados nomeArquivo="resumo-dashboard" secoes={secoesExport} />
       </div>
 
-      <MetaFaturamento
-        meta={metaFaturamentoMensal}
-        realizado={projecao.realizado}
-        onSalvarMeta={salvarMetaFaturamento}
-      />
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <CardKpi
           titulo="Faturamento"
           valor={formatBRL(resumo.faturamento)}
@@ -307,12 +255,35 @@ export function VisaoGeral() {
           dica="Soma do valor de todos os pedidos válidos no período."
         />
         <CardKpi
-          titulo="Pedidos"
+          titulo="Líq. do marketplace"
+          valor={formatBRL(resumo.liquidoMarketplace)}
+          detalhe={`${formatPercentual(percentualLiquido)} do faturamento`}
+          variacaoPercentual={variacao(
+            resumo.liquidoMarketplace,
+            resumoAnterior.liquidoMarketplace,
+          )}
+          dica="O que o canal realmente repassa: faturamento menos comissão e taxa fixa. Ainda saem daqui o custo do produto e os impostos."
+        />
+        <CardKpi
+          titulo="Lucro líquido"
+          valor={formatBRL(resumo.lucroLiquido)}
+          detalhe="Depois de CMV, comissões, taxas e impostos"
+          variacaoPercentual={variacao(resumo.lucroLiquido, resumoAnterior.lucroLiquido)}
+          destaque
+        />
+        <CardKpi
+          titulo="Margem líquida"
+          valor={formatPercentual(resumo.margem)}
+          detalhe={`De cada R$ 100 vendidos, sobram ${formatBRL(resumo.margem * 100)}`}
+          variacaoPercentual={variacao(resumo.margem, resumoAnterior.margem)}
+        />
+        <CardKpi
+          titulo="Nº de vendas"
           valor={formatNumero(resumo.pedidos)}
           variacaoPercentual={variacao(resumo.pedidos, resumoAnterior.pedidos)}
         />
         <CardKpi
-          titulo="Produtos"
+          titulo="Unidades vendidas"
           valor={formatNumero(resumo.unidades)}
           detalhe={`${formatNumero(resumo.skusDistintos)} SKUs distintos`}
           dica="Unidades vendidas no período. Abaixo, quantos produtos diferentes tiveram ao menos 1 venda."
@@ -321,14 +292,6 @@ export function VisaoGeral() {
           titulo="Ticket médio"
           valor={formatBRL(resumo.ticketMedio)}
           variacaoPercentual={variacao(resumo.ticketMedio, resumoAnterior.ticketMedio)}
-        />
-        <CardKpi
-          titulo="Lucro líquido"
-          valor={formatBRL(resumo.lucroLiquido)}
-          detalhe={`Margem: ${formatPercentual(resumo.margem)} · Pós-ADS: ${formatBRL(resumo.lucroLiquido - resumo.custoMidia)}`}
-          variacaoPercentual={variacao(resumo.lucroLiquido, resumoAnterior.lucroLiquido)}
-          destaque
-          dica="O que sobra depois de CMV, comissões, taxas, impostos e outros custos. 'Pós-ADS' desconta também o investimento em mídia — veja o detalhe na aba ADS."
         />
         <CardKpi
           titulo={cardTerciario.titulo}
@@ -350,340 +313,110 @@ export function VisaoGeral() {
         />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {ehMesEmAndamento ? (
-          <Painel
-            className="lg:col-span-2"
-            titulo="Projeção do mês"
-            descricao="Estimativa do faturamento final com base no ritmo de vendas já realizado"
-          >
-            <div className="h-72 p-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={projecao.serie}>
-                  <defs>
-                    <linearGradient id="grad-realizado" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="var(--brand)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="dia" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
-                  <YAxis
-                    tick={{ fontSize: 10 }}
-                    stroke="var(--muted-foreground)"
-                    tickFormatter={(v) => formatBRLCompacto(Number(v))}
-                  />
-                  <ChartTooltip
-                    formatter={(v: number | string) => formatBRL(Number(v))}
-                    contentStyle={{ fontSize: 12, borderRadius: 12 }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Area
-                    type="monotone"
-                    dataKey="realizado"
-                    name="Faturamento realizado"
-                    stroke="var(--brand)"
-                    strokeWidth={2}
-                    fill="url(#grad-realizado)"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="projetado"
-                    name="Projeção"
-                    stroke="var(--profit)"
-                    strokeDasharray="6 6"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex flex-wrap justify-between gap-3 border-t bg-muted/40 px-5 py-3 text-xs">
-              <span>
-                Realizado até hoje:{" "}
-                <strong className="num">{formatBRL(projecao.realizado)}</strong>
-              </span>
-              <span>
-                Projeção no fim do mês:{" "}
-                <strong className="num text-profit">
-                  {formatBRL(projecao.projetadoFinalMes)}
-                </strong>
-              </span>
-            </div>
-          </Painel>
-        ) : (
-          <Painel
-            className="lg:col-span-2"
-            titulo="Faturamento no período"
-            descricao={
-              ehMesFechado
-                ? "Dia a dia do mês já encerrado — sem projeção, é o resultado final"
-                : "Dia a dia do período selecionado"
-            }
-          >
-            <div className="h-72 p-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={serie}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="dia" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
-                  <YAxis
-                    tick={{ fontSize: 10 }}
-                    stroke="var(--muted-foreground)"
-                    tickFormatter={(v) => formatBRLCompacto(Number(v))}
-                  />
-                  <ChartTooltip
-                    formatter={(v: number | string) => formatBRL(Number(v))}
-                    contentStyle={{ fontSize: 12, borderRadius: 12 }}
-                  />
-                  <Bar
-                    dataKey="faturamento"
-                    name="Faturamento"
-                    fill="var(--brand)"
-                    radius={[6, 6, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </Painel>
-        )}
-
-        <Painel titulo="Para onde vai o seu dinheiro" descricao="Do faturamento até o lucro">
-          <div className="space-y-4 p-5">
-            <div>
-              <div className="mb-2 flex justify-between text-xs">
-                <span className="text-muted-foreground">Faturamento bruto</span>
-                <span className="num font-semibold">{formatBRL(resumo.faturamento)}</span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-brand" />
-            </div>
-            <div className="space-y-2 border-l-2 pl-4">
-              {drenagem.map((d) => (
-                <div key={d.rotulo} className="flex justify-between text-[11px]">
-                  <span className="text-muted-foreground">− {d.rotulo}</span>
-                  <span className="num text-loss">{formatBRL(d.valor)}</span>
-                </div>
-              ))}
-            </div>
-            <div className="flex justify-between border-t border-dashed pt-3 text-sm">
-              <span className="font-bold text-profit">Lucro líquido</span>
-              <span className="num font-bold text-profit">{formatBRL(resumo.lucroLiquido)}</span>
-            </div>
-            <p className="rounded-xl bg-brand-soft p-3 text-[11px] leading-relaxed text-muted-foreground">
-              De cada R$ 100 vendidos, sobram{" "}
-              <strong className="text-brand">{formatBRL(resumo.margem * 100)}</strong> de lucro
-              líquido.
-            </p>
-          </div>
-        </Painel>
-      </div>
-
       <Painel
-        titulo="Faturamento e lucro por canal"
-        descricao="Cada canal com o total, e quando tem mais de uma conta, o valor individual de cada loja logo abaixo"
+        titulo="Resumo de receitas"
+        descricao="Faturamento, o que o canal repassa e o que sobra de lucro, dia a dia"
+        acoes={
+          <div className="flex flex-wrap items-center gap-3">
+            <LegendaFaixa cor="var(--brand)" texto="Faturamento" />
+            <LegendaFaixa cor="var(--info)" texto="Líq. do marketplace" />
+            <LegendaFaixa cor="var(--profit)" texto="Lucro" />
+          </div>
+        }
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-left">
-            <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-5 py-2.5 font-medium">Canal</th>
-                <th className="px-3 py-2.5 text-right font-medium">Pedidos</th>
-                <th className="px-3 py-2.5 text-right font-medium">Faturamento</th>
-                <th className="px-3 py-2.5 text-right font-medium">Lucro</th>
-                <th className="px-3 py-2.5 text-right font-medium">Margem</th>
-              </tr>
-            </thead>
-            <tbody>
-              {porCanal.map((c) => {
-                const contasDoCanal = contasPorCanal.get(c.id) ?? [];
-                const temVariasContas = contasDoCanal.length > 1;
-                return (
-                  <Fragment key={c.id}>
-                    <tr className={cn("border-b", temVariasContas && "bg-muted/10")}>
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-2">
-                          <LogoMarketplace id={c.id} tamanho="xs" />
-                          <span className="text-xs font-medium">{c.titulo}</span>
-                          {temVariasContas && (
-                            <span className="text-[10px] text-muted-foreground">
-                              ({contasDoCanal.length} contas)
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="num px-3 py-3 text-right text-xs">{formatNumero(c.pedidos)}</td>
-                      <td className="num px-3 py-3 text-right text-xs font-semibold">
-                        {formatBRL(c.faturamento)}
-                      </td>
-                      <td
-                        className={cn(
-                          "num px-3 py-3 text-right text-xs font-bold",
-                          c.lucro >= 0 ? "text-profit" : "text-loss",
-                        )}
-                      >
-                        {formatBRL(c.lucro)}
-                      </td>
-                      <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
-                        {formatPercentual(c.margem)}
-                      </td>
-                    </tr>
-
-                    {temVariasContas &&
-                      contasDoCanal.map((conta) => (
-                        <tr key={conta.id} className="border-b last:border-0">
-                          <td className="py-2.5 pl-11 pr-5">
-                            <span className="text-[11px] text-muted-foreground">{conta.nome}</span>
-                          </td>
-                          <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
-                            {formatNumero(conta.pedidos)}
-                          </td>
-                          <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
-                            {formatBRL(conta.faturamento)}
-                          </td>
-                          <td
-                            className={cn(
-                              "num px-3 py-2.5 text-right text-[11px]",
-                              conta.lucro >= 0 ? "text-profit" : "text-loss",
-                            )}
-                          >
-                            {formatBRL(conta.lucro)}
-                          </td>
-                          <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
-                            {formatPercentual(conta.margem)}
-                          </td>
-                        </tr>
-                      ))}
-                  </Fragment>
-                );
-              })}
-              {porCanal.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-5 py-10 text-center text-xs text-muted-foreground">
-                    Nenhuma venda no período (ou nenhuma conta selecionada no filtro).
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="h-80 p-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={serie}>
+              <defs>
+                <linearGradient id="grad-faturamento" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="var(--brand)" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="grad-liquido" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--info)" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="var(--info)" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="grad-lucro" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--profit)" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="var(--profit)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis dataKey="dia" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
+              <YAxis
+                tick={{ fontSize: 10 }}
+                stroke="var(--muted-foreground)"
+                tickFormatter={(v) => formatBRLCompacto(Number(v))}
+              />
+              <ChartTooltip content={<TooltipReceitas />} />
+              <Area
+                type="monotone"
+                dataKey="faturamento"
+                name="Faturamento"
+                stroke="var(--brand)"
+                strokeWidth={2}
+                fill="url(#grad-faturamento)"
+              />
+              <Area
+                type="monotone"
+                dataKey="liquidoMarketplace"
+                name="Líq. do marketplace"
+                stroke="var(--info)"
+                strokeWidth={2}
+                fill="url(#grad-liquido)"
+              />
+              <Area
+                type="monotone"
+                dataKey="lucro"
+                name="Lucro"
+                stroke="var(--profit)"
+                strokeWidth={2}
+                fill="url(#grad-lucro)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
       </Painel>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Painel
-          className="lg:col-span-2"
-          titulo="Evolução de rentabilidade"
-          descricao="Faturamento e lucro dia a dia no período selecionado"
-        >
-          <div className="h-64 p-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={serie}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="dia" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
-                <YAxis
-                  tick={{ fontSize: 10 }}
-                  stroke="var(--muted-foreground)"
-                  tickFormatter={(v) => formatBRLCompacto(Number(v))}
-                />
-                <ChartTooltip
-                  formatter={(v: number | string) => formatBRL(Number(v))}
-                  contentStyle={{ fontSize: 12, borderRadius: 12 }}
-                />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="faturamento" name="Faturamento" fill="var(--brand)" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="lucro" name="Lucro líquido" fill="var(--profit)" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Painel>
-
-        <Painel titulo="Comparativo" descricao="Período atual x período anterior">
-          <div className="divide-y">
-            {evolucao.map((e) => {
-              const v = variacao(e.atual, e.anterior);
-              return (
-                <div key={e.rotulo} className="flex items-center justify-between px-5 py-4">
-                  <div>
-                    <p className="text-xs font-semibold">{e.rotulo}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Anterior: <span className="num">{e.formato(e.anterior)}</span>
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="num text-sm font-bold">{e.formato(e.atual)}</p>
-                    <p className={`num text-[11px] font-bold ${v >= 0 ? "text-profit" : "text-loss"}`}>
-                      {v >= 0 ? "+" : "−"}
-                      {formatPercentual(Math.abs(v))}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Painel>
-      </div>
-
       <Painel
-        titulo="Últimas vendas"
-        descricao="As vendas mais recentes do período"
+        titulo="Saúde de margem"
+        descricao="Quantos % dos pedidos de cada dia ficaram em cada faixa de margem, segundo as metas das suas contas"
         acoes={
-          <Link
-            to="/vendas"
-            className="text-xs font-semibold text-brand transition-opacity hover:opacity-70"
-          >
-            Ver todas
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <LegendaFaixa cor="var(--profit)" texto="Excelente" />
+            <LegendaFaixa cor="var(--warning)" texto="Saudável" />
+            <LegendaFaixa cor="var(--loss)" texto="Crítica" />
+          </div>
         }
       >
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                <th className="px-5 py-3 font-bold">Data / Pedido</th>
-                <th className="px-5 py-3 font-bold">Marketplace</th>
-                <th className="px-5 py-3 font-bold">Produto</th>
-                <th className="px-5 py-3 text-right font-bold">Venda</th>
-                <th className="px-5 py-3 text-right font-bold">Lucro</th>
-                <th className="px-5 py-3 text-center font-bold">Margem</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {ultimas.map((p) => (
-                <tr key={p.id} className="transition-colors hover:bg-muted/40">
-                  <td className="px-5 py-3">
-                    <p className="text-xs font-medium">{formatData(p.data)}</p>
-                    <p className="num text-[10px] text-muted-foreground">#{p.id}</p>
-                  </td>
-                  <td className="px-5 py-3">
-                    <SeloMarketplace id={p.marketplaceId} />
-                  </td>
-                  <td className="max-w-[280px] px-5 py-3">
-                    <p className="truncate text-xs font-medium">{p.produto}</p>
-                    <p className="num text-[10px] text-muted-foreground">SKU: {p.sku}</p>
-                  </td>
-                  <td className="num px-5 py-3 text-right text-xs font-semibold">
-                    {formatBRL(p.faturamento)}
-                  </td>
-                  <td
-                    className={`num px-5 py-3 text-right text-xs font-bold ${
-                      p.lucroLiquido >= 0 ? "text-profit" : "text-loss"
-                    }`}
-                  >
-                    {formatBRL(p.lucroLiquido)}
-                  </td>
-                  <td className="px-5 py-3 text-center">
-                    <SeloMargem margem={p.margem} />
-                  </td>
-                </tr>
-              ))}
-              {ultimas.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-5 py-10 text-center text-xs text-muted-foreground">
-                    Nenhuma venda no período (ou nenhuma conta selecionada no filtro).
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="h-72 p-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={saude}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis dataKey="dia" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
+              <YAxis
+                domain={[0, 100]}
+                tick={{ fontSize: 10 }}
+                stroke="var(--muted-foreground)"
+                tickFormatter={(v) => `${Number(v)}%`}
+              />
+              <ChartTooltip cursor={{ fill: "var(--muted)" }} content={<TooltipSaude />} />
+              <Bar dataKey="critica" name="Crítica" stackId="saude" fill="var(--loss)" />
+              <Bar dataKey="saudavel" name="Saudável" stackId="saude" fill="var(--warning)" />
+              <Bar
+                dataKey="excelente"
+                name="Excelente"
+                stackId="saude"
+                fill="var(--profit)"
+                radius={[4, 4, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
+        <p className="border-t bg-muted/40 px-5 py-3 text-[11px] text-muted-foreground">
+          As faixas seguem a meta de margem de cada conta (Configurações → Metas de margem por
+          conta). Contas sem meta cadastrada usam 10% como mínimo e 20% como ideal.
+        </p>
       </Painel>
     </div>
   );
