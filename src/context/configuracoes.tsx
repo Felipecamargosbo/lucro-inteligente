@@ -26,10 +26,6 @@ interface ConfiguracoesContexto {
   fiscal: ConfiguracaoFiscal;
   salvarFiscal: (dados: ConfiguracaoFiscal) => void;
 
-  /** Meta de faturamento do mês corrente, usada na barra de progresso do Dashboard */
-  metaFaturamentoMensal: number;
-  salvarMetaFaturamento: (valor: number) => void;
-
   contas: ContaMarketplace[];
   atualizarConta: (id: string, dados: Partial<ContaMarketplace>) => void;
   /** Cria uma conta nova para o canal indicado, com status desconectado */
@@ -83,8 +79,6 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
     aliquota: REGRAS_FINANCEIRAS.impostoPercentual,
   });
 
-  const [metaFaturamentoMensal, setMetaFaturamentoMensal] = useState(250000);
-
   const [contas, setContas] = useState<ContaMarketplace[]>(CONTAS);
 
   // Espelha as contas para fora do React: os loaders de rota (que decidem,
@@ -120,9 +114,6 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
 
       fiscal,
       salvarFiscal: setFiscal,
-
-      metaFaturamentoMensal,
-      salvarMetaFaturamento: setMetaFaturamentoMensal,
 
       contas,
       atualizarConta: (id, dados) =>
@@ -178,7 +169,7 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
         detalhar(precoVenda).reduce((s, i) => s + i.valor, 0),
       custoOperacionalDetalhado: detalhar,
     };
-  }, [empresa, fiscal, metaFaturamentoMensal, contas, metasPorConta, custos]);
+  }, [empresa, fiscal, contas, metasPorConta, custos]);
 
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }
