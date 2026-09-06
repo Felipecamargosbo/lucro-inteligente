@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { VisaoGeral } from "@/components/dashboard/VisaoGeral";
 import { ProdutosMaisVendidos } from "@/components/dashboard/ProdutosMaisVendidos";
-import { Comparativos } from "@/components/dashboard/Comparativos";
 import { Canais } from "@/components/dashboard/Canais";
 import { Ads } from "@/components/dashboard/Ads";
 import { Logistica } from "@/components/dashboard/Logistica";
@@ -29,36 +28,18 @@ export const Route = createFileRoute("/")({
   component: Dashboard,
 });
 
-type AbaDashboard =
-  | "visao-geral"
-  | "produtos"
-  | "comparativos"
-  | "canais"
-  | "ads"
-  | "logistica"
-  | "geografia"
-  | "financeiro";
+type AbaDashboard = "visao-geral" | "produtos" | "ads" | "logistica" | "financeiro";
 
 const ABAS: { id: AbaDashboard; titulo: string; descricao: string }[] = [
   {
     id: "visao-geral",
     titulo: "Visão geral",
-    descricao: "KPIs, meta do mês e faturamento dia a dia",
+    descricao: "KPIs, receitas dia a dia, saúde de margem, canais e geografia",
   },
   {
     id: "produtos",
     titulo: "Produtos",
     descricao: "Ranking completo de produtos vendidos, com todas as métricas",
-  },
-  {
-    id: "comparativos",
-    titulo: "Comparativos",
-    descricao: "Evolução vs período anterior, top e piores produtos",
-  },
-  {
-    id: "canais",
-    titulo: "Canais",
-    descricao: "Pedidos e faturamento por canal de venda",
   },
   {
     id: "ads",
@@ -71,16 +52,33 @@ const ABAS: { id: AbaDashboard; titulo: string; descricao: string }[] = [
     descricao: "Full vs coleta — faturamento e margem",
   },
   {
-    id: "geografia",
-    titulo: "Geografia",
-    descricao: "Faturamento e pedidos por estado",
-  },
-  {
     id: "financeiro",
     titulo: "Financeiro",
     descricao: "Recebíveis previstos e impacto de devoluções",
   },
 ];
+
+/** Separador das seções que antes eram abas próprias — mantém a página longa
+ * legível sem precisar esconder nada atrás de um clique. */
+function SecaoDashboard({
+  titulo,
+  descricao,
+  children,
+}: {
+  titulo: string;
+  descricao: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-6">
+      <div className="border-t pt-6">
+        <h2 className="text-sm font-bold">{titulo}</h2>
+        <p className="text-xs text-muted-foreground">{descricao}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
 
 function Dashboard() {
   const [aba, setAba] = useState<AbaDashboard>("visao-geral");
@@ -105,19 +103,27 @@ function Dashboard() {
       </div>
 
       {aba === "visao-geral" ? (
-        <VisaoGeral />
+        <div className="space-y-8">
+          <VisaoGeral />
+          <SecaoDashboard
+            titulo="Canais de venda"
+            descricao="Quanto cada marketplace — e cada loja dentro dele — representa no período"
+          >
+            <Canais />
+          </SecaoDashboard>
+          <SecaoDashboard
+            titulo="Geografia"
+            descricao="De onde vêm as vendas: faturamento e pedidos por estado e região"
+          >
+            <Geografia />
+          </SecaoDashboard>
+        </div>
       ) : aba === "produtos" ? (
         <ProdutosMaisVendidos />
-      ) : aba === "comparativos" ? (
-        <Comparativos />
-      ) : aba === "canais" ? (
-        <Canais />
       ) : aba === "ads" ? (
         <Ads />
       ) : aba === "logistica" ? (
         <Logistica />
-      ) : aba === "geografia" ? (
-        <Geografia />
       ) : (
         <Financeiro />
       )}
