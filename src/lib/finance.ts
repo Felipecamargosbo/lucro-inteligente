@@ -281,7 +281,15 @@ export interface ResumoPeriodo {
   cmv: number;
   impostos: number;
   comissoes: number;
+  /** Taxa fixa por pedido cobrada pelo canal, isolada das comissões */
+  taxasFixas: number;
   outrosCustos: number;
+  /**
+   * O que o marketplace de fato repassa ao seller: faturamento menos a
+   * comissão e a taxa fixa do canal. CMV, impostos e custos do próprio
+   * seller ainda saem daqui — por isso este número não é lucro.
+   */
+  liquidoMarketplace: number;
   /**
    * ADS/mídia paga. De propósito NÃO entra em custosTotais nem em
    * lucroLiquido — este é o lucro "antes de ADS", igual já era mostrado em
@@ -311,6 +319,8 @@ export function resumir(pedidos: Pedido[]): ResumoPeriodo {
   const outrosCustos = soma((p) => p.outrosCustos + p.taxaFixa + p.descontos);
   const unidades = validos.reduce((acc, p) => acc + p.quantidade, 0);
   const skusDistintos = new Set(validos.map((p) => p.sku)).size;
+  const comissoes = soma((p) => p.comissao);
+  const taxasFixas = soma((p) => p.taxaFixa);
 
   return {
     faturamento,
@@ -320,7 +330,9 @@ export function resumir(pedidos: Pedido[]): ResumoPeriodo {
     skusDistintos,
     cmv: soma((p) => p.cmv),
     impostos: soma((p) => p.impostos),
-    comissoes: soma((p) => p.comissao),
+    comissoes,
+    taxasFixas,
+    liquidoMarketplace: faturamento - comissoes - taxasFixas,
     outrosCustos,
     custoMidia: soma((p) => p.custoMidia),
     custosTotais: faturamento - lucroLiquido,
@@ -345,6 +357,10 @@ export interface PontoDia {
   pedidos: number;
   /** Soma de unidades vendidas no dia (um pedido pode ter mais de 1 unidade) */
   unidades: number;
+  /** Faturamento do dia menos comissão e taxa fixa — o repasse do canal */
+  liquidoMarketplace: number;
+  /** Faturamento do dia ÷ pedidos do dia */
+  ticketMedio: number;
   /** ADS/mídia paga no dia */
   custoMidia: number;
 }
@@ -360,6 +376,8 @@ export function seriePorDia(pedidos: Pedido[], periodo: Periodo): PontoDia[] {
       lucro: 0,
       pedidos: 0,
       unidades: 0,
+      liquidoMarketplace: 0,
+      ticketMedio: 0,
       custoMidia: 0,
     });
   }
@@ -372,8 +390,95 @@ export function seriePorDia(pedidos: Pedido[], periodo: Periodo): PontoDia[] {
     ponto.lucro += p.lucroLiquido;
     ponto.pedidos += 1;
     ponto.unidades += p.quantidade;
+    ponto.liquidoMarketplace += p.faturamento - p.comissao - p.taxaFixa;
     ponto.custoMidia += p.custoMidia;
   }
+  for (const ponto of mapa.values()) {
+    ponto.ticketMedio = ponto.pedidos ? ponto.faturamento / ponto.pedidos : 0;
+  }
+  return [...mapa.values()];
+}
+
+/* ------------------------------------------------------------------ */
+/* Saúde de margem dia a dia                                          */
+/* ------------------------------------------------------------------ */
+
+/** Usada quando a conta não tem meta de margem cadastrada. Mesmas faixas do
+ * selo de margem que já aparece nas tabelas do sistema. */
+export const FAIXAS_MARGEM_PADRAO: MetasMargem = {
+  margemMinima: 0.1,
+  margemIdeal: 0.2,
+};
+
+export interface PontoSaudeMargem {
+  dia: string;
+  /** Percentuais 0-100 — é o que o gráfico empilhado desenha */
+  excelente: number;
+  saudavel: number;
+  critica: number;
+  qtdExcelente: number;
+  qtdSaudavel: number;
+  qtdCritica: number;
+  valorExcelente: number;
+  valorSaudavel: number;
+  valorCritica: number;
+  pedidos: number;
+}
+
+/**
+ * Distribuição diária dos pedidos por faixa de margem. A faixa é sempre
+ * relativa à meta da conta que vendeu — 8% pode ser ótimo num canal e
+ * péssimo em outro. Sem meta cadastrada, usa FAIXAS_MARGEM_PADRAO.
+ */
+export function serieSaudeMargem(
+  pedidos: Pedido[],
+  periodo: Periodo,
+  metasPorConta: Record<string, MetasMargem | null> = {},
+): PontoSaudeMargem[] {
+  const mapa = new Map<string, PontoSaudeMargem>();
+  for (const dia of listarDias(periodo)) {
+    mapa.set(inicioDoDia(dia).toDateString(), {
+      dia: dia.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+      excelente: 0,
+      saudavel: 0,
+      critica: 0,
+      qtdExcelente: 0,
+      qtdSaudavel: 0,
+      qtdCritica: 0,
+      valorExcelente: 0,
+      valorSaudavel: 0,
+      valorCritica: 0,
+      pedidos: 0,
+    });
+  }
+
+  for (const p of pedidos) {
+    if (p.status === "cancelado") continue;
+    const ponto = mapa.get(inicioDoDia(new Date(p.data)).toDateString());
+    if (!ponto) continue;
+
+    const metas = metasPorConta[p.contaId] ?? FAIXAS_MARGEM_PADRAO;
+    ponto.pedidos += 1;
+
+    if (p.margem >= metas.margemIdeal) {
+      ponto.qtdExcelente += 1;
+      ponto.valorExcelente += p.faturamento;
+    } else if (p.margem >= metas.margemMinima) {
+      ponto.qtdSaudavel += 1;
+      ponto.valorSaudavel += p.faturamento;
+    } else {
+      ponto.qtdCritica += 1;
+      ponto.valorCritica += p.faturamento;
+    }
+  }
+
+  for (const ponto of mapa.values()) {
+    if (!ponto.pedidos) continue;
+    ponto.excelente = (ponto.qtdExcelente / ponto.pedidos) * 100;
+    ponto.saudavel = (ponto.qtdSaudavel / ponto.pedidos) * 100;
+    ponto.critica = (ponto.qtdCritica / ponto.pedidos) * 100;
+  }
+
   return [...mapa.values()];
 }
 
