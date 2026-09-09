@@ -693,9 +693,9 @@ export function deslocarCompetencia(competencia: string, meses: number): string 
 
 /**
  * Os lançamentos que valem num determinado mês. Um lançamento recorrente é
- * guardado uma vez só (mês em que começa + quantas vezes repete) e aparece
- * nos meses seguintes por cálculo — assim, mudar o valor do aluguel corrige
- * todos os meses de uma vez, em vez de ter que editar um por um.
+ * guardado uma vez só (mês em que começa) e repete pra sempre por cálculo —
+ * a menos que `competenciaFim` diga onde parar, ou que este mês específico
+ * esteja em `mesesExcluidos` (uma exceção pontual, sem afetar os outros).
  */
 export function lancamentosDoMes(
   lancamentos: Lancamento[],
@@ -704,11 +704,13 @@ export function lancamentosDoMes(
 ): Lancamento[] {
   return lancamentos.filter((l) => {
     if (l.empresaId !== empresaId) return false;
+    if (l.mesesExcluidos.includes(competencia)) return false;
     const distancia = distanciaEmMeses(l.competencia, competencia);
     if (distancia < 0) return false;
     if (distancia === 0) return true;
     if (!l.recorrente) return false;
-    return distancia < Math.max(1, l.repeticoes);
+    if (l.competenciaFim && distanciaEmMeses(l.competenciaFim, competencia) < 0) return false;
+    return true;
   });
 }
 
