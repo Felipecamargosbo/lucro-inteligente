@@ -11,6 +11,7 @@ import {
 import { useLancamentos } from "@/lib/lancamentos-storage";
 import { DRE } from "@/components/financeiro/DRE";
 import { Lancamentos } from "@/components/financeiro/Lancamentos";
+import { Recebiveis } from "@/components/financeiro/Recebiveis";
 import { Painel } from "@/components/comum/Indicadores";
 import {
   Select,
@@ -53,14 +54,6 @@ const ABAS: { id: AbaFinanceiro; titulo: string }[] = [
 function ultimosMeses(quantidade = 12): string[] {
   const hoje = chaveCompetencia(new Date());
   return Array.from({ length: quantidade }, (_, i) => deslocarCompetencia(hoje, -i));
-}
-
-function EmConstrucao({ titulo, texto }: { titulo: string; texto: string }) {
-  return (
-    <Painel titulo={titulo} descricao="Em construção">
-      <div className="px-5 py-14 text-center text-sm text-muted-foreground">{texto}</div>
-    </Painel>
-  );
 }
 
 function Financeiro() {
@@ -186,10 +179,7 @@ function Financeiro() {
           onPararRecorrencia={pararRecorrencia}
         />
       ) : (
-        <EmConstrucao
-          titulo="Recebíveis"
-          texto="Aqui vai mostrar quanto do faturamento já caiu na conta, quanto ainda vem e em que dia cada repasse entra. Vem depois dos Lançamentos."
-        />
+        <Recebiveis pedidos={pedidos} contas={contas} empresa={empresa} competencia={competencia} />
       )}
     </div>
   );
