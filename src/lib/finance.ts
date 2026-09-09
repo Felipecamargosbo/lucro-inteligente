@@ -4,7 +4,10 @@
 
 import type {
   Anuncio,
+  ContaMarketplace,
   FaixaSaudeMargem,
+  Lancamento,
+  MarketplaceId,
   MetasMargem,
   OrigemValor,
   Pedido,
@@ -631,4 +634,249 @@ export function agruparPorSkuComAds(pedidos: Pedido[]): ItemAdsPorSku[] {
     item.semRetorno = item.custoMidia > 0 && item.custoMidia > item.lucroAntesAds;
   }
   return [...mapa.values()].filter((i) => i.custoMidia > 0);
+}
+
+/* ------------------------------------------------------------------ */
+/* DRE — Demonstração do Resultado do Exercício                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * O DRE é fechado por EMPRESA (CNPJ) e por MÊS. Nunca soma empresas
+ * diferentes: cada CNPJ tem regime tributário, despesas e resultado
+ * próprios, e um consolidado misturando os dois não valeria como
+ * demonstrativo.
+ *
+ * A cascata segue exatamente a mesma conta que o resto do sistema usa
+ * (lucro = faturamento − CMV − comissão − taxa fixa − imposto − outros
+ * custos), então o número que aparece aqui bate com o das outras telas.
+ */
+
+/** Mês de competência de uma data, no formato "2026-09". */
+export function chaveCompetencia(data: Date): string {
+  return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Rótulo legível de uma competência: "2026-09" → "Setembro/2026". */
+export function rotuloCompetencia(competencia: string): string {
+  const [ano, mes] = competencia.split("-");
+  const data = new Date(Number(ano), Number(mes) - 1, 1);
+  const nome = data.toLocaleDateString("pt-BR", { month: "long" });
+  return `${nome.charAt(0).toUpperCase()}${nome.slice(1)}/${ano}`;
+}
+
+/** O período (do dia 1 ao último dia) de uma competência. */
+export function periodoDaCompetencia(competencia: string): Periodo {
+  const [ano, mes] = competencia.split("-").map(Number);
+  const a = ano ?? new Date().getFullYear();
+  const m = mes ?? 1;
+  const inicio = new Date(a, m - 1, 1, 0, 0, 0, 0);
+  const fim = new Date(a, m, 0, 23, 59, 59, 999);
+  return { inicio, fim, rotulo: rotuloCompetencia(competencia) };
+}
+
+/** Quantos meses separam duas competências ("2026-01" → "2026-04" = 3). */
+export function distanciaEmMeses(de: string, ate: string): number {
+  const [a1, m1] = de.split("-").map(Number);
+  const [a2, m2] = ate.split("-").map(Number);
+  if (a1 === undefined || m1 === undefined || a2 === undefined || m2 === undefined) {
+    return 0;
+  }
+  return (a2 - a1) * 12 + (m2 - m1);
+}
+
+/** A competência N meses antes/depois de outra. */
+export function deslocarCompetencia(competencia: string, meses: number): string {
+  const [ano, mes] = competencia.split("-").map(Number);
+  const data = new Date(ano ?? 2026, (mes ?? 1) - 1 + meses, 1);
+  return chaveCompetencia(data);
+}
+
+/**
+ * Os lançamentos que valem num determinado mês. Um lançamento recorrente é
+ * guardado uma vez só (mês em que começa + quantas vezes repete) e aparece
+ * nos meses seguintes por cálculo — assim, mudar o valor do aluguel corrige
+ * todos os meses de uma vez, em vez de ter que editar um por um.
+ */
+export function lancamentosDoMes(
+  lancamentos: Lancamento[],
+  empresaId: string,
+  competencia: string,
+): Lancamento[] {
+  return lancamentos.filter((l) => {
+    if (l.empresaId !== empresaId) return false;
+    const distancia = distanciaEmMeses(l.competencia, competencia);
+    if (distancia < 0) return false;
+    if (distancia === 0) return true;
+    if (!l.recorrente) return false;
+    return distancia < Math.max(1, l.repeticoes);
+  });
+}
+
+export interface DreConta {
+  contaId: string;
+  nome: string;
+  marketplaceId: MarketplaceId;
+  pedidos: number;
+  faturamento: number;
+  comissao: number;
+  taxaFixa: number;
+  /** Faturamento menos comissão e taxa fixa: o que o canal repassa */
+  liquidoMarketplace: number;
+  cmv: number;
+  impostos: number;
+  /** Embalagem, frete e outros custos do próprio seller, por venda */
+  custosPorVenda: number;
+  /** O que sobra da venda antes das despesas fixas da empresa */
+  margemContribuicao: number;
+  ads: number;
+  resultado: number;
+}
+
+export interface DreEmpresa {
+  empresaId: string;
+  competencia: string;
+  contas: DreConta[];
+  faturamento: number;
+  comissao: number;
+  taxaFixa: number;
+  liquidoMarketplace: number;
+  cmv: number;
+  impostos: number;
+  custosPorVenda: number;
+  margemContribuicao: number;
+  ads: number;
+  /** Soma do "resultado" de todas as contas, antes das despesas fixas */
+  resultadoDasContas: number;
+  despesas: number;
+  receitasExtras: number;
+  lucroLiquido: number;
+  margem: number;
+  /** Quanto precisa faturar no mês para não ter prejuízo */
+  pontoEquilibrio: number;
+  /** O quanto o faturamento está acima do ponto de equilíbrio (fração) */
+  margemSeguranca: number;
+  lancamentosDespesa: Lancamento[];
+  lancamentosReceita: Lancamento[];
+}
+
+function contaVazia(conta: ContaMarketplace): DreConta {
+  return {
+    contaId: conta.id,
+    nome: conta.nome,
+    marketplaceId: conta.marketplaceId,
+    pedidos: 0,
+    faturamento: 0,
+    comissao: 0,
+    taxaFixa: 0,
+    liquidoMarketplace: 0,
+    cmv: 0,
+    impostos: 0,
+    custosPorVenda: 0,
+    margemContribuicao: 0,
+    ads: 0,
+    resultado: 0,
+  };
+}
+
+/**
+ * Monta o DRE de uma empresa num mês. Só entram as contas daquela empresa e
+ * os pedidos daquelas contas — o resto do sistema fica de fora.
+ */
+export function montarDre(entrada: {
+  pedidos: Pedido[];
+  contas: ContaMarketplace[];
+  lancamentos: Lancamento[];
+  empresaId: string;
+  competencia: string;
+}): DreEmpresa {
+  const { pedidos, contas, lancamentos, empresaId, competencia } = entrada;
+
+  const contasDaEmpresa = contas.filter((c) => c.empresaId === empresaId);
+  const idsDaEmpresa = new Set(contasDaEmpresa.map((c) => c.id));
+  const periodo = periodoDaCompetencia(competencia);
+
+  const doMes = pedidos.filter(
+    (p) =>
+      p.status !== "cancelado" &&
+      idsDaEmpresa.has(p.contaId) &&
+      dentroDoPeriodo(p.data, periodo),
+  );
+
+  const porConta = new Map<string, DreConta>();
+  for (const conta of contasDaEmpresa) porConta.set(conta.id, contaVazia(conta));
+
+  for (const p of doMes) {
+    const linha = porConta.get(p.contaId);
+    if (!linha) continue;
+    linha.pedidos += 1;
+    linha.faturamento += p.faturamento;
+    linha.comissao += p.comissao;
+    linha.taxaFixa += p.taxaFixa;
+    linha.cmv += p.cmv;
+    linha.impostos += p.impostos;
+    linha.custosPorVenda += p.outrosCustos;
+    linha.ads += p.custoMidia;
+  }
+
+  for (const linha of porConta.values()) {
+    linha.liquidoMarketplace = linha.faturamento - linha.comissao - linha.taxaFixa;
+    linha.margemContribuicao =
+      linha.liquidoMarketplace - linha.cmv - linha.impostos - linha.custosPorVenda;
+    linha.resultado = linha.margemContribuicao - linha.ads;
+  }
+
+  // Conta sem venda no mês não vira bloco na tela — só polui.
+  const listaContas = [...porConta.values()]
+    .filter((c) => c.pedidos > 0)
+    .sort((a, b) => b.faturamento - a.faturamento);
+
+  const soma = (fn: (c: DreConta) => number) =>
+    listaContas.reduce((acc, c) => acc + fn(c), 0);
+
+  const faturamento = soma((c) => c.faturamento);
+  const margemContribuicao = soma((c) => c.margemContribuicao);
+  const resultadoDasContas = soma((c) => c.resultado);
+
+  const doMesEmpresa = lancamentosDoMes(lancamentos, empresaId, competencia);
+  const lancamentosDespesa = doMesEmpresa.filter((l) => l.tipo === "despesa");
+  const lancamentosReceita = doMesEmpresa.filter((l) => l.tipo === "receita");
+  const despesas = lancamentosDespesa.reduce((s, l) => s + l.valor, 0);
+  const receitasExtras = lancamentosReceita.reduce((s, l) => s + l.valor, 0);
+
+  const lucroLiquido = resultadoDasContas - despesas + receitasExtras;
+
+  // Ponto de equilíbrio: quanto precisa faturar para o resultado das vendas
+  // cobrir exatamente as despesas fixas. Sem despesa lançada não existe
+  // ponto de equilíbrio para calcular.
+  const proporcaoContribuicao = faturamento > 0 ? resultadoDasContas / faturamento : 0;
+  const pontoEquilibrio =
+    despesas > 0 && proporcaoContribuicao > 0 ? despesas / proporcaoContribuicao : 0;
+  const margemSeguranca =
+    pontoEquilibrio > 0 && faturamento > 0
+      ? (faturamento - pontoEquilibrio) / faturamento
+      : 0;
+
+  return {
+    empresaId,
+    competencia,
+    contas: listaContas,
+    faturamento,
+    comissao: soma((c) => c.comissao),
+    taxaFixa: soma((c) => c.taxaFixa),
+    liquidoMarketplace: soma((c) => c.liquidoMarketplace),
+    cmv: soma((c) => c.cmv),
+    impostos: soma((c) => c.impostos),
+    custosPorVenda: soma((c) => c.custosPorVenda),
+    margemContribuicao,
+    ads: soma((c) => c.ads),
+    resultadoDasContas,
+    despesas,
+    receitasExtras,
+    lucroLiquido,
+    margem: faturamento > 0 ? lucroLiquido / faturamento : 0,
+    pontoEquilibrio,
+    margemSeguranca,
+    lancamentosDespesa,
+    lancamentosReceita,
+  };
 }
