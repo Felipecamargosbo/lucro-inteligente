@@ -95,6 +95,15 @@ export type StatusPedido =
   | "aguardando-envio"
   | "cancelado";
 
+/** Uma fatia do valor de um pedido caindo na conta do seller — a maioria
+ * dos pedidos tem só uma; vendas parceladas no modo Magalu Parcelado têm
+ * uma por mês. */
+export interface RepasseParcela {
+  /** Quando esta fatia cai na conta do seller */
+  data: string; // ISO
+  valor: number;
+}
+
 export interface Pedido {
   id: string;
   data: string; // ISO
@@ -125,8 +134,22 @@ export interface Pedido {
   tipoLogistica: TipoLogistica;
   /** UF de entrega do pedido (endereço do cliente) */
   estado: string;
-  /** Data em que o marketplace deve repassar o valor desta venda ao seller */
-  previsaoRepasse: string; // ISO
+  /** Em quantas vezes o CLIENTE parcelou a compra no cartão — 1 é à vista.
+   * Só muda alguma coisa pro seller quando o canal é o Magalu no modo
+   * "Repasse Parcelado": lá o repasse segue esse mesmo parcelamento. Nos
+   * outros canais é só informação — o marketplace paga o seller à parte
+   * disso, então não afeta `repasses`. */
+  parcelas: number;
+  /**
+   * Quando e quanto desta venda cai na conta do seller. Cada canal tem sua
+   * própria regra (pesquisada, não é um número fixo igual pra todos):
+   * Mercado Livre varia com reputação da conta e tipo de entrega; Amazon é
+   * um ciclo fechado de 14 em 14 dias, não por pedido; Shopee é de 5 a 15
+   * dias corridos por pedido; Magalu, no modo parcelado, divide o valor em
+   * várias fatias mensais quando a venda foi parcelada — por isso isto é
+   * uma lista, não uma data só. A maioria dos pedidos tem 1 item aqui.
+   */
+  repasses: RepasseParcela[];
   /**
    * Valor devolvido pelo cliente após a entrega (0 quando não houve
    * devolução). Diferente de "cancelado": a devolução acontece depois da
