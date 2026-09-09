@@ -73,6 +73,8 @@ export interface ContaMarketplace {
   /** Nome dado pelo seller: "Loja Oficial", "Outlet" */
   nome: string;
   cnpj: string;
+  /** Empresa (CNPJ) dona desta conta — é por ela que o DRE é fechado */
+  empresaId: string;
   conectada: boolean;
   statusConexao: StatusConexaoMarketplace;
   ultimaSincronizacao: string | null; // ISO
@@ -378,6 +380,49 @@ export interface ConfiguracaoFiscal {
   regime: RegimeTributario;
   /** Fração 0-1 aplicada sobre o faturamento */
   aliquota: number;
+}
+
+/**
+ * Uma empresa do seller. Cada CNPJ é uma empresa separada aos olhos da lei:
+ * tem o próprio regime tributário, as próprias despesas e o próprio
+ * fechamento. O DRE nunca soma empresas diferentes — só mostra uma por vez.
+ */
+export interface Empresa {
+  id: string;
+  /** Razão social, como sai na nota */
+  nome: string;
+  nomeFantasia: string;
+  cnpj: string;
+  regime: RegimeTributario;
+  /** Fração 0-1 aplicada sobre o faturamento desta empresa */
+  aliquota: number;
+}
+
+export type TipoLancamento = "despesa" | "receita";
+
+/**
+ * Um gasto ou uma entrada que NÃO vem de venda: aluguel, contador, energia,
+ * folha, ou uma receita avulsa. Pertence sempre a uma empresa.
+ *
+ * Recorrência: o lançamento é guardado uma vez só, com o mês em que começa e
+ * quantas vezes se repete. Os meses seguintes são calculados na hora de ler —
+ * assim editar o aluguel muda todos os meses de uma vez.
+ */
+export interface Lancamento {
+  id: string;
+  empresaId: string;
+  tipo: TipoLancamento;
+  /** "Aluguel", "Contador", "Energia" — texto livre, o seller escreve */
+  categoria: string;
+  descricao: string;
+  /** Mês em que começa, no formato "2026-09" */
+  competencia: string;
+  valor: number;
+  /** Quando true, repete nos meses seguintes a partir da competência */
+  recorrente: boolean;
+  /** Total de meses contando o primeiro. Só vale quando recorrente = true */
+  repeticoes: number;
+  criadoEm: string; // ISO
 }
 
 export interface Periodo {
