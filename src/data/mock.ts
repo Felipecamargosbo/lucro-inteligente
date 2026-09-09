@@ -67,6 +67,14 @@ export const EMPRESAS: Empresa[] = [
     regime: "lucro-presumido",
     aliquota: 0.1325,
   },
+  {
+    id: "emp-outlet",
+    nome: "Nexus Outlet Comércio LTDA",
+    nomeFantasia: "Nexus Outlet",
+    cnpj: "27.635.481/0001-52",
+    regime: "simples-nacional",
+    aliquota: 0.085,
+  },
 ];
 
 export const getEmpresa = (id: string) => EMPRESAS.find((e) => e.id === id);
@@ -77,8 +85,10 @@ export const empresaPorCnpj = (cnpj: string) =>
 
 /**
  * Contas do seller. O Mercado Livre aparece com três contas de propósito:
- * é o caso real de quem tem loja oficial, outlet e um CNPJ separado, e é
- * onde a maioria das ferramentas falha ao somar tudo como se fosse um só.
+ * loja oficial, outlet e uma linha de peças — cada uma na sua própria
+ * empresa (CNPJ), porque cada CNPJ só pode ter 1 conta por marketplace.
+ * É o caso real de quem tem mais de uma empresa e é onde a maioria das
+ * ferramentas falha ao somar tudo como se fosse um só CNPJ.
  */
 export const CONTAS: ContaMarketplace[] = [
   {
@@ -111,8 +121,8 @@ export const CONTAS: ContaMarketplace[] = [
     id: "ml-outlet",
     marketplaceId: "mercado-livre",
     nome: "Outlet",
-    cnpj: "42.918.774/0001-06",
-    empresaId: "emp-nexus",
+    cnpj: "27.635.481/0001-52",
+    empresaId: "emp-outlet",
     conectada: true,
     statusConexao: "conectado",
     ultimaSincronizacao: new Date(Date.now() - 34 * 60000).toISOString(),
