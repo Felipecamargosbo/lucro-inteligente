@@ -7,6 +7,7 @@ import type {
   Campanha,
   ContaMarketplace,
   Anuncio,
+  Empresa,
   ItemEstoque,
   ItemEstoqueDetalhado,
   LogAlteracao,
@@ -45,6 +46,36 @@ export const MARKETPLACES: Marketplace[] = [
 ];
 
 /**
+ * Empresas do seller. Cada CNPJ é uma empresa separada: regime tributário,
+ * despesas e fechamento próprios. O DRE fecha uma empresa por vez — somar
+ * CNPJs diferentes num número só não vale como demonstrativo.
+ */
+export const EMPRESAS: Empresa[] = [
+  {
+    id: "emp-nexus",
+    nome: "Nexus Commerce LTDA",
+    nomeFantasia: "Nexus Commerce",
+    cnpj: "42.918.774/0001-06",
+    regime: "simples-nacional",
+    aliquota: 0.1,
+  },
+  {
+    id: "emp-pecas",
+    nome: "Nexus Peças e Acessórios LTDA",
+    nomeFantasia: "Nexus Peças",
+    cnpj: "51.207.663/0001-40",
+    regime: "lucro-presumido",
+    aliquota: 0.1325,
+  },
+];
+
+export const getEmpresa = (id: string) => EMPRESAS.find((e) => e.id === id);
+
+/** Descobre a empresa dona de um CNPJ; cai na primeira quando não acha. */
+export const empresaPorCnpj = (cnpj: string) =>
+  EMPRESAS.find((e) => e.cnpj === cnpj) ?? EMPRESAS[0]!;
+
+/**
  * Contas do seller. O Mercado Livre aparece com três contas de propósito:
  * é o caso real de quem tem loja oficial, outlet e um CNPJ separado, e é
  * onde a maioria das ferramentas falha ao somar tudo como se fosse um só.
@@ -55,6 +86,7 @@ export const CONTAS: ContaMarketplace[] = [
     marketplaceId: "mercado-livre",
     nome: "Loja Oficial",
     cnpj: "42.918.774/0001-06",
+    empresaId: "emp-nexus",
     conectada: true,
     statusConexao: "conectado",
     ultimaSincronizacao: new Date(Date.now() - 8 * 60000).toISOString(),
@@ -80,6 +112,7 @@ export const CONTAS: ContaMarketplace[] = [
     marketplaceId: "mercado-livre",
     nome: "Outlet",
     cnpj: "42.918.774/0001-06",
+    empresaId: "emp-nexus",
     conectada: true,
     statusConexao: "conectado",
     ultimaSincronizacao: new Date(Date.now() - 34 * 60000).toISOString(),
@@ -105,6 +138,7 @@ export const CONTAS: ContaMarketplace[] = [
     marketplaceId: "mercado-livre",
     nome: "Peças e Acessórios",
     cnpj: "51.207.663/0001-40",
+    empresaId: "emp-pecas",
     conectada: true,
     statusConexao: "token-expirando",
     ultimaSincronizacao: new Date(Date.now() - 5 * 3600000).toISOString(),
@@ -130,6 +164,7 @@ export const CONTAS: ContaMarketplace[] = [
     marketplaceId: "shopee",
     nome: "Loja Principal",
     cnpj: "42.918.774/0001-06",
+    empresaId: "emp-nexus",
     conectada: true,
     statusConexao: "conectado",
     ultimaSincronizacao: new Date(Date.now() - 52 * 60000).toISOString(),
@@ -155,6 +190,7 @@ export const CONTAS: ContaMarketplace[] = [
     marketplaceId: "amazon",
     nome: "Nexus BR",
     cnpj: "42.918.774/0001-06",
+    empresaId: "emp-nexus",
     conectada: true,
     statusConexao: "conectado",
     ultimaSincronizacao: new Date(Date.now() - 21 * 60000).toISOString(),
@@ -180,6 +216,7 @@ export const CONTAS: ContaMarketplace[] = [
     marketplaceId: "magalu",
     nome: "Loja Magalu",
     cnpj: "42.918.774/0001-06",
+    empresaId: "emp-nexus",
     conectada: true,
     statusConexao: "token-expirando",
     ultimaSincronizacao: new Date(Date.now() - 3 * 3600000).toISOString(),
@@ -205,6 +242,7 @@ export const CONTAS: ContaMarketplace[] = [
     marketplaceId: "tiktok-shop",
     nome: "Nexus Live",
     cnpj: "42.918.774/0001-06",
+    empresaId: "emp-nexus",
     conectada: false,
     statusConexao: "desconectado",
     ultimaSincronizacao: null,
@@ -221,6 +259,7 @@ export const CONTAS: ContaMarketplace[] = [
     marketplaceId: "shein",
     nome: "Loja Shein",
     cnpj: "42.918.774/0001-06",
+    empresaId: "emp-nexus",
     conectada: false,
     statusConexao: "desconectado",
     ultimaSincronizacao: null,
