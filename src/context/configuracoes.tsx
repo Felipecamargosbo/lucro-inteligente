@@ -1,11 +1,19 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { CONTAS, EMPRESA, REGRAS_FINANCEIRAS, definirContasAtuais } from "@/data/mock";
+import {
+  CONTAS,
+  EMPRESA,
+  EMPRESAS,
+  REGRAS_FINANCEIRAS,
+  definirContasAtuais,
+  empresaPorCnpj,
+} from "@/data/mock";
 import type {
   ConfiguracaoFiscal,
   ContaMarketplace,
   CustoOperacional,
   DadosEmpresa,
   MarketplaceId,
+  Empresa,
   MetasMargem,
 } from "@/types";
 
@@ -25,6 +33,9 @@ interface ConfiguracoesContexto {
 
   fiscal: ConfiguracaoFiscal;
   salvarFiscal: (dados: ConfiguracaoFiscal) => void;
+
+  /** As empresas (CNPJs) do seller. O DRE fecha uma por vez. */
+  empresas: Empresa[];
 
   contas: ContaMarketplace[];
   atualizarConta: (id: string, dados: Partial<ContaMarketplace>) => void;
@@ -79,6 +90,8 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
     aliquota: REGRAS_FINANCEIRAS.impostoPercentual,
   });
 
+  const [empresas] = useState<Empresa[]>(EMPRESAS);
+
   const [contas, setContas] = useState<ContaMarketplace[]>(CONTAS);
 
   // Espelha as contas para fora do React: os loaders de rota (que decidem,
@@ -115,6 +128,8 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
       fiscal,
       salvarFiscal: setFiscal,
 
+      empresas,
+
       contas,
       atualizarConta: (id, dados) =>
         setContas((atual) =>
@@ -127,6 +142,7 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
           marketplaceId,
           nome: dados.nome,
           cnpj: dados.cnpj,
+          empresaId: empresaPorCnpj(dados.cnpj).id,
           conectada: false,
           statusConexao: "desconectado",
           ultimaSincronizacao: null,
@@ -169,7 +185,7 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
         detalhar(precoVenda).reduce((s, i) => s + i.valor, 0),
       custoOperacionalDetalhado: detalhar,
     };
-  }, [empresa, fiscal, contas, metasPorConta, custos]);
+  }, [empresa, fiscal, empresas, contas, metasPorConta, custos]);
 
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }
