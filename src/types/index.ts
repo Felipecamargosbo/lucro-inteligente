@@ -404,26 +404,47 @@ export type TipoLancamento = "despesa" | "receita";
  * Um gasto ou uma entrada que NÃO vem de venda: aluguel, contador, energia,
  * folha, ou uma receita avulsa. Pertence sempre a uma empresa.
  *
- * Recorrência: o lançamento é guardado uma vez só, com o mês em que começa e
- * quantas vezes se repete. Os meses seguintes são calculados na hora de ler —
- * assim editar o aluguel muda todos os meses de uma vez.
+ * Recorrência: o lançamento é guardado uma vez só, com o mês em que começa.
+ * Se `recorrente` for true, ele repete todo mês PRA SEMPRE — não tem um
+ * número de repetições. Os meses seguintes são calculados na hora de ler.
+ *
+ * Duas formas de parar, e elas não se confundem:
+ * - `competenciaFim`: "parar de repetir daqui pra frente". Guarda o último
+ *   mês em que o lançamento ainda vale; a partir do mês seguinte ele some
+ *   sozinho. Os meses já lançados antes disso continuam intocados.
+ * - `mesesExcluidos`: exceção pontual — remove só UM mês específico (passado
+ *   ou futuro) sem mexer na recorrência nem nos outros meses. É o que o
+ *   seller usa quando quer apagar, por exemplo, só o de julho.
  */
 export interface Lancamento {
   id: string;
   empresaId: string;
   tipo: TipoLancamento;
-  /** "Aluguel", "Contador", "Energia" — texto livre, o seller escreve */
+  /** "Aluguel", "Contador", "Energia" — vem de uma lista fixa de categorias */
   categoria: string;
   descricao: string;
   /** Mês em que começa, no formato "2026-09" */
   competencia: string;
   valor: number;
-  /** Quando true, repete nos meses seguintes a partir da competência */
+  /** Quando true, repete todo mês a partir da competência, sem fim definido */
   recorrente: boolean;
-  /** Total de meses contando o primeiro. Só vale quando recorrente = true */
-  repeticoes: number;
+  /** Último mês em que a recorrência ainda vale; null = sem fim (continua) */
+  competenciaFim: string | null;
+  /** Competências específicas em que este lançamento foi removido à parte */
+  mesesExcluidos: string[];
   criadoEm: string; // ISO
 }
+
+/** Categorias fixas de despesa/receita, na ordem em que aparecem no formulário. */
+export const CATEGORIAS_LANCAMENTO = [
+  "Aluguel",
+  "Contador",
+  "Energia",
+  "Folha",
+  "Marketing",
+  "Software/assinaturas",
+  "Outros",
+] as const;
 
 export interface Periodo {
   inicio: Date;
