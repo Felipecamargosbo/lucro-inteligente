@@ -8,7 +8,9 @@ import {
   montarDre,
   rotuloCompetencia,
 } from "@/lib/finance";
+import { useLancamentos } from "@/lib/lancamentos-storage";
 import { DRE } from "@/components/financeiro/DRE";
+import { Lancamentos } from "@/components/financeiro/Lancamentos";
 import { Painel } from "@/components/comum/Indicadores";
 import {
   Select,
@@ -18,7 +20,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { Lancamento } from "@/types";
 
 export const Route = createFileRoute("/financeiro")({
   head: () => ({
@@ -69,10 +70,10 @@ function Financeiro() {
   const [empresaId, setEmpresaId] = useState(empresas[0]?.id ?? "");
   const [competencia, setCompetencia] = useState(() => chaveCompetencia(new Date()));
 
-  // Os lançamentos entram na próxima etapa (aba Lançamentos). Até lá o DRE
-  // fecha só com o que vem das vendas, e avisa na tela que as despesas
-  // fixas ainda não estão descontadas.
-  const [lancamentos] = useState<Lancamento[]>([]);
+  // Lançamentos (despesas/receitas fora de venda) — salvos no navegador por
+  // enquanto não existe banco de dados. O DRE lê daqui ao vivo: lançar ou
+  // parar uma recorrência atualiza o resultado do mês na hora.
+  const { lancamentos, criar, excluirNoMes, pararRecorrencia } = useLancamentos();
 
   const meses = useMemo(() => ultimosMeses(), []);
   const empresa = empresas.find((e) => e.id === empresaId) ?? empresas[0];
@@ -175,9 +176,14 @@ function Financeiro() {
           aoGerenciarDespesas={() => setAba("lancamentos")}
         />
       ) : aba === "lancamentos" ? (
-        <EmConstrucao
-          titulo="Lançamentos"
-          texto="É aqui que você vai cadastrar aluguel, contador, energia e folha — com a opção de repetir todo mês. Esta é a próxima etapa."
+        <Lancamentos
+          lancamentos={lancamentos}
+          empresaId={empresa.id}
+          competencia={competencia}
+          meses={meses}
+          onCriar={criar}
+          onExcluirNoMes={excluirNoMes}
+          onPararRecorrencia={pararRecorrencia}
         />
       ) : (
         <EmConstrucao
