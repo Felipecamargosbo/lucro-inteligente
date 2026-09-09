@@ -2,6 +2,7 @@ import {
   BadgePercent,
   Boxes,
   Calculator,
+  Landmark,
   LayoutDashboard,
   LifeBuoy,
   Package,
@@ -97,6 +98,17 @@ export const MENU: ItemMenu[] = [
     grupo: "Operação",
     descricao: "Estoque nos centros de distribuição",
     usaPeriodo: true,
+    usaFiltroContas: false,
+  },
+  {
+    titulo: "Financeiro",
+    url: "/financeiro",
+    icone: Landmark,
+    grupo: "Gestão",
+    descricao: "DRE, lançamentos e recebíveis",
+    // A tela tem o próprio seletor de mês e de empresa — o período global
+    // e o filtro de contas não valem aqui.
+    usaPeriodo: false,
     usaFiltroContas: false,
   },
   {
