@@ -6,7 +6,6 @@ import { Canais } from "@/components/dashboard/Canais";
 import { Ads } from "@/components/dashboard/Ads";
 import { Logistica } from "@/components/dashboard/Logistica";
 import { Geografia } from "@/components/dashboard/Geografia";
-import { Financeiro } from "@/components/dashboard/Financeiro";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -28,7 +27,7 @@ export const Route = createFileRoute("/")({
   component: Dashboard,
 });
 
-type AbaDashboard = "visao-geral" | "produtos" | "ads" | "logistica" | "financeiro";
+type AbaDashboard = "visao-geral" | "produtos" | "ads" | "logistica";
 
 const ABAS: { id: AbaDashboard; titulo: string; descricao: string }[] = [
   {
@@ -50,11 +49,6 @@ const ABAS: { id: AbaDashboard; titulo: string; descricao: string }[] = [
     id: "logistica",
     titulo: "Logística",
     descricao: "Full vs coleta — faturamento e margem",
-  },
-  {
-    id: "financeiro",
-    titulo: "Financeiro",
-    descricao: "Recebíveis previstos e impacto de devoluções",
   },
 ];
 
@@ -122,10 +116,8 @@ function Dashboard() {
         <ProdutosMaisVendidos />
       ) : aba === "ads" ? (
         <Ads />
-      ) : aba === "logistica" ? (
-        <Logistica />
       ) : (
-        <Financeiro />
+        <Logistica />
       )}
     </div>
   );
