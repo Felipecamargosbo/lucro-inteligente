@@ -165,6 +165,19 @@ function BlocoConta({ conta }: { conta: DreConta }) {
         </div>
       }
     >
+      <div className="flex items-center justify-end gap-4 px-5 pb-0.5 pt-1">
+        <div className="flex items-baseline gap-3 whitespace-nowrap">
+          <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground/60">
+            Valor
+          </span>
+          <span
+            className="num w-14 text-right text-[9px] font-medium uppercase tracking-wide text-muted-foreground/60"
+            title="Fatia do faturamento desta conta — cada linha mostra quanto consome do 100% do faturamento dela mesma."
+          >
+            % da conta
+          </span>
+        </div>
+      </div>
       <div className="divide-y divide-transparent py-1">
         <LinhaConta rotulo="Faturamento" valor={conta.faturamento} base={conta.faturamento} subtotal />
         <LinhaConta rotulo={`Comissão do ${canal}`} valor={conta.comissao} base={conta.faturamento} negativo />
