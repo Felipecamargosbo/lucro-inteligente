@@ -18,6 +18,7 @@ import type {
   Pedido,
   Produto,
   Promocao,
+  RepasseParcela,
   OrigemCampanha,
   StatusOportunidadeRecuperacao,
   StatusPedido,
@@ -407,20 +408,120 @@ function escolherEstado(rand: () => number): string {
   return "SP";
 }
 
+/** Soma dias ÚTEIS (pula sábado e domingo) a uma data. */
+function somarDiasUteis(data: Date, dias: number): Date {
+  const resultado = new Date(data);
+  let restantes = dias;
+  while (restantes > 0) {
+    resultado.setDate(resultado.getDate() + 1);
+    const diaSemana = resultado.getDay();
+    if (diaSemana !== 0 && diaSemana !== 6) restantes--;
+  }
+  return resultado;
+}
+
+/** "Boa reputação" pro cálculo de repasse = a conta é MercadoLíder-like
+ * (excelente/bom); qualquer coisa abaixo conta como reputação insuficiente,
+ * que é o que os marketplaces cobram em prazo mais longo. */
+function reputacaoBoa(conta: ContaMarketplace): boolean {
+  const nivel = conta.reputacao?.nivel;
+  return nivel === "excelente" || nivel === "bom";
+}
+
+/** Em quantas vezes o CLIENTE parcelou a compra — a maioria à vista ou em
+ * poucas vezes, uma minoria vai até 10x. Só o Magalu (repasse parcelado)
+ * liga isso ao repasse; nos outros canais é só informação exibida. */
+function escolherParcelas(rand: () => number): number {
+  const r = rand();
+  if (r < 0.4) return 1;
+  if (r < 0.55) return 2;
+  if (r < 0.75) return 3;
+  if (r < 0.9) return 6;
+  return 10;
+}
+
 /**
- * Prazo aproximado (em dias corridos) que cada marketplace leva para
- * repassar ao seller o valor de uma venda já entregue. Varia de canal para
- * canal — é por isso que "recebível previsto" precisa olhar canal a canal,
- * não só somar tudo com o mesmo prazo.
+ * Quando (e em quantas fatias) o valor de um pedido cai na conta do seller.
+ * Cada canal tem sua própria regra REAL, pesquisada — não é um número fixo
+ * igual pra todos:
+ *
+ * - Mercado Livre: depende da reputação da conta e de como foi entregue.
+ *   Via Mercado Envios (Full/Flex): 8 dias com reputação boa, 12 sem.
+ *   Entrega própria (Padrão): 11 dias com reputação boa, até 28 sem.
+ * - Amazon: não é por pedido — é um ciclo FECHADO de 14 em 14 dias, igual
+ *   pra todo mundo. Toda venda espera até o próximo fechamento do ciclo
+ *   (0 a 14 dias, dependendo de quando caiu), mais até 5 dias úteis pra
+ *   cair na conta.
+ * - Shopee: individual por pedido, sem ciclo fixo — de 5 a 15 dias úteis,
+ *   puxando pra ponta de baixo quando a reputação da conta é boa.
+ * - Magalu (modo "Repasse Parcelado"): a venda à vista cai em ~5 dias
+ *   úteis; a venda parcelada pelo cliente cai em fatias mensais, uma por
+ *   mês, do mesmo jeito que o cliente foi pagando — por isso pode ser uma
+ *   lista de várias datas, não uma só.
+ * - TikTok Shop / Shein: não achei fonte confiável — mantém estimativa
+ *   fixa (15 e 20 dias) até confirmar.
  */
-const DIAS_REPASSE: Record<MarketplaceId, number> = {
-  "mercado-livre": 14,
-  shopee: 7,
-  amazon: 14,
-  magalu: 30,
-  "tiktok-shop": 15,
-  shein: 20,
-};
+function calcularRepasses(
+  conta: ContaMarketplace,
+  tipoLogistica: TipoLogistica,
+  dataHora: Date,
+  faturamento: number,
+  parcelas: number,
+  rand: () => number,
+): RepasseParcela[] {
+  const boa = reputacaoBoa(conta);
+
+  if (conta.marketplaceId === "mercado-livre") {
+    const dias = tipoLogistica === "padrao" ? (boa ? 11 : 28) : boa ? 8 : 12;
+    const data = new Date(dataHora);
+    data.setDate(data.getDate() + dias);
+    return [{ data: data.toISOString(), valor: faturamento }];
+  }
+
+  if (conta.marketplaceId === "amazon") {
+    const CICLO_DIAS = 14;
+    const EPOCA = Date.UTC(2024, 0, 1);
+    const diasDesdeEpoca = Math.floor((dataHora.getTime() - EPOCA) / 86400000);
+    const diasAteFechar = CICLO_DIAS - (diasDesdeEpoca % CICLO_DIAS);
+    const fechamento = new Date(dataHora);
+    fechamento.setDate(fechamento.getDate() + diasAteFechar);
+    const dataFinal = somarDiasUteis(fechamento, 1 + Math.floor(rand() * 5));
+    return [{ data: dataFinal.toISOString(), valor: faturamento }];
+  }
+
+  if (conta.marketplaceId === "shopee") {
+    const diasMin = boa ? 5 : 10;
+    const diasMax = boa ? 9 : 15;
+    const dias = diasMin + Math.floor(rand() * (diasMax - diasMin + 1));
+    const data = somarDiasUteis(dataHora, dias);
+    return [{ data: data.toISOString(), valor: faturamento }];
+  }
+
+  if (conta.marketplaceId === "magalu") {
+    if (parcelas <= 1) {
+      const data = somarDiasUteis(dataHora, 5);
+      return [{ data: data.toISOString(), valor: faturamento }];
+    }
+    const valorParcela = Math.round((faturamento / parcelas) * 100) / 100;
+    const lista: RepasseParcela[] = [];
+    let acumulado = 0;
+    for (let i = 1; i <= parcelas; i++) {
+      const dataParcela = new Date(dataHora);
+      dataParcela.setMonth(dataParcela.getMonth() + i);
+      // A última parcela absorve o arredondamento das anteriores.
+      const valor = i === parcelas ? Math.round((faturamento - acumulado) * 100) / 100 : valorParcela;
+      acumulado += valor;
+      lista.push({ data: dataParcela.toISOString(), valor });
+    }
+    return lista;
+  }
+
+  // TikTok Shop e Shein — sem fonte confiável ainda, estimativa fixa.
+  const dias = conta.marketplaceId === "tiktok-shop" ? 15 : 20;
+  const data = new Date(dataHora);
+  data.setDate(data.getDate() + dias);
+  return [{ data: data.toISOString(), valor: faturamento }];
+}
 
 /** Probabilidade de um pedido do canal ter ido via Full (estoque no centro de
  * distribuição do marketplace) em vez de despachado pelo próprio seller
@@ -666,10 +767,8 @@ function gerarPedidos(): Pedido[] {
       })();
       const estado = escolherEstado(rand);
 
-      const previsaoRepasseData = new Date(dataHora);
-      previsaoRepasseData.setDate(
-        previsaoRepasseData.getDate() + DIAS_REPASSE[conta.marketplaceId],
-      );
+      const parcelas = escolherParcelas(rand);
+      const repasses = calcularRepasses(conta, tipoLogistica, dataHora, faturamento, parcelas, rand);
 
       // ~5% dos pedidos entregues sofrem devolução depois da entrega — é
       // diferente de "cancelado" (que nunca chegou a ser despachado/entregue).
@@ -709,7 +808,8 @@ function gerarPedidos(): Pedido[] {
         telefone: `(${ddd}) 9${Math.floor(1000 + rand() * 8999)}-${Math.floor(1000 + rand() * 8999)}`,
         tipoLogistica,
         estado,
-        previsaoRepasse: previsaoRepasseData.toISOString(),
+        parcelas,
+        repasses,
         valorDevolvido,
         dataDevolucao,
         motivoDevolucao,
