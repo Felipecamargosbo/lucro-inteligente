@@ -20,6 +20,13 @@ import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type {
   ContaMarketplace,
@@ -583,12 +590,12 @@ function AbaMargens() {
 
 function AbaIntegracoes() {
   const canais = marketplacesService.listar();
-  const { contas, atualizarConta, criarConta, removerConta } = useConfiguracoes();
+  const { empresas, contas, atualizarConta, criarConta, removerConta } = useConfiguracoes();
   const [editando, setEditando] = useState<Record<string, string>>({});
   const [confirmandoExclusao, setConfirmandoExclusao] = useState<string | null>(null);
   const [novaContaEm, setNovaContaEm] = useState<string | null>(null);
   const [novoNomeConta, setNovoNomeConta] = useState("");
-  const [novoCnpjConta, setNovoCnpjConta] = useState("");
+  const [novaEmpresaId, setNovaEmpresaId] = useState("");
 
   const salvarNome = (id: string, nomeAtual: string) => {
     const novoNome = (editando[id] ?? nomeAtual).trim();
@@ -601,10 +608,20 @@ function AbaIntegracoes() {
     toast.success("Nome da conta atualizado");
   };
 
+  /** Empresas que ainda não têm conta neste canal — cada CNPJ só pode ter
+   * 1 conta por marketplace, então uma empresa já usada some da lista. */
+  const empresasDisponiveisEm = (canalId: string) => {
+    const usadas = new Set(
+      contas.filter((c) => c.marketplaceId === canalId).map((c) => c.empresaId),
+    );
+    return empresas.filter((e) => !usadas.has(e.id));
+  };
+
   const abrirNovaConta = (canalId: string) => {
+    const disponiveis = empresasDisponiveisEm(canalId);
     setNovaContaEm(canalId);
     setNovoNomeConta("");
-    setNovoCnpjConta("");
+    setNovaEmpresaId(disponiveis[0]?.id ?? "");
   };
 
   const excluirConta = (c: ContaMarketplace) => {
@@ -621,9 +638,14 @@ function AbaIntegracoes() {
       toast.error("Dê um nome para a conta antes de criar");
       return;
     }
-    criarConta(canalId, { nome, cnpj: novoCnpjConta.trim() });
+    const empresa = empresas.find((e) => e.id === novaEmpresaId);
+    if (!empresa) {
+      toast.error("Escolha a empresa (CNPJ) dona desta conta");
+      return;
+    }
+    criarConta(canalId, { nome, cnpj: empresa.cnpj });
     toast.success(`Conta "${nome}" criada em ${nomeCanal}`, {
-      description: "Ela já aparece no Hub e no menu. Conecte a API Key para ativá-la.",
+      description: `Vinculada a ${empresa.nomeFantasia} (${empresa.cnpj}). Conecte a API Key para ativá-la.`,
     });
     setNovaContaEm(null);
   };
@@ -642,11 +664,13 @@ function AbaIntegracoes() {
 
       <Painel
         titulo="Contas conectadas"
-        descricao="Um canal pode ter mais de uma conta — dê um nome a cada uma para identificá-las"
+        descricao="Um canal pode ter mais de uma conta, uma por empresa — cada CNPJ usa no máximo 1 conta por canal"
       >
         <div className="divide-y">
           {canais.map((canal) => {
             const contasDoCanal = contas.filter((c) => c.marketplaceId === canal.id);
+            const empresasDisponiveis = empresasDisponiveisEm(canal.id);
+            const semEmpresaDisponivel = empresasDisponiveis.length === 0;
             return (
               <div key={canal.id} className="px-5 py-4">
                 <div className="mb-3 flex items-center gap-2.5">
@@ -656,8 +680,19 @@ function AbaIntegracoes() {
                     {contasDoCanal.length} conta{contasDoCanal.length !== 1 ? "s" : ""}
                   </span>
                   <button
-                    onClick={() => abrirNovaConta(canal.id)}
-                    className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium text-brand transition-colors hover:text-brand/80"
+                    onClick={() => !semEmpresaDisponivel && abrirNovaConta(canal.id)}
+                    disabled={semEmpresaDisponivel}
+                    title={
+                      semEmpresaDisponivel
+                        ? "Todas as empresas cadastradas já têm conta neste canal — cadastre uma nova empresa (CNPJ) primeiro."
+                        : undefined
+                    }
+                    className={cn(
+                      "ml-auto inline-flex items-center gap-1 text-[11px] font-medium transition-colors",
+                      semEmpresaDisponivel
+                        ? "cursor-not-allowed text-muted-foreground/50"
+                        : "text-brand hover:text-brand/80",
+                    )}
                   >
                     <Plus className="size-3.5" />
                     Adicionar conta
@@ -767,13 +802,19 @@ function AbaIntegracoes() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-[10px]">CNPJ (opcional por enquanto)</Label>
-                        <Input
-                          value={novoCnpjConta}
-                          onChange={(e) => setNovoCnpjConta(e.target.value)}
-                          placeholder="00.000.000/0000-00"
-                          className="h-8 w-44 text-xs"
-                        />
+                        <Label className="text-[10px]">Empresa (CNPJ) dona da conta</Label>
+                        <Select value={novaEmpresaId} onValueChange={setNovaEmpresaId}>
+                          <SelectTrigger className="h-8 w-56 text-xs">
+                            <SelectValue placeholder="Escolha a empresa" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {empresasDisponiveis.map((e) => (
+                              <SelectItem key={e.id} value={e.id} className="text-xs">
+                                {e.nomeFantasia} · {e.cnpj}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <Button
                         size="sm"
