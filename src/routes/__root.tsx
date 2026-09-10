@@ -16,7 +16,7 @@ import { PeriodoProvider } from "@/context/periodo";
 import { ConfiguracoesProvider } from "@/context/configuracoes";
 import { SelecaoContasProvider } from "@/context/selecao-contas";
 import { AuthProvider, useAuth } from "@/context/auth";
-import { Login } from "@/components/auth/Login";
+import { Login } from "@/components/Auth/Login";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 
