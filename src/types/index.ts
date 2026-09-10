@@ -382,6 +382,21 @@ export type RegimeTributario =
   | "lucro-presumido"
   | "lucro-real";
 
+/**
+ * Perfil do seller autenticado — 1 linha por login, guardada na tabela
+ * `perfis` do Supabase (id = mesmo id do usuário em auth.users). É o que
+ * alimenta a lateral do app (nome, avatar, plano). Nada aqui tem a ver com
+ * `Empresa` (os CNPJs do seller): um seller pode ter várias empresas, mas
+ * só um perfil.
+ */
+export interface Perfil {
+  id: string;
+  nomeExibicao: string;
+  email: string;
+  logoUrl: string | null;
+  plano: string;
+}
+
 export interface DadosEmpresa {
   nome: string;
   cnpj: string;
