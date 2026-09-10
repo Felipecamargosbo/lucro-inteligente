@@ -15,6 +15,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import { PeriodoProvider } from "@/context/periodo";
 import { ConfiguracoesProvider } from "@/context/configuracoes";
 import { SelecaoContasProvider } from "@/context/selecao-contas";
+import { AuthProvider, useAuth } from "@/context/auth";
+import { Login } from "@/components/auth/Login";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -131,18 +133,42 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={150}>
-        <ConfiguracoesProvider>
-        <SelecaoContasProvider>
+        <AuthProvider>
+          <AreaLogada />
+        </AuthProvider>
+        <Toaster />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+}
+
+/**
+ * Porta de entrada: enquanto não sabemos se há sessão, não mostra nada (evita
+ * o "flash" da tela de login pra quem já está logado); sem sessão, mostra só
+ * o login, sem o menu/app por trás. O resto do app (rotas, contextos de
+ * dados) só monta depois que existe uma sessão válida.
+ */
+function AreaLogada() {
+  const { sessao, carregando } = useAuth();
+
+  if (carregando) {
+    return <div className="min-h-screen bg-background" />;
+  }
+
+  if (!sessao) {
+    return <Login />;
+  }
+
+  return (
+    <ConfiguracoesProvider>
+      <SelecaoContasProvider>
         <PeriodoProvider>
           <AppShell>
             {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
             <Outlet />
           </AppShell>
         </PeriodoProvider>
-        </SelecaoContasProvider>
-        </ConfiguracoesProvider>
-        <Toaster />
-      </TooltipProvider>
-    </QueryClientProvider>
+      </SelecaoContasProvider>
+    </ConfiguracoesProvider>
   );
 }
