@@ -21,13 +21,13 @@ import type { ContaMarketplace, StatusConexaoMarketplace } from "@/types";
 export const Route = createFileRoute("/marketplaces/")({
   head: () => ({
     meta: [
-      { title: "Marketplaces | NEXO Rentabilidade" },
+      { title: "Marketplaces | Planeta97" },
       {
         name: "description",
         content:
           "Veja todas as suas contas conectadas — inclusive quando você tem mais de uma no mesmo canal — o status de cada integração e configure comissão, taxa fixa e frete.",
       },
-      { property: "og:title", content: "Marketplaces | NEXO Rentabilidade" },
+      { property: "og:title", content: "Marketplaces | Planeta97" },
       {
         property: "og:description",
         content: "Contas conectadas, status das APIs e configuração de taxas por conta.",

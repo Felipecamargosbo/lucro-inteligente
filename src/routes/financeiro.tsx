@@ -25,13 +25,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/financeiro")({
   head: () => ({
     meta: [
-      { title: "Financeiro — DRE | NEXO Rentabilidade" },
+      { title: "Financeiro — DRE | Planeta97" },
       {
         name: "description",
         content:
           "DRE por empresa e por mês: do faturamento até o lucro líquido, com cada taxa do marketplace discriminada, conta por conta.",
       },
-      { property: "og:title", content: "Financeiro — DRE | NEXO Rentabilidade" },
+      { property: "og:title", content: "Financeiro — DRE | Planeta97" },
       {
         property: "og:description",
         content:

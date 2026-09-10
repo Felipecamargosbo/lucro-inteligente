@@ -22,13 +22,13 @@ import type { ItemEstoqueDetalhado } from "@/types";
 export const Route = createFileRoute("/estoque")({
   head: () => ({
     meta: [
-      { title: "Estoque e cobertura | NEXO Rentabilidade" },
+      { title: "Estoque e cobertura | Planeta97" },
       {
         name: "description",
         content:
           "Acompanhe capital investido, cobertura de estoque em dias e alertas de ruptura dos seus SKUs nos marketplaces.",
       },
-      { property: "og:title", content: "Estoque e cobertura | NEXO Rentabilidade" },
+      { property: "og:title", content: "Estoque e cobertura | Planeta97" },
       {
         property: "og:description",
         content:

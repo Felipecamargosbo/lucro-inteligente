@@ -36,13 +36,13 @@ import type {
 export const Route = createFileRoute("/recuperacao")({
   head: () => ({
     meta: [
-      { title: "Recuperação de vendas | NEXO Rentabilidade" },
+      { title: "Recuperação de vendas | Planeta97" },
       {
         name: "description",
         content:
           "Recupere pedidos não pagos, cancelados ou pendentes falando direto com o cliente por WhatsApp ou e-mail.",
       },
-      { property: "og:title", content: "Recuperação de vendas | NEXO Rentabilidade" },
+      { property: "og:title", content: "Recuperação de vendas | Planeta97" },
       {
         property: "og:description",
         content:

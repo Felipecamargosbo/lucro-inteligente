@@ -29,7 +29,7 @@ export const Route = createFileRoute("/marketplaces/$canal/")({
     const nome = loaderData?.canal.titulo ?? "Canal";
     return {
       meta: [
-        { title: `${nome} | NEXO Rentabilidade` },
+        { title: `${nome} | Planeta97` },
         {
           name: "description",
           content: `Escolha a conta do ${nome} que você quer ver.`,

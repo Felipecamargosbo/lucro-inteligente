@@ -18,12 +18,12 @@ export const Route = createFileRoute("/marketplaces/$canal/$conta")({
     const nome = loaderData?.canal.titulo ?? "Canal";
     return {
       meta: [
-        { title: `${nome} | NEXO Rentabilidade` },
+        { title: `${nome} | Planeta97` },
         {
           name: "description",
           content: `Resultado, taxas e saúde desta conta no ${nome}: lucro real por anúncio, promoções e reputação.`,
         },
-        { property: "og:title", content: `${nome} | NEXO Rentabilidade` },
+        { property: "og:title", content: `${nome} | Planeta97` },
         {
           property: "og:description",
           content: `Lucro real por anúncio, promoções e reputação no ${nome}.`,

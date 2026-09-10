@@ -11,13 +11,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Dashboard executivo | NEXO Rentabilidade" },
+      { title: "Dashboard executivo | Planeta97" },
       {
         name: "description",
         content:
           "Faturamento, custos, lucro líquido, margem e projeção do mês em um só painel para sellers de marketplaces.",
       },
-      { property: "og:title", content: "Dashboard executivo | NEXO Rentabilidade" },
+      { property: "og:title", content: "Dashboard executivo | Planeta97" },
       {
         property: "og:description",
         content: "Veja quanto você realmente ganhou depois de CMV, comissões, taxas e impostos.",

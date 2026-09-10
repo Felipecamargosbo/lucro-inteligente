@@ -18,13 +18,13 @@ import type { MarketplaceId } from "@/types";
 export const Route = createFileRoute("/calculadora")({
   head: () => ({
     meta: [
-      { title: "Calculadora de precificação | NEXO Rentabilidade" },
+      { title: "Calculadora de precificação | Planeta97" },
       {
         name: "description",
         content:
           "Simule preço de venda, custos, impostos, comissões e descubra a margem líquida real do seu produto em cada marketplace.",
       },
-      { property: "og:title", content: "Calculadora de precificação | NEXO Rentabilidade" },
+      { property: "og:title", content: "Calculadora de precificação | Planeta97" },
       {
         property: "og:description",
         content:

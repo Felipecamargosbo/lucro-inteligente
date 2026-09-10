@@ -22,13 +22,13 @@ import type { Anuncio, Promocao } from "@/types";
 export const Route = createFileRoute("/promocoes")({
   head: () => ({
     meta: [
-      { title: "Promoções e ofertas | NEXO Rentabilidade" },
+      { title: "Promoções e ofertas | Planeta97" },
       {
         name: "description",
         content:
           "Simule campanhas dos marketplaces e veja o lucro líquido real antes de aceitar entrar em uma promoção.",
       },
-      { property: "og:title", content: "Promoções e ofertas | NEXO Rentabilidade" },
+      { property: "og:title", content: "Promoções e ofertas | Planeta97" },
       {
         property: "og:description",
         content:

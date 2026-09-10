@@ -42,13 +42,13 @@ import type { FaixaSaudeMargem, Pedido, TipoLogistica } from "@/types";
 export const Route = createFileRoute("/vendas")({
   head: () => ({
     meta: [
-      { title: "Vendas detalhadas | NEXO Rentabilidade" },
+      { title: "Vendas detalhadas | Planeta97" },
       {
         name: "description",
         content:
           "Consulte venda por venda e entenda como o preço virou lucro: CMV, comissão, taxas, impostos e margem.",
       },
-      { property: "og:title", content: "Vendas detalhadas | NEXO Rentabilidade" },
+      { property: "og:title", content: "Vendas detalhadas | Planeta97" },
       {
         property: "og:description",
         content: "Cada pedido com faturamento, custos e lucro líquido calculados.",

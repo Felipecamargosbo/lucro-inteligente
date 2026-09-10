@@ -21,7 +21,7 @@ import type { ItemEstoqueDetalhado } from "@/types";
 export const Route = createFileRoute("/fulfillment")({
   head: () => ({
     meta: [
-      { title: "Fulfillment e cobertura no Full | NEXO Rentabilidade" },
+      { title: "Fulfillment e cobertura no Full | Planeta97" },
       {
         name: "description",
         content:
@@ -29,7 +29,7 @@ export const Route = createFileRoute("/fulfillment")({
       },
       {
         property: "og:title",
-        content: "Fulfillment e cobertura no Full | NEXO Rentabilidade",
+        content: "Fulfillment e cobertura no Full | Planeta97",
       },
       {
         property: "og:description",

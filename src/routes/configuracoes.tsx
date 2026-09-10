@@ -39,13 +39,13 @@ import type {
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
     meta: [
-      { title: "Configurações | NEXO Rentabilidade" },
+      { title: "Configurações | Planeta97" },
       {
         name: "description",
         content:
           "Defina os dados da empresa, o regime tributário, as metas de margem e os custos operacionais que entram no cálculo do lucro real.",
       },
-      { property: "og:title", content: "Configurações | NEXO Rentabilidade" },
+      { property: "og:title", content: "Configurações | Planeta97" },
       {
         property: "og:description",
         content: "Empresa, regime tributário, metas de margem e custos operacionais.",
