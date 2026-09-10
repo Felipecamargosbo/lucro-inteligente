@@ -96,7 +96,7 @@ export function ConteudoConta({
   return (
     <div className="mx-auto max-w-[1500px] space-y-5">
       {/* Cabeçalho da conta */}
-      <div className="rounded-xl border bg-card p-5">
+      <div className="card-glow p-5">
         <Link
           to={voltarPara}
           params={voltarParams}

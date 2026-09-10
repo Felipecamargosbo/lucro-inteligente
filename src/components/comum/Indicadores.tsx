@@ -30,12 +30,7 @@ export function CardKpi({
   const positivo = (variacaoPercentual ?? 0) >= 0;
 
   return (
-    <div
-      className={cn(
-        "rounded-2xl border bg-card p-5 shadow-card transition-shadow hover:shadow-float",
-        destaque && "border-l-4 border-l-profit",
-      )}
-    >
+    <div className="card-glow p-5">
       <div className="mb-1 flex items-center gap-1.5">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           {titulo}
@@ -101,7 +96,7 @@ export function Painel({
   className?: string;
 }) {
   return (
-    <section className={cn("overflow-hidden rounded-2xl border bg-card shadow-card", className)}>
+    <section className={cn("card-glow overflow-hidden", className)}>
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
         <div>
           <h2 className="text-sm font-semibold">{titulo}</h2>

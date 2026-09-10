@@ -70,21 +70,21 @@
 
 :root {
   --radius: 0.75rem;
-  --background: oklch(0.984 0.003 247.858);
-  --surface: oklch(0.984 0.003 247.858);
-  --foreground: oklch(0.208 0.042 265.755);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.208 0.042 265.755);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.208 0.042 265.755);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
-  --secondary: oklch(0.968 0.007 247.896);
-  --secondary-foreground: oklch(0.208 0.042 265.755);
-  --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417);
-  --accent: oklch(0.968 0.007 247.896);
-  --accent-foreground: oklch(0.208 0.042 265.755);
+  --background: #181d24;
+  --surface: #181d24;
+  --foreground: oklch(0.94 0.01 255);
+  --card: #262e38;
+  --card-foreground: oklch(0.94 0.01 255);
+  --popover: #262e38;
+  --popover-foreground: oklch(0.94 0.01 255);
+  --primary: #1b5cff;
+  --primary-foreground: oklch(0.99 0.005 277);
+  --secondary: oklch(0.27 0.02 255);
+  --secondary-foreground: oklch(0.94 0.01 255);
+  --muted: oklch(0.27 0.02 255);
+  --muted-foreground: oklch(0.6 0.02 255);
+  --accent: oklch(0.27 0.02 255);
+  --accent-foreground: oklch(0.94 0.01 255);
   --brand: oklch(0.585 0.233 277.1);
   --brand-foreground: oklch(0.99 0.005 277);
   --brand-soft: oklch(0.585 0.233 277.1 / 0.08);
@@ -98,15 +98,15 @@
   --info-soft: oklch(0.623 0.188 259.8 / 0.12);
   --destructive: oklch(0.645 0.246 16.439);
   --destructive-foreground: oklch(0.99 0.005 247.858);
-  --border: oklch(0.929 0.013 255.508);
-  --input: oklch(0.929 0.013 255.508);
+  --border: oklch(1 0 0 / 0.12);
+  --input: oklch(1 0 0 / 0.14);
   --ring: oklch(0.585 0.233 277.1);
   --chart-1: oklch(0.585 0.233 277.1);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.163 70.08);
   --chart-4: oklch(0.623 0.188 259.8);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.208 0.042 265.755);
+  --sidebar: #12151b;
   --sidebar-foreground: oklch(0.984 0.003 247.858);
   --sidebar-muted: oklch(0.984 0.003 247.858 / 0.55);
   --sidebar-primary: oklch(0.585 0.233 277.1);
@@ -123,7 +123,8 @@
   }
 
   body {
-    background-color: var(--color-background);
+    background: linear-gradient(180deg, #181d24 0%, #262e38 100%);
+    background-attachment: fixed;
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
@@ -139,4 +140,36 @@
 @utility num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* Cartão com degradê diagonal, borda em gradiente (mask) e halo neon. */
+@utility card-glow {
+  position: relative;
+  border-radius: 16px;
+  background: linear-gradient(
+    135deg,
+    rgba(0, 245, 122, 0.07) 0%,
+    rgba(255, 255, 255, 0.015) 50%,
+    rgba(27, 92, 255, 0.08) 100%
+  );
+  box-shadow:
+    0 0 18px rgba(0, 245, 122, 0.38),
+    0 0 44px rgba(27, 92, 255, 0.28);
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 3px;
+    background: linear-gradient(135deg, #00f57a, #1b5cff);
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    filter: drop-shadow(0 0 4px rgba(0, 245, 122, 0.9))
+      drop-shadow(0 0 6px rgba(27, 92, 255, 0.8));
+    pointer-events: none;
+  }
 }

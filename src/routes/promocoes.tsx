@@ -271,7 +271,7 @@ function Decidir() {
                 </dl>
 
                 <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-lg border bg-card p-3">
+                  <div className="card-glow p-3">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
                       Margem normal
                     </p>
@@ -279,7 +279,7 @@ function Decidir() {
                       {formatPercentual(simulacao.normal.margem)}
                     </p>
                   </div>
-                  <div className="rounded-lg border bg-card p-3">
+                  <div className="card-glow p-3">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
                       Nova margem
                     </p>

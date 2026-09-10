@@ -52,7 +52,7 @@ export function PromocoesCanal({ conta }: { conta: ContaMarketplace }) {
   return (
     <div className="space-y-4">
       {/* Controle do desconto */}
-      <div className="flex flex-wrap items-end gap-4 rounded-xl border bg-card p-4">
+      <div className="card-glow flex flex-wrap items-end gap-4 p-4">
         <div>
           <label className="mb-1.5 block text-[11px] font-medium" htmlFor="desconto-campanha">
             Desconto da campanha (%)

@@ -10,22 +10,24 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ProdutosRouteImport } from './routes/produtos'
 import { Route as CalculadoraRouteImport } from './routes/calculadora'
+import { Route as ConfiguracoesRouteImport } from './routes/configuracoes'
 import { Route as EstoqueRouteImport } from './routes/estoque'
+import { Route as FinanceiroRouteImport } from './routes/financeiro'
 import { Route as FulfillmentRouteImport } from './routes/fulfillment'
+import { Route as MarketplacesRouteImport } from './routes/marketplaces'
+import { Route as ProdutosRouteImport } from './routes/produtos'
 import { Route as PromocoesRouteImport } from './routes/promocoes'
 import { Route as RecuperacaoRouteImport } from './routes/recuperacao'
 import { Route as VendasRouteImport } from './routes/vendas'
+import { Route as MarketplacesIndexRouteImport } from './routes/marketplaces.index'
+import { Route as MarketplacesCanalRouteImport } from './routes/marketplaces.$canal'
+import { Route as MarketplacesCanalIndexRouteImport } from './routes/marketplaces.$canal.index'
+import { Route as MarketplacesCanalContaRouteImport } from './routes/marketplaces.$canal.$conta'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ProdutosRoute = ProdutosRouteImport.update({
-  id: '/produtos',
-  path: '/produtos',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CalculadoraRoute = CalculadoraRouteImport.update({
@@ -33,14 +35,34 @@ const CalculadoraRoute = CalculadoraRouteImport.update({
   path: '/calculadora',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ConfiguracoesRoute = ConfiguracoesRouteImport.update({
+  id: '/configuracoes',
+  path: '/configuracoes',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const EstoqueRoute = EstoqueRouteImport.update({
   id: '/estoque',
   path: '/estoque',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FinanceiroRoute = FinanceiroRouteImport.update({
+  id: '/financeiro',
+  path: '/financeiro',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FulfillmentRoute = FulfillmentRouteImport.update({
   id: '/fulfillment',
   path: '/fulfillment',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MarketplacesRoute = MarketplacesRouteImport.update({
+  id: '/marketplaces',
+  path: '/marketplaces',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProdutosRoute = ProdutosRouteImport.update({
+  id: '/produtos',
+  path: '/produtos',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PromocoesRoute = PromocoesRouteImport.update({
@@ -58,77 +80,138 @@ const VendasRoute = VendasRouteImport.update({
   path: '/vendas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MarketplacesIndexRoute = MarketplacesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => MarketplacesRoute,
+} as any)
+const MarketplacesCanalRoute = MarketplacesCanalRouteImport.update({
+  id: '/$canal',
+  path: '/$canal',
+  getParentRoute: () => MarketplacesRoute,
+} as any)
+const MarketplacesCanalIndexRoute = MarketplacesCanalIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => MarketplacesCanalRoute,
+} as any)
+const MarketplacesCanalContaRoute = MarketplacesCanalContaRouteImport.update({
+  id: '/$conta',
+  path: '/$conta',
+  getParentRoute: () => MarketplacesCanalRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/produtos': typeof ProdutosRoute
   '/calculadora': typeof CalculadoraRoute
+  '/configuracoes': typeof ConfiguracoesRoute
   '/estoque': typeof EstoqueRoute
+  '/financeiro': typeof FinanceiroRoute
   '/fulfillment': typeof FulfillmentRoute
+  '/marketplaces': typeof MarketplacesRouteWithChildren
+  '/produtos': typeof ProdutosRoute
   '/promocoes': typeof PromocoesRoute
   '/recuperacao': typeof RecuperacaoRoute
   '/vendas': typeof VendasRoute
+  '/marketplaces/$canal': typeof MarketplacesCanalRouteWithChildren
+  '/marketplaces/': typeof MarketplacesIndexRoute
+  '/marketplaces/$canal/$conta': typeof MarketplacesCanalContaRoute
+  '/marketplaces/$canal/': typeof MarketplacesCanalIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/produtos': typeof ProdutosRoute
   '/calculadora': typeof CalculadoraRoute
+  '/configuracoes': typeof ConfiguracoesRoute
   '/estoque': typeof EstoqueRoute
+  '/financeiro': typeof FinanceiroRoute
   '/fulfillment': typeof FulfillmentRoute
+  '/produtos': typeof ProdutosRoute
   '/promocoes': typeof PromocoesRoute
   '/recuperacao': typeof RecuperacaoRoute
   '/vendas': typeof VendasRoute
+  '/marketplaces': typeof MarketplacesIndexRoute
+  '/marketplaces/$canal/$conta': typeof MarketplacesCanalContaRoute
+  '/marketplaces/$canal': typeof MarketplacesCanalIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/produtos': typeof ProdutosRoute
   '/calculadora': typeof CalculadoraRoute
+  '/configuracoes': typeof ConfiguracoesRoute
   '/estoque': typeof EstoqueRoute
+  '/financeiro': typeof FinanceiroRoute
   '/fulfillment': typeof FulfillmentRoute
+  '/marketplaces': typeof MarketplacesRouteWithChildren
+  '/produtos': typeof ProdutosRoute
   '/promocoes': typeof PromocoesRoute
   '/recuperacao': typeof RecuperacaoRoute
   '/vendas': typeof VendasRoute
+  '/marketplaces/$canal': typeof MarketplacesCanalRouteWithChildren
+  '/marketplaces/': typeof MarketplacesIndexRoute
+  '/marketplaces/$canal/$conta': typeof MarketplacesCanalContaRoute
+  '/marketplaces/$canal/': typeof MarketplacesCanalIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/produtos'
     | '/calculadora'
+    | '/configuracoes'
     | '/estoque'
+    | '/financeiro'
     | '/fulfillment'
+    | '/marketplaces'
+    | '/produtos'
     | '/promocoes'
     | '/recuperacao'
     | '/vendas'
+    | '/marketplaces/$canal'
+    | '/marketplaces/'
+    | '/marketplaces/$canal/$conta'
+    | '/marketplaces/$canal/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/produtos'
     | '/calculadora'
+    | '/configuracoes'
     | '/estoque'
+    | '/financeiro'
     | '/fulfillment'
+    | '/produtos'
     | '/promocoes'
     | '/recuperacao'
     | '/vendas'
+    | '/marketplaces'
+    | '/marketplaces/$canal/$conta'
+    | '/marketplaces/$canal'
   id:
     | '__root__'
     | '/'
-    | '/produtos'
     | '/calculadora'
+    | '/configuracoes'
     | '/estoque'
+    | '/financeiro'
     | '/fulfillment'
+    | '/marketplaces'
+    | '/produtos'
     | '/promocoes'
     | '/recuperacao'
     | '/vendas'
+    | '/marketplaces/$canal'
+    | '/marketplaces/'
+    | '/marketplaces/$canal/$conta'
+    | '/marketplaces/$canal/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ProdutosRoute: typeof ProdutosRoute
   CalculadoraRoute: typeof CalculadoraRoute
+  ConfiguracoesRoute: typeof ConfiguracoesRoute
   EstoqueRoute: typeof EstoqueRoute
+  FinanceiroRoute: typeof FinanceiroRoute
   FulfillmentRoute: typeof FulfillmentRoute
+  MarketplacesRoute: typeof MarketplacesRouteWithChildren
+  ProdutosRoute: typeof ProdutosRoute
   PromocoesRoute: typeof PromocoesRoute
   RecuperacaoRoute: typeof RecuperacaoRoute
   VendasRoute: typeof VendasRoute
@@ -143,18 +226,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/produtos': {
-      id: '/produtos'
-      path: '/produtos'
-      fullPath: '/produtos'
-      preLoaderRoute: typeof ProdutosRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/calculadora': {
       id: '/calculadora'
       path: '/calculadora'
       fullPath: '/calculadora'
       preLoaderRoute: typeof CalculadoraRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/configuracoes': {
+      id: '/configuracoes'
+      path: '/configuracoes'
+      fullPath: '/configuracoes'
+      preLoaderRoute: typeof ConfiguracoesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/estoque': {
@@ -164,11 +247,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EstoqueRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/financeiro': {
+      id: '/financeiro'
+      path: '/financeiro'
+      fullPath: '/financeiro'
+      preLoaderRoute: typeof FinanceiroRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/fulfillment': {
       id: '/fulfillment'
       path: '/fulfillment'
       fullPath: '/fulfillment'
       preLoaderRoute: typeof FulfillmentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/marketplaces': {
+      id: '/marketplaces'
+      path: '/marketplaces'
+      fullPath: '/marketplaces'
+      preLoaderRoute: typeof MarketplacesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/produtos': {
+      id: '/produtos'
+      path: '/produtos'
+      fullPath: '/produtos'
+      preLoaderRoute: typeof ProdutosRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/promocoes': {
@@ -192,15 +296,73 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VendasRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/marketplaces/': {
+      id: '/marketplaces/'
+      path: '/'
+      fullPath: '/marketplaces/'
+      preLoaderRoute: typeof MarketplacesIndexRouteImport
+      parentRoute: typeof MarketplacesRoute
+    }
+    '/marketplaces/$canal': {
+      id: '/marketplaces/$canal'
+      path: '/$canal'
+      fullPath: '/marketplaces/$canal'
+      preLoaderRoute: typeof MarketplacesCanalRouteImport
+      parentRoute: typeof MarketplacesRoute
+    }
+    '/marketplaces/$canal/': {
+      id: '/marketplaces/$canal/'
+      path: '/'
+      fullPath: '/marketplaces/$canal/'
+      preLoaderRoute: typeof MarketplacesCanalIndexRouteImport
+      parentRoute: typeof MarketplacesCanalRoute
+    }
+    '/marketplaces/$canal/$conta': {
+      id: '/marketplaces/$canal/$conta'
+      path: '/$conta'
+      fullPath: '/marketplaces/$canal/$conta'
+      preLoaderRoute: typeof MarketplacesCanalContaRouteImport
+      parentRoute: typeof MarketplacesCanalRoute
+    }
   }
 }
 
+interface MarketplacesCanalRouteChildren {
+  MarketplacesCanalContaRoute: typeof MarketplacesCanalContaRoute
+  MarketplacesCanalIndexRoute: typeof MarketplacesCanalIndexRoute
+}
+
+const MarketplacesCanalRouteChildren: MarketplacesCanalRouteChildren = {
+  MarketplacesCanalContaRoute: MarketplacesCanalContaRoute,
+  MarketplacesCanalIndexRoute: MarketplacesCanalIndexRoute,
+}
+
+const MarketplacesCanalRouteWithChildren =
+  MarketplacesCanalRoute._addFileChildren(MarketplacesCanalRouteChildren)
+
+interface MarketplacesRouteChildren {
+  MarketplacesCanalRoute: typeof MarketplacesCanalRouteWithChildren
+  MarketplacesIndexRoute: typeof MarketplacesIndexRoute
+}
+
+const MarketplacesRouteChildren: MarketplacesRouteChildren = {
+  MarketplacesCanalRoute: MarketplacesCanalRouteWithChildren,
+  MarketplacesIndexRoute: MarketplacesIndexRoute,
+}
+
+const MarketplacesRouteWithChildren = MarketplacesRoute._addFileChildren(
+  MarketplacesRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ProdutosRoute: ProdutosRoute,
   CalculadoraRoute: CalculadoraRoute,
+  ConfiguracoesRoute: ConfiguracoesRoute,
   EstoqueRoute: EstoqueRoute,
+  FinanceiroRoute: FinanceiroRoute,
   FulfillmentRoute: FulfillmentRoute,
+  MarketplacesRoute: MarketplacesRouteWithChildren,
+  ProdutosRoute: ProdutosRoute,
   PromocoesRoute: PromocoesRoute,
   RecuperacaoRoute: RecuperacaoRoute,
   VendasRoute: VendasRoute,

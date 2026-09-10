@@ -876,7 +876,7 @@ function AbaHistorico() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-4 rounded-xl border bg-card p-4">
+      <div className="card-glow flex flex-wrap items-end gap-4 p-4">
         <div className="space-y-1.5">
           <Label htmlFor="filtro-data" className="text-xs">
             Ver alterações de um dia

@@ -276,7 +276,7 @@ function Vendas() {
         />
       </div>
 
-      <div className="rounded-2xl border bg-card p-4 shadow-card">
+      <div className="card-glow p-4">
         <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Resultado por modelo de envio
         </p>

@@ -8,6 +8,7 @@ import { EMPRESA, USUARIO_ATUAL } from "@/data/mock";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 
 /**
  * Bolinha de status do canal, para leitura num relance. Um canal pode ter
@@ -140,12 +141,24 @@ export function MenuLateral({
       )}
     >
       <div className="flex items-center gap-3 px-5 py-6">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sm font-bold text-sidebar-primary-foreground">
-          N
-        </div>
+        <img
+          src="/planeta.png"
+          alt="Planeta97"
+          className="size-9 shrink-0 rounded-full object-cover"
+        />
         {!recolhido && (
           <div className="min-w-0">
-            <p className="truncate text-lg font-bold tracking-tight">NEXO</p>
+            <p className="truncate text-lg font-bold tracking-tight">
+              <span className="text-white">PLANETA</span>
+              <span
+                className="bg-clip-text text-transparent"
+                style={{
+                  backgroundImage: "linear-gradient(135deg, #00F57A, #1B5CFF)",
+                }}
+              >
+                97
+              </span>
+            </p>
             <p className="truncate text-[10px] uppercase tracking-widest text-sidebar-muted">
               Rentabilidade
             </p>
@@ -220,13 +233,16 @@ export function MenuLateral({
         </button>
 
         <div className={cn("flex items-center gap-3", recolhido && "justify-center")}>
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-xs font-bold">
-            {USUARIO_ATUAL.nome
-              .split(" ")
-              .map((n) => n[0])
-              .slice(0, 2)
-              .join("")}
-          </div>
+          <Avatar className="size-10 shrink-0 bg-sidebar-accent text-xs font-bold">
+            <AvatarImage src={USUARIO_ATUAL.avatarUrl} alt={USUARIO_ATUAL.nome} />
+            <AvatarFallback className="bg-sidebar-accent">
+              {USUARIO_ATUAL.nome
+                .split(" ")
+                .map((n) => n[0])
+                .slice(0, 2)
+                .join("")}
+            </AvatarFallback>
+          </Avatar>
           {!recolhido && (
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-semibold">{USUARIO_ATUAL.nome}</p>

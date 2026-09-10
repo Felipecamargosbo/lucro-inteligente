@@ -229,7 +229,7 @@ function Calculadora() {
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2 rounded-2xl border bg-card p-2 shadow-card">
+      <div className="card-glow flex flex-wrap gap-2 p-2">
         {ABAS.map((a) => (
           <button
             key={a.id}
@@ -520,7 +520,7 @@ function TelaTodos({
         dividido entre canais. Para editar, selecione um marketplace específico na barra acima.
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border bg-card shadow-card">
+      <div className="card-glow overflow-x-auto">
         <table className="w-full text-[10px]">
           <thead className="bg-muted/40 text-[8px] uppercase tracking-wide text-muted-foreground">
             <tr>

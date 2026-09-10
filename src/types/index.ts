@@ -344,6 +344,7 @@ export interface Usuario {
   papel: PapelUsuario;
   ativo: boolean;
   ultimoAcesso: string;
+  avatarUrl?: string;
 }
 
 export interface LogAlteracao {

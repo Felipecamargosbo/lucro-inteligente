@@ -514,7 +514,7 @@ export function DRE({
       )}
 
       {/* 6. O fechamento */}
-      <section className="overflow-hidden rounded-2xl border-2 border-brand/30 bg-card shadow-card">
+      <section className="card-glow overflow-hidden">
         <header className="border-b bg-brand-soft px-5 py-3">
           <h2 className="text-sm font-bold">
             Resultado de {rotuloCompetencia(dre.competencia)}

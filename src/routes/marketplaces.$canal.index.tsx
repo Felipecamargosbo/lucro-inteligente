@@ -85,7 +85,7 @@ function SelecaoDeConta() {
                 key={c.id}
                 to="/marketplaces/$canal/$conta"
                 params={{ canal: canal.slug, conta: c.id }}
-                className="flex items-center gap-3 rounded-xl border bg-card p-4 transition-colors hover:bg-muted/40"
+                className="card-glow flex items-center gap-3 p-4 transition-colors hover:bg-muted/10"
               >
                 <span className={cn("size-2 shrink-0 rounded-full", cor)} />
                 <div className="min-w-0 flex-1">
