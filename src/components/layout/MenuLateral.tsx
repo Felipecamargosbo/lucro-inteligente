@@ -4,8 +4,8 @@ import { ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, LogOut } from "
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CANAIS, GRUPOS, MENU, type ItemMenu } from "@/config/navegacao";
-import { EMPRESA, USUARIO_ATUAL } from "@/data/mock";
 import { useConfiguracoes } from "@/context/configuracoes";
+import { useAuth } from "@/context/auth";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
@@ -129,9 +129,14 @@ export function MenuLateral({
   alternar: () => void;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { empresas } = useConfiguracoes();
+  const { perfil, sair } = useAuth();
 
   const ativo = (url: string) =>
     url === "/" ? pathname === "/" : pathname.startsWith(url);
+
+  const nomeExibido = perfil?.nomeExibicao || perfil?.email || "Seller";
+  const nomeEmpresa = empresas[0]?.nomeFantasia ?? "—";
 
   return (
     <aside
@@ -234,9 +239,9 @@ export function MenuLateral({
 
         <div className={cn("flex items-center gap-3", recolhido && "justify-center")}>
           <Avatar className="size-10 shrink-0 bg-sidebar-accent text-xs font-bold">
-            <AvatarImage src={USUARIO_ATUAL.avatarUrl} alt={USUARIO_ATUAL.nome} />
+            <AvatarImage src={perfil?.logoUrl ?? undefined} alt={nomeExibido} />
             <AvatarFallback className="bg-sidebar-accent">
-              {USUARIO_ATUAL.nome
+              {nomeExibido
                 .split(" ")
                 .map((n) => n[0])
                 .slice(0, 2)
@@ -245,10 +250,10 @@ export function MenuLateral({
           </Avatar>
           {!recolhido && (
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold">{USUARIO_ATUAL.nome}</p>
-              <p className="truncate text-[10px] text-sidebar-muted">{EMPRESA.nome}</p>
+              <p className="truncate text-xs font-semibold">{nomeExibido}</p>
+              <p className="truncate text-[10px] text-sidebar-muted">{nomeEmpresa}</p>
               <p className="truncate text-[10px] font-semibold text-sidebar-primary">
-                {EMPRESA.plano}
+                {perfil?.plano ?? "Plano Essencial"}
               </p>
             </div>
           )}
@@ -256,7 +261,10 @@ export function MenuLateral({
 
         {!recolhido && (
           <button
-            onClick={() => toast.info("Login e logout serão ativados na próxima etapa.")}
+            onClick={() => {
+              sair();
+              toast.info("Você saiu da sua conta.");
+            }}
             className="mt-3 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-semibold uppercase tracking-widest text-sidebar-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
           >
             <LogOut className="size-3.5" /> Sair
