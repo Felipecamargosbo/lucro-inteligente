@@ -1,0 +1,7 @@
+# Copie este arquivo para ".env.local" (esse aqui NÃO deve ter valores reais,
+# só serve de exemplo — o ".env.local" já é ignorado pelo Git).
+# Os mesmos dois valores também precisam ser cadastrados nas Environment
+# Variables do projeto na Vercel, pra funcionar em produção.
+
+VITE_SUPABASE_URL=
+VITE_SUPABASE_PUBLISHABLE_KEY=
