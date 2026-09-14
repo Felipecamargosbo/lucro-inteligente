@@ -15,6 +15,8 @@ import type { Perfil } from "@/types";
  * não sabemos se existe uma sessão válida — é o que evita mostrar a tela de
  * login por um instante para quem já está logado.
  */
+type DadosEditaveis = Partial<Pick<Perfil, "nomeExibicao" | "razaoSocial" | "logoUrl">>;
+
 interface AuthContexto {
   sessao: Session | null;
   perfil: Perfil | null;
@@ -26,16 +28,23 @@ interface AuthContexto {
     nomeExibicao: string,
   ) => Promise<{ erro: string | null }>;
   sair: () => Promise<void>;
-  atualizarPerfil: (dados: Partial<Pick<Perfil, "nomeExibicao" | "logoUrl">>) => Promise<{
-    erro: string | null;
-  }>;
+  atualizarPerfil: (dados: DadosEditaveis) => Promise<{ erro: string | null }>;
+  enviarLogo: (arquivo: File) => Promise<{ erro: string | null }>;
+  trocarEmail: (novoEmail: string) => Promise<{ erro: string | null }>;
+  trocarSenha: (
+    senhaAtual: string,
+    novaSenha: string,
+  ) => Promise<{ erro: string | null }>;
 }
 
 const Ctx = createContext<AuthContexto | null>(null);
 
+const BUCKET_LOGOS = "logos";
+
 function linhaParaPerfil(linha: {
   id: string;
   nome_exibicao: string;
+  razao_social: string | null;
   email: string;
   logo_url: string | null;
   plano: string;
@@ -43,6 +52,7 @@ function linhaParaPerfil(linha: {
   return {
     id: linha.id,
     nomeExibicao: linha.nome_exibicao,
+    razaoSocial: linha.razao_social,
     email: linha.email,
     logoUrl: linha.logo_url,
     plano: linha.plano,
@@ -57,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function buscarPerfil(userId: string) {
     const { data, error } = await supabase
       .from("perfis")
-      .select("id, nome_exibicao, email, logo_url, plano")
+      .select("id, nome_exibicao, razao_social, email, logo_url, plano")
       .eq("id", userId)
       .single();
 
@@ -99,7 +109,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { error } = await supabase.auth.signUp({
       email,
       password: senha,
-      options: { data: { nome_exibicao: nomeExibicao } },
+      // `nome_exibicao` alimenta a trigger que cria a linha em `perfis`.
+      // `display_name` é a chave que o painel do Supabase lê para preencher
+      // a coluna "Display name" da tela de Users — sem ela, aquela coluna
+      // fica vazia e você não sabe de quem é cada e-mail.
+      options: { data: { nome_exibicao: nomeExibicao, display_name: nomeExibicao } },
     });
     return { erro: error?.message ?? null };
   }
@@ -108,22 +122,100 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   }
 
-  async function atualizarPerfil(dados: Partial<Pick<Perfil, "nomeExibicao" | "logoUrl">>) {
+  async function atualizarPerfil(dados: DadosEditaveis) {
     if (!sessao) return { erro: "Sem sessão ativa." };
 
     const patch: Record<string, string | null> = {};
     if (dados.nomeExibicao !== undefined) patch["nome_exibicao"] = dados.nomeExibicao;
+    if (dados.razaoSocial !== undefined) patch["razao_social"] = dados.razaoSocial;
     if (dados.logoUrl !== undefined) patch["logo_url"] = dados.logoUrl;
 
     const { error } = await supabase.from("perfis").update(patch).eq("id", sessao.user.id);
     if (error) return { erro: error.message };
 
+    // Mantém o "Display name" do painel do Supabase igual ao nome fantasia.
+    // Se falhar, não é motivo para dizer que o salvamento deu errado: o dado
+    // que importa (a tabela `perfis`) já foi gravado acima.
+    if (dados.nomeExibicao !== undefined) {
+      await supabase.auth.updateUser({ data: { display_name: dados.nomeExibicao } });
+    }
+
     setPerfil((atual) => (atual ? { ...atual, ...dados } : atual));
     return { erro: null };
   }
 
+  /**
+   * Sobe o logo para o Storage e grava o endereço dele no perfil.
+   *
+   * O arquivo vai para uma pasta com o id do próprio seller — é isso que as
+   * regras de segurança do bucket conferem para impedir que um seller
+   * sobrescreva o logo de outro.
+   *
+   * O `?v=` no fim do endereço existe porque o caminho do arquivo é sempre o
+   * mesmo: sem ele, o navegador continuaria exibindo o logo antigo do cache
+   * depois da troca.
+   */
+  async function enviarLogo(arquivo: File) {
+    if (!sessao) return { erro: "Sem sessão ativa." };
+
+    const extensao = arquivo.name.split(".").pop()?.toLowerCase() || "png";
+    const caminho = `${sessao.user.id}/logo.${extensao}`;
+
+    const { error: erroUpload } = await supabase.storage
+      .from(BUCKET_LOGOS)
+      .upload(caminho, arquivo, { upsert: true, contentType: arquivo.type });
+
+    if (erroUpload) return { erro: erroUpload.message };
+
+    const { data } = supabase.storage.from(BUCKET_LOGOS).getPublicUrl(caminho);
+    return atualizarPerfil({ logoUrl: `${data.publicUrl}?v=${Date.now()}` });
+  }
+
+  /**
+   * Troca o e-mail de acesso. O Supabase não muda na hora: ele manda uma
+   * confirmação para o endereço NOVO, e a troca só vale depois que a pessoa
+   * clicar no link de lá. Até isso acontecer, o login continua sendo o antigo.
+   */
+  async function trocarEmail(novoEmail: string) {
+    const { error } = await supabase.auth.updateUser({ email: novoEmail });
+    return { erro: error?.message ?? null };
+  }
+
+  /**
+   * Troca a senha. Confere a senha atual antes: sozinho, o `updateUser` só
+   * exige a sessão aberta — ou seja, quem pegasse o navegador destravado
+   * trocaria a senha sem nunca ter sabido a antiga, e trancaria o dono fora
+   * da própria conta. O `signInWithPassword` aqui é só essa conferência.
+   */
+  async function trocarSenha(senhaAtual: string, novaSenha: string) {
+    const email = sessao?.user.email;
+    if (!email) return { erro: "Sem sessão ativa." };
+
+    const { error: erroConferencia } = await supabase.auth.signInWithPassword({
+      email,
+      password: senhaAtual,
+    });
+    if (erroConferencia) return { erro: "Senha atual incorreta." };
+
+    const { error } = await supabase.auth.updateUser({ password: novaSenha });
+    return { erro: error?.message ?? null };
+  }
+
   return (
-    <Ctx.Provider value={{ sessao, perfil, carregando, entrar, cadastrar, sair, atualizarPerfil }}>
+    <Ctx.Provider
+      value={{
+        sessao,
+        perfil,
+        carregando,
+        entrar,
+        cadastrar,
+        sair,
+        atualizarPerfil,
+        enviarLogo,
+        trocarEmail,
+        trocarSenha,
+      }}
+    >
       {children}
     </Ctx.Provider>
   );
