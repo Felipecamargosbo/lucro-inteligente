@@ -385,13 +385,18 @@ export type RegimeTributario =
 /**
  * Perfil do seller autenticado — 1 linha por login, guardada na tabela
  * `perfis` do Supabase (id = mesmo id do usuário em auth.users). É o que
- * alimenta a lateral do app (nome, avatar, plano). Nada aqui tem a ver com
- * `Empresa` (os CNPJs do seller): um seller pode ter várias empresas, mas
- * só um perfil.
+ * alimenta a lateral do app (logo, nome, plano).
+ *
+ * Sobre os nomes: `nomeExibicao` guarda o NOME FANTASIA da loja — é o nome
+ * que o seller digita na aba Empresa e o que aparece em primeiro lugar na
+ * lateral. A coluna no banco continua se chamando `nome_exibicao` por
+ * compatibilidade com o que já está gravado lá. `razaoSocial` é o nome
+ * jurídico, que aparece abaixo dele.
  */
 export interface Perfil {
   id: string;
   nomeExibicao: string;
+  razaoSocial: string | null;
   email: string;
   logoUrl: string | null;
   plano: string;
