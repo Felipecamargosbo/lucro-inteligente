@@ -5,6 +5,7 @@ import { useAuth } from "@/context/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CampoSenha } from "@/components/comum/CampoSenha";
 import { cn } from "@/lib/utils";
 
 type Modo = "entrar" | "cadastrar";
@@ -109,9 +110,8 @@ export function Login() {
 
           <div className="space-y-1.5">
             <Label htmlFor="senha">Senha</Label>
-            <Input
+            <CampoSenha
               id="senha"
-              type="password"
               value={senha}
               onChange={(e) => setSenha(e.target.value)}
               required
