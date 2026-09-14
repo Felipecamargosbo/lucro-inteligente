@@ -9,15 +9,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 /**
- * Identidade da loja: logo, nome fantasia e razão social.
+ * Identidade da loja: logo, nome da loja e nome do responsável.
  *
- * Estes três campos são os ÚNICOS da aba Empresa que hoje salvam de verdade
- * (vão para a tabela `perfis` no Supabase). Os demais painéis da aba — CNPJ,
+ * É o que aparece no rodapé do menu lateral, e são os ÚNICOS campos da aba
+ * Empresa que hoje salvam de verdade (vão para a tabela `perfis` no
+ * Supabase). Os painéis abaixo — razão social, nome fantasia, CNPJ,
  * endereço, fornecedor — ainda vivem só na memória da tela e somem quando a
  * página é recarregada.
  *
- * O nome fantasia é o nome do app inteiro: ele aparece na lateral e também
- * alimenta a coluna "Display name" do painel do Supabase.
+ * Não confundir com o painel "Dados da empresa": lá ficam os nomes FISCAIS
+ * (razão social e nome fantasia), usados em documento e nota. Aqui é
+ * identidade de tela — por isso os rótulos são "Loja" e "Nome".
+ *
+ * Nos bastidores, "Loja" grava na coluna `nome_exibicao` e "Nome" na coluna
+ * `razao_social` — nomes herdados de quando esses campos tinham outro
+ * sentido. Só o rótulo mudou; renomear coluna quebraria o app no intervalo
+ * entre o SQL e a publicação, e não vale o risco por cosmética interna.
  */
 
 const TAMANHO_MAXIMO_MB = 2;
@@ -26,8 +33,8 @@ const TIPOS_ACEITOS = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"]
 export function IdentidadeLoja() {
   const { perfil, atualizarPerfil, enviarLogo } = useAuth();
 
-  const [nomeFantasia, setNomeFantasia] = useState(perfil?.nomeExibicao ?? "");
-  const [razaoSocial, setRazaoSocial] = useState(perfil?.razaoSocial ?? "");
+  const [nomeLoja, setNomeLoja] = useState(perfil?.nomeExibicao ?? "");
+  const [nomeResponsavel, setNomeResponsavel] = useState(perfil?.razaoSocial ?? "");
   const [salvando, setSalvando] = useState(false);
   const [enviandoLogo, setEnviandoLogo] = useState(false);
 
@@ -69,16 +76,16 @@ export function IdentidadeLoja() {
   async function salvarNomes(e: FormEvent) {
     e.preventDefault();
 
-    const fantasia = nomeFantasia.trim();
-    if (!fantasia) {
-      toast.error("O nome fantasia não pode ficar em branco.");
+    const loja = nomeLoja.trim();
+    if (!loja) {
+      toast.error("O nome da loja não pode ficar em branco.");
       return;
     }
 
     setSalvando(true);
     const { erro } = await atualizarPerfil({
-      nomeExibicao: fantasia,
-      razaoSocial: razaoSocial.trim() || null,
+      nomeExibicao: loja,
+      razaoSocial: nomeResponsavel.trim() || null,
     });
     setSalvando(false);
 
@@ -136,35 +143,37 @@ export function IdentidadeLoja() {
             </div>
           </div>
 
-          {/* Nomes */}
+          {/* Nomes. Rótulos de propósito curtos: aqui é identidade de tela,
+              não dado fiscal. Razão social e nome fantasia ficam no painel
+              "Dados da empresa", logo abaixo. */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="nome-fantasia" className="text-xs">
-                Nome fantasia
+              <Label htmlFor="nome-loja" className="text-xs">
+                Loja
               </Label>
               <Input
-                id="nome-fantasia"
-                value={nomeFantasia}
-                onChange={(e) => setNomeFantasia(e.target.value)}
+                id="nome-loja"
+                value={nomeLoja}
+                onChange={(e) => setNomeLoja(e.target.value)}
                 className="h-9 text-xs"
               />
               <p className="text-[10px] text-muted-foreground">
-                É o nome que aparece em primeiro lugar no menu lateral.
+                Aparece em primeiro lugar no menu lateral.
               </p>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="razao-social" className="text-xs">
-                Razão social
+              <Label htmlFor="nome-responsavel" className="text-xs">
+                Nome
               </Label>
               <Input
-                id="razao-social"
-                value={razaoSocial}
-                onChange={(e) => setRazaoSocial(e.target.value)}
+                id="nome-responsavel"
+                value={nomeResponsavel}
+                onChange={(e) => setNomeResponsavel(e.target.value)}
                 className="h-9 text-xs"
               />
               <p className="text-[10px] text-muted-foreground">
-                O nome jurídico, usado em documentos. Aparece abaixo do fantasia.
+                Seu nome. Aparece logo abaixo do nome da loja.
               </p>
             </div>
           </div>
