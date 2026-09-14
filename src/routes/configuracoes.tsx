@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   Building2,
@@ -11,8 +11,11 @@ import {
   Receipt,
   Trash2,
   TriangleAlert,
+  User,
 } from "lucide-react";
 import { useConfiguracoes } from "@/context/configuracoes";
+import { AbaConta } from "@/components/configuracoes/AbaConta";
+import { IdentidadeLoja } from "@/components/configuracoes/IdentidadeLoja";
 import { marketplacesService, logsService } from "@/services";
 import { formatBRL, formatData, formatDataHora, formatPercentual } from "@/lib/format";
 import { Painel } from "@/components/comum/Indicadores";
@@ -58,6 +61,7 @@ export const Route = createFileRoute("/configuracoes")({
 });
 
 const ABAS = [
+  { id: "conta", titulo: "Conta", Icone: User },
   { id: "empresa", titulo: "Empresa", Icone: Building2 },
   { id: "fiscal", titulo: "Fiscal", Icone: Receipt },
   { id: "margens", titulo: "Margens e custos", Icone: Percent },
@@ -134,15 +138,12 @@ function AbaEmpresa() {
 
   return (
     <div className="space-y-5">
+      {/* Logo, nome fantasia e razão social ficam aqui e salvam no banco.
+          Os painéis abaixo ainda não persistem — ver comentário no fim. */}
+      <IdentidadeLoja />
+
       <Painel titulo="Dados da empresa" descricao="Usados nos documentos e relatórios">
         <div className="grid gap-4 p-5 sm:grid-cols-2">
-          <Campo id="nome" rotulo="Razão social" valor={form.nome} onChange={campo("nome")} />
-          <Campo
-            id="fantasia"
-            rotulo="Nome fantasia"
-            valor={form.nomeFantasia}
-            onChange={campo("nomeFantasia")}
-          />
           <Campo id="cnpj" rotulo="CNPJ" valor={form.cnpj} onChange={campo("cnpj")} />
           <Campo
             id="email"
@@ -977,6 +978,14 @@ function AbaHistorico() {
 function Configuracoes() {
   const [aba, setAba] = useState<AbaId>("empresa");
 
+  // O rodapé do menu lateral aponta para /configuracoes#empresa (logo e nome)
+  // e #conta (e-mail e senha). Ler o hash aqui mantém o link simples e não
+  // exige mudar a definição da rota. Roda só no navegador, após a montagem.
+  useEffect(() => {
+    const alvo = window.location.hash.replace("#", "");
+    if (ABAS.some((a) => a.id === alvo)) setAba(alvo as AbaId);
+  }, []);
+
   return (
     <div className="mx-auto max-w-[1200px]">
       <div className="flex flex-col gap-6 lg:flex-row">
@@ -1003,6 +1012,7 @@ function Configuracoes() {
         </nav>
 
         <div className="min-w-0 flex-1">
+          {aba === "conta" && <AbaConta />}
           {aba === "empresa" && <AbaEmpresa />}
           {aba === "fiscal" && <AbaFiscal />}
           {aba === "margens" && <AbaMargens />}
