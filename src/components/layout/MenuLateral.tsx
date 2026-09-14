@@ -129,14 +129,15 @@ export function MenuLateral({
   alternar: () => void;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { empresas } = useConfiguracoes();
   const { perfil, sair } = useAuth();
 
   const ativo = (url: string) =>
     url === "/" ? pathname === "/" : pathname.startsWith(url);
 
+  // Nome fantasia em cima, razão social embaixo — os dois vêm da aba Empresa
+  // e são gravados no banco. Enquanto o seller não preencher, cai no e-mail.
   const nomeExibido = perfil?.nomeExibicao || perfil?.email || "Seller";
-  const nomeEmpresa = empresas[0]?.nomeFantasia ?? "—";
+  const razaoSocial = perfil?.razaoSocial?.trim();
 
   return (
     <aside
@@ -237,7 +238,18 @@ export function MenuLateral({
           )}
         </button>
 
-        <div className={cn("flex items-center gap-3", recolhido && "justify-center")}>
+        {/* Clicar no próprio logo/nome leva direto para a aba Empresa, que é
+            onde se troca o logo e os nomes: é onde a pessoa tenta clicar por
+            instinto, em vez de procurar dentro de Configurações. */}
+        <Link
+          to="/configuracoes"
+          hash="empresa"
+          title="Editar logo e nome da loja"
+          className={cn(
+            "flex items-center gap-3 rounded-lg p-1 transition-colors hover:bg-sidebar-accent",
+            recolhido && "justify-center",
+          )}
+        >
           <Avatar className="size-10 shrink-0 bg-sidebar-accent text-xs font-bold">
             <AvatarImage src={perfil?.logoUrl ?? undefined} alt={nomeExibido} />
             <AvatarFallback className="bg-sidebar-accent">
@@ -251,13 +263,15 @@ export function MenuLateral({
           {!recolhido && (
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-semibold">{nomeExibido}</p>
-              <p className="truncate text-[10px] text-sidebar-muted">{nomeEmpresa}</p>
+              {razaoSocial && (
+                <p className="truncate text-[10px] text-sidebar-muted">{razaoSocial}</p>
+              )}
               <p className="truncate text-[10px] font-semibold text-sidebar-primary">
                 {perfil?.plano ?? "Plano Essencial"}
               </p>
             </div>
           )}
-        </div>
+        </Link>
 
         {!recolhido && (
           <button
