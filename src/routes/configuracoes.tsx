@@ -138,12 +138,20 @@ function AbaEmpresa() {
 
   return (
     <div className="space-y-5">
-      {/* Logo, nome fantasia e razão social ficam aqui e salvam no banco.
-          Os painéis abaixo ainda não persistem — ver comentário no fim. */}
+      {/* Logo, nome da loja e nome do responsável: é o que aparece no menu
+          lateral, e o único bloco desta aba que salva no banco. Os nomes
+          fiscais (razão social e nome fantasia) ficam no painel abaixo. */}
       <IdentidadeLoja />
 
       <Painel titulo="Dados da empresa" descricao="Usados nos documentos e relatórios">
         <div className="grid gap-4 p-5 sm:grid-cols-2">
+          <Campo id="nome" rotulo="Razão social" valor={form.nome} onChange={campo("nome")} />
+          <Campo
+            id="fantasia"
+            rotulo="Nome fantasia"
+            valor={form.nomeFantasia}
+            onChange={campo("nomeFantasia")}
+          />
           <Campo id="cnpj" rotulo="CNPJ" valor={form.cnpj} onChange={campo("cnpj")} />
           <Campo
             id="email"
