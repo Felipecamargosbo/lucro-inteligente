@@ -24,13 +24,13 @@ import type { Anuncio, MarketplaceId, Produto } from "@/types";
 export const Route = createFileRoute("/produtos")({
   head: () => ({
     meta: [
-      { title: "Catálogo | Planeta97" },
+      { title: "Custos | Planeta97" },
       {
         name: "description",
         content:
           "O CMV de cada produto, cadastrado uma vez só e válido em todo marketplace vinculado.",
       },
-      { property: "og:title", content: "Catálogo | Planeta97" },
+      { property: "og:title", content: "Custos | Planeta97" },
       {
         property: "og:description",
         content: "Custo do produto cadastrado uma vez, refletido em todo anúncio vinculado.",
@@ -42,10 +42,10 @@ export const Route = createFileRoute("/produtos")({
 
 type StatusFiltro = "todos" | "vinculado" | "sem-vinculo";
 
-/** Uma linha da tabela é OU um produto do catálogo (com CMV editável) OU um
+/** Uma linha da tabela é OU um produto cadastrado (com CMV editável) OU um
  * anúncio ainda sem vínculo (com ação de vincular) — o mesmo lugar, duas
  * naturezas de linha, pra não obrigar o seller a ficar pulando de tela. */
-type LinhaCatalogo =
+type LinhaCustos =
   | {
       tipo: "produto";
       id: string;
@@ -63,7 +63,7 @@ type LinhaCatalogo =
 function Produtos() {
   const { atualizarConta } = useConfiguracoes();
   // Mesmo filtro de contas do topo da tela (o "Todas as contas" ao lado do
-  // título, igual no Dashboard) — o Catálogo passou a usar esse filtro
+  // título, igual no Dashboard) — a tela de Custos passou a usar esse filtro
   // global em vez de ter um seletor próprio e separado.
   const { selecionadas: contasSelecionadas, todasSelecionadas: semRestricaoDeConta } =
     useSelecaoContas();
@@ -73,7 +73,7 @@ function Produtos() {
   const [valorEdicao, setValorEdicao] = useState("");
   const [sincronizando, setSincronizando] = useState(false);
   const [emVinculo, setEmVinculo] = useState<Anuncio | null>(null);
-  // O catálogo e os anúncios vivem fora do React (src/data/mock.ts); este
+  // Os produtos e os anúncios vivem fora do React (src/data/mock.ts); este
   // contador força a releitura depois de cada sincronização/edição/vínculo.
   const [tick, setTick] = useState(0);
 
@@ -106,10 +106,10 @@ function Produtos() {
   const totalAnuncios = anuncios.length;
   const semVinculo = pendentes.length;
 
-  // Uma linha por produto do catálogo + uma linha por anúncio pendente —
+  // Uma linha por produto cadastrado + uma linha por anúncio pendente —
   // tudo na mesma tabela, filtrado do mesmo jeito.
-  const linhas = useMemo<LinhaCatalogo[]>(() => {
-    const doProdutos: LinhaCatalogo[] = produtosService.listar().map((p) => {
+  const linhas = useMemo<LinhaCustos[]>(() => {
+    const doProdutos: LinhaCustos[] = produtosService.listar().map((p) => {
       const { totalAnuncios: qtd, marketplaces, contas, totalAnunciosNaSelecao, marketplacesNaSelecao } =
         vinculosDoProduto(p.id);
       return {
@@ -123,7 +123,7 @@ function Produtos() {
         marketplacesNaSelecao,
       };
     });
-    const doPendentes: LinhaCatalogo[] = pendentes
+    const doPendentes: LinhaCustos[] = pendentes
       // Faturamento perdido primeiro: resolver o que mais vende rende mais
       .slice()
       .sort((a, b) => b.precoAtual * b.unidadesVendidas - a.precoAtual * a.unidadesVendidas)
@@ -208,7 +208,7 @@ function Produtos() {
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
       <Painel
-        titulo="Catálogo"
+        titulo="Custos"
         descricao="O CMV mora aqui — uma vez só. Mudar o custo de um produto atualiza na hora todo anúncio vinculado a ele, em qualquer marketplace"
         acoes={
           <div className="flex items-center gap-2">
@@ -217,7 +217,7 @@ function Produtos() {
               {sincronizando ? "Sincronizando..." : "Sincronizar todos os marketplaces"}
             </Button>
             <ExportarDados
-              nomeArquivo="catalogo"
+              nomeArquivo="custos"
               linhas={produtosService.listar().map((p) => {
                 const { totalAnuncios: qtd, marketplaces } = vinculosDoProduto(p.id);
                 return {
@@ -236,7 +236,7 @@ function Produtos() {
         <div className="grid gap-3 border-b p-4 sm:grid-cols-3">
           <div className="rounded-lg bg-muted px-3 py-2">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Produtos no catálogo
+              Produtos cadastrados
             </p>
             <p className="num text-lg font-bold">{formatNumero(produtosService.listar().length)}</p>
           </div>
@@ -259,8 +259,8 @@ function Produtos() {
         </div>
 
         {/* Busca + Vínculo com CMV — o filtro de canal/loja já fica lá em
-            cima, do lado do nome do Catálogo. Cada um com sua etiqueta, pra
-            nunca ficar ambíguo o que "Todos" significa (todos os quê?). */}
+            cima, do lado do nome da tela de Custos. Cada um com sua etiqueta,
+            pra nunca ficar ambíguo o que "Todos" significa (todos os quê?). */}
         <div className="flex flex-wrap items-end gap-3 border-b p-4">
           <div>
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
