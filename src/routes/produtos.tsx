@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Check, Link2, Pencil, RefreshCw } from "lucide-react";
+import { Check, ChevronRight, Link2, Pencil, RefreshCw } from "lucide-react";
 import { anunciosService, contasService, produtosService } from "@/services";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
-import { formatBRL, formatNumero } from "@/lib/format";
+import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
+import { FAIXAS_MARGEM_PADRAO, limitesDePreco, type LimitesPreco } from "@/lib/finance";
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { DialogVincularProduto } from "@/components/comum/DialogVincularProduto";
@@ -42,9 +43,25 @@ export const Route = createFileRoute("/produtos")({
 
 type StatusFiltro = "todos" | "vinculado" | "sem-vinculo";
 
-/** Uma linha da tabela é OU um produto cadastrado (com CMV editável) OU um
+/** Um anúncio do produto já com os limites de preço calculados para o canal
+ * dele. O mesmo produto tem limites diferentes em cada marketplace, porque
+ * comissão e frete mudam — por isso isto é uma lista, não um número só. */
+interface LimitePorCanal {
+  anuncio: Anuncio;
+  nomeConta: string;
+  margemMinima: number;
+  limites: LimitesPreco;
+}
+
+/** Resumo do produto a partir dos canais dele — é o que a linha fechada
+ * mostra, pra dar pra bater o olho sem precisar abrir. */
+type SituacaoProduto = "ok" | "abaixo" | "prejuizo" | "sem-anuncio";
+
+/**
+ * Uma linha da tabela é OU um produto cadastrado (com CMV editável) OU um
  * anúncio ainda sem vínculo (com ação de vincular) — o mesmo lugar, duas
- * naturezas de linha, pra não obrigar o seller a ficar pulando de tela. */
+ * naturezas de linha, pra não obrigar o seller a ficar pulando de tela.
+ */
 type LinhaCustos =
   | {
       tipo: "produto";
@@ -57,11 +74,17 @@ type LinhaCustos =
       /** Recorte pro canal/loja marcado agora — é o que a linha MOSTRA na tabela. */
       qtdNaSelecao: number;
       marketplacesNaSelecao: MarketplaceId[];
+      /** Limites de preço, um por anúncio dentro da seleção atual */
+      limitesPorCanal: LimitePorCanal[];
+      situacao: SituacaoProduto;
+      /** Quantos canais estão abaixo da margem mínima */
+      qtdAbaixo: number;
     }
   | { tipo: "pendente"; id: string; anuncio: Anuncio };
 
 function Produtos() {
-  const { atualizarConta } = useConfiguracoes();
+  const { atualizarConta, metasPorConta, fiscal, custoOperacionalTotal } =
+    useConfiguracoes();
   // Mesmo filtro de contas do topo da tela (o "Todas as contas" ao lado do
   // título, igual no Dashboard) — a tela de Custos passou a usar esse filtro
   // global em vez de ter um seletor próprio e separado.
@@ -73,6 +96,8 @@ function Produtos() {
   const [valorEdicao, setValorEdicao] = useState("");
   const [sincronizando, setSincronizando] = useState(false);
   const [emVinculo, setEmVinculo] = useState<Anuncio | null>(null);
+  /** Produto com os canais abertos; null = todos fechados */
+  const [expandido, setExpandido] = useState<string | null>(null);
   // Os produtos e os anúncios vivem fora do React (src/data/mock.ts); este
   // contador força a releitura depois de cada sincronização/edição/vínculo.
   const [tick, setTick] = useState(0);
@@ -100,6 +125,7 @@ function Produtos() {
       contas,
       totalAnunciosNaSelecao: vinculadosNaSelecao.length,
       marketplacesNaSelecao,
+      anunciosNaSelecao: vinculadosNaSelecao,
     };
   };
 
@@ -110,8 +136,42 @@ function Produtos() {
   // tudo na mesma tabela, filtrado do mesmo jeito.
   const linhas = useMemo<LinhaCustos[]>(() => {
     const doProdutos: LinhaCustos[] = produtosService.listar().map((p) => {
-      const { totalAnuncios: qtd, marketplaces, contas, totalAnunciosNaSelecao, marketplacesNaSelecao } =
-        vinculosDoProduto(p.id);
+      const {
+        totalAnuncios: qtd,
+        marketplaces,
+        contas,
+        totalAnunciosNaSelecao,
+        marketplacesNaSelecao,
+        anunciosNaSelecao,
+      } = vinculosDoProduto(p.id);
+
+      // O CMV mora no produto, não no anúncio: é isso que faz mudar o custo
+      // aqui refletir em todo canal de uma vez.
+      const limitesPorCanal: LimitePorCanal[] = anunciosNaSelecao.map((a) => {
+        const metas = metasPorConta[a.contaId] ?? null;
+        const margemMinima = metas?.margemMinima ?? FAIXAS_MARGEM_PADRAO.margemMinima;
+        return {
+          anuncio: a,
+          nomeConta: contasService.buscar(a.contaId)?.nome ?? "—",
+          margemMinima,
+          limites: limitesDePreco({ ...a, cmv: p.cmv }, margemMinima, {
+            aliquotaImposto: fiscal.aliquota,
+            custosOperacionais: custoOperacionalTotal,
+          }),
+        };
+      });
+
+      const qtdAbaixo = limitesPorCanal.filter((l) => l.limites.abaixoDoMinimo).length;
+      const temPrejuizo = limitesPorCanal.some((l) => l.limites.emPrejuizo);
+      const situacao: SituacaoProduto =
+        limitesPorCanal.length === 0
+          ? "sem-anuncio"
+          : temPrejuizo
+            ? "prejuizo"
+            : qtdAbaixo > 0
+              ? "abaixo"
+              : "ok";
+
       return {
         tipo: "produto",
         id: p.id,
@@ -121,6 +181,9 @@ function Produtos() {
         contas,
         qtdNaSelecao: totalAnunciosNaSelecao,
         marketplacesNaSelecao,
+        limitesPorCanal,
+        situacao,
+        qtdAbaixo,
       };
     });
     const doPendentes: LinhaCustos[] = pendentes
@@ -130,7 +193,15 @@ function Produtos() {
       .map((a) => ({ tipo: "pendente", id: a.id, anuncio: a }));
     return [...doProdutos, ...doPendentes];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, pendentes, contasSelecionadas, semRestricaoDeConta]);
+  }, [
+    tick,
+    pendentes,
+    contasSelecionadas,
+    semRestricaoDeConta,
+    metasPorConta,
+    fiscal,
+    custoOperacionalTotal,
+  ]);
 
   const linhasFiltradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -153,6 +224,11 @@ function Produtos() {
       return true;
     });
   }, [linhas, statusFiltro, contasSelecionadas, semRestricaoDeConta, busca]);
+
+  /** Quantos produtos têm pelo menos um canal fora da margem mínima */
+  const produtosForaDaMeta = linhas.filter(
+    (l) => l.tipo === "produto" && (l.situacao === "abaixo" || l.situacao === "prejuizo"),
+  ).length;
 
   const iniciarEdicao = (produto: Produto) => {
     setEditando(produto.id);
@@ -233,7 +309,7 @@ function Produtos() {
           </div>
         }
       >
-        <div className="grid gap-3 border-b p-4 sm:grid-cols-3">
+        <div className="grid gap-3 border-b p-4 sm:grid-cols-4">
           <div className="rounded-lg bg-muted px-3 py-2">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
               Produtos cadastrados
@@ -254,6 +330,14 @@ function Produtos() {
             </p>
             <p className={`num text-lg font-bold ${semVinculo > 0 ? "text-loss" : ""}`}>
               {formatNumero(semVinculo)}
+            </p>
+          </div>
+          <div className="rounded-lg bg-muted px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Produtos fora da margem mínima
+            </p>
+            <p className={`num text-lg font-bold ${produtosForaDaMeta > 0 ? "text-warning" : ""}`}>
+              {formatNumero(produtosForaDaMeta)}
             </p>
           </div>
         </div>
@@ -294,13 +378,14 @@ function Produtos() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] text-left">
+          <table className="w-full min-w-[1080px] text-left">
             <thead>
               <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-bold">Produto / SKU</th>
                 <th className="px-4 py-3 font-bold">EAN</th>
                 <th className="px-4 py-3 text-right font-bold">CMV</th>
                 <th className="px-4 py-3 font-bold">Canal / vínculo</th>
+                <th className="px-4 py-3 font-bold">Situação</th>
                 <th className="px-4 py-3 text-right font-bold">Ação</th>
               </tr>
             </thead>
@@ -309,8 +394,18 @@ function Produtos() {
                 if (linha.tipo === "produto") {
                   const p = linha.produto;
                   const emEdicao = editando === p.id;
-                  return (
-                    <tr key={`p-${linha.id}`} className="transition-colors hover:bg-muted/40">
+                  const aberto = expandido === p.id;
+                  const podeAbrir = linha.limitesPorCanal.length > 0;
+                  return [
+                    <tr
+                      key={`p-${linha.id}`}
+                      onClick={() => podeAbrir && setExpandido(aberto ? null : p.id)}
+                      className={cn(
+                        "transition-colors hover:bg-muted/40",
+                        podeAbrir && "cursor-pointer",
+                        aberto && "bg-muted/30",
+                      )}
+                    >
                       <td className="max-w-[260px] px-4 py-3">
                         <p className="truncate text-xs font-medium">{p.nome}</p>
                         <p className="num text-[10px] text-muted-foreground">{p.sku}</p>
@@ -318,7 +413,7 @@ function Produtos() {
                       <td className="num px-4 py-3 text-xs text-muted-foreground">
                         {p.ean ?? "—"}
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                         {emEdicao ? (
                           <div className="flex items-center justify-end gap-1">
                             <Input
@@ -364,15 +459,40 @@ function Produtos() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right text-[11px] text-muted-foreground">—</td>
-                    </tr>
-                  );
+                      <td className="px-4 py-3">
+                        <SeloSituacao situacao={linha.situacao} qtdAbaixo={linha.qtdAbaixo} />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {podeAbrir ? (
+                          <ChevronRight
+                            className={cn(
+                              "ml-auto size-4 text-muted-foreground transition-transform",
+                              aberto && "rotate-90",
+                            )}
+                          />
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    </tr>,
+
+                    aberto ? (
+                      <tr key={`d-${linha.id}`} className="bg-background/60">
+                        <td colSpan={6} className="p-0">
+                          <TabelaLimites itens={linha.limitesPorCanal} />
+                        </td>
+                      </tr>
+                    ) : null,
+                  ];
                 }
 
                 const a = linha.anuncio;
                 const conta = contasService.buscar(a.contaId);
                 return (
-                  <tr key={`a-${linha.id}`} className="bg-loss-soft/20 transition-colors hover:bg-loss-soft/30">
+                  <tr
+                    key={`a-${linha.id}`}
+                    className="bg-loss-soft/20 transition-colors hover:bg-loss-soft/30"
+                  >
                     <td className="max-w-[260px] px-4 py-3">
                       <p className="truncate text-xs font-medium">{a.produto}</p>
                       <p className="num text-[10px] text-muted-foreground">{a.sku}</p>
@@ -392,6 +512,11 @@ function Produtos() {
                         </span>
                       </div>
                     </td>
+                    <td className="px-4 py-3">
+                      <span className="text-[10px] text-muted-foreground">
+                        Sem CMV, não dá pra calcular
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <Button size="sm" variant="outline" onClick={() => setEmVinculo(a)}>
                         <Link2 className="size-3.5" />
@@ -403,13 +528,28 @@ function Produtos() {
               })}
               {linhasFiltradas.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-xs text-muted-foreground">
+                  <td colSpan={6} className="px-4 py-12 text-center text-xs text-muted-foreground">
                     Nada encontrado com esses filtros.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="flex flex-wrap gap-4 border-t px-4 py-3 text-[10px] text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-profit" /> Acima da margem mínima
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-warning" /> Abaixo da mínima, ainda com lucro
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-loss" /> Abaixo do empate — prejuízo
+          </span>
+          <span className="ml-auto">
+            A margem mínima de cada canal vem das metas em Configurações.
+          </span>
         </div>
       </Painel>
 
@@ -423,6 +563,118 @@ function Produtos() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Resumo da situação do produto na linha fechada. */
+function SeloSituacao({
+  situacao,
+  qtdAbaixo,
+}: {
+  situacao: SituacaoProduto;
+  qtdAbaixo: number;
+}) {
+  if (situacao === "sem-anuncio") {
+    return <span className="text-[10px] text-muted-foreground">—</span>;
+  }
+  const estilo =
+    situacao === "ok"
+      ? "bg-profit-soft text-profit"
+      : situacao === "abaixo"
+        ? "bg-warning-soft text-warning"
+        : "bg-loss-soft text-loss";
+  const texto =
+    situacao === "ok"
+      ? "Todos os canais OK"
+      : situacao === "prejuizo"
+        ? "Vendendo com prejuízo"
+        : `${qtdAbaixo} canal${qtdAbaixo > 1 ? "is" : ""} abaixo do mínimo`;
+  const cor =
+    situacao === "ok" ? "bg-profit" : situacao === "abaixo" ? "bg-warning" : "bg-loss";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded px-2 py-1 text-[10px] font-semibold",
+        estilo,
+      )}
+    >
+      <span className={cn("size-1.5 shrink-0 rounded-full", cor)} />
+      {texto}
+    </span>
+  );
+}
+
+/**
+ * Os limites canal a canal. O mesmo produto tem preço mínimo diferente em
+ * cada marketplace — 20% de margem no Mercado Livre não é o mesmo preço que
+ * 20% na Shopee, porque a comissão e o frete são outros.
+ */
+function TabelaLimites({ itens }: { itens: LimitePorCanal[] }) {
+  return (
+    <div className="overflow-x-auto border-t bg-muted/20">
+      <table className="w-full min-w-[820px] text-left">
+        <thead>
+          <tr className="text-[9px] uppercase tracking-wide text-muted-foreground">
+            <th className="px-6 py-2 font-bold">Canal / conta</th>
+            <th className="px-4 py-2 text-right font-bold">Preço hoje</th>
+            <th className="px-4 py-2 text-right font-bold">Margem hoje</th>
+            <th className="px-4 py-2 text-right font-bold">Preço mínimo</th>
+            <th className="px-4 py-2 text-right font-bold">Empate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {itens.map(({ anuncio, nomeConta, margemMinima, limites }) => {
+            const cor = limites.emPrejuizo
+              ? "text-loss"
+              : limites.abaixoDoMinimo
+                ? "text-warning"
+                : "text-profit";
+            const ponto = limites.emPrejuizo
+              ? "bg-loss"
+              : limites.abaixoDoMinimo
+                ? "bg-warning"
+                : "bg-profit";
+            return (
+              <tr key={anuncio.id} className="border-t border-border/40">
+                <td className="px-6 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className={cn("size-1.5 shrink-0 rounded-full", ponto)} />
+                    <SeloMarketplace id={anuncio.marketplaceId} />
+                    <span className="text-[10px] text-muted-foreground">{nomeConta}</span>
+                  </div>
+                  {limites.faltaParaMinimo > 0 && (
+                    <p className="mt-1 pl-[14px] text-[10px] text-muted-foreground">
+                      Precisa subir {formatBRL(limites.faltaParaMinimo)} para voltar aos{" "}
+                      {formatPercentual(margemMinima)}
+                    </p>
+                  )}
+                </td>
+                <td className="num px-4 py-2.5 text-right text-xs">
+                  {formatBRL(anuncio.precoAtual)}
+                </td>
+                <td className={cn("num px-4 py-2.5 text-right text-xs font-semibold", cor)}>
+                  {formatPercentual(limites.margemAtual)}
+                </td>
+                <td
+                  className={cn(
+                    "num px-4 py-2.5 text-right text-xs font-bold",
+                    limites.abaixoDoMinimo && "text-warning",
+                  )}
+                >
+                  {formatBRL(limites.precoMinimo)}
+                  <span className="ml-1 text-[9px] font-normal text-muted-foreground">
+                    ({formatPercentual(margemMinima)})
+                  </span>
+                </td>
+                <td className="num px-4 py-2.5 text-right text-xs text-loss">
+                  {formatBRL(limites.precoEmpate)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
