@@ -45,7 +45,7 @@ export const MENU: ItemMenu[] = [
     usaFiltroContas: true,
   },
   {
-    titulo: "Catálogo",
+    titulo: "Custos",
     url: "/produtos",
     icone: Package,
     grupo: "Análise",
