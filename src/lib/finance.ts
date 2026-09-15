@@ -203,6 +203,90 @@ export function raioXAnuncio(
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Limites de preço                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Até onde o preço de um anúncio pode cair. A margem mínima é uma REGRA em
+ * percentual (vem das metas da conta, definidas em Configurações); aqui ela
+ * vira VALOR em reais, anúncio por anúncio — porque comissão, frete e taxa
+ * mudam de canal para canal, e 20% nunca é o mesmo preço em dois lugares.
+ *
+ * É este número que o agente de precificação usa como freio: acima do
+ * `precoMinimo` ele pode agir sozinho; abaixo, precisa de aprovação.
+ */
+export interface LimitesPreco {
+  /** Menor preço que ainda respeita a margem mínima */
+  precoMinimo: number;
+  /** Preço em que o lucro é exatamente zero — abaixo dele, prejuízo */
+  precoEmpate: number;
+  /** Margem no preço praticado hoje (0-1) */
+  margemAtual: number;
+  /** Preço de hoje já está abaixo da margem mínima */
+  abaixoDoMinimo: boolean;
+  /** Preço de hoje está abaixo do empate (venda com prejuízo) */
+  emPrejuizo: boolean;
+  /** Quanto falta subir para voltar ao mínimo; 0 quando já está acima */
+  faltaParaMinimo: number;
+  /** false quando não há CMV cadastrado — os números acima NÃO valem */
+  calculavel: boolean;
+}
+
+export interface OpcoesLimites {
+  /** Alíquota das configurações; sem ela usa a do próprio anúncio */
+  aliquotaImposto?: number;
+  /** Soma dos custos operacionais para um dado preço (percentuais dependem dele) */
+  custosOperacionais?: (preco: number) => number;
+}
+
+export function limitesDePreco(
+  a: Anuncio,
+  margemMinima: number,
+  opcoes: OpcoesLimites = {},
+): LimitesPreco {
+  const calculavel = a.cmv !== null;
+  const cmv = a.cmv ?? 0;
+  const aliquota = opcoes.aliquotaImposto ?? a.impostoPercentual;
+  const resolverOp = opcoes.custosOperacionais ?? (() => 0);
+
+  // Tudo que sai como PERCENTUAL do preço: sobe e desce junto com ele.
+  const percentuais = aliquota + a.comissaoPercentual;
+  // Tudo que sai em REAIS por venda: não muda quando o preço muda. É por
+  // isso que a margem despenca rápido em produto de ticket baixo com frete
+  // caro — o frete continua lá inteiro enquanto o preço encolhe.
+  const fixos =
+    cmv + a.taxaFixa + a.freteUnitario + a.custoMidiaUnitario + a.custoAfiliadoUnitario;
+
+  // Custo operacional percentual depende do preço, e o preço depende dele.
+  // Duas passadas já convergem na casa do centavo para os valores reais.
+  const precoPara = (margem: number) => {
+    const divisor = 1 - percentuais - margem;
+    if (divisor <= 0) return 0;
+    let preco = (fixos + resolverOp(a.precoAtual)) / divisor;
+    preco = (fixos + resolverOp(preco)) / divisor;
+    return (fixos + resolverOp(preco)) / divisor;
+  };
+
+  const precoMinimo = precoPara(margemMinima);
+  const precoEmpate = precoPara(0);
+
+  const lucroAtual =
+    a.precoAtual - a.precoAtual * percentuais - fixos - resolverOp(a.precoAtual);
+  const margemAtual = a.precoAtual > 0 ? lucroAtual / a.precoAtual : 0;
+
+  return {
+    precoMinimo,
+    precoEmpate,
+    margemAtual,
+    abaixoDoMinimo: calculavel && precoMinimo > 0 && a.precoAtual < precoMinimo,
+    emPrejuizo: calculavel && a.precoAtual < precoEmpate,
+    faltaParaMinimo:
+      calculavel && precoMinimo > a.precoAtual ? precoMinimo - a.precoAtual : 0,
+    calculavel,
+  };
+}
+
 /** Cobertura de dados: sem isso, a margem exibida é uma promessa vazia. */
 export interface CoberturaDados {
   total: number;
