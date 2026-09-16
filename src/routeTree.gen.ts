@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CalculadoraRouteImport } from './routes/calculadora'
 import { Route as ConfiguracoesRouteImport } from './routes/configuracoes'
+import { Route as AgentesRouteImport } from './routes/agentes'
 import { Route as EstoqueRouteImport } from './routes/estoque'
 import { Route as FinanceiroRouteImport } from './routes/financeiro'
 import { Route as FulfillmentRouteImport } from './routes/fulfillment'
@@ -38,6 +39,11 @@ const CalculadoraRoute = CalculadoraRouteImport.update({
 const ConfiguracoesRoute = ConfiguracoesRouteImport.update({
   id: '/configuracoes',
   path: '/configuracoes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentesRoute = AgentesRouteImport.update({
+  id: '/agentes',
+  path: '/agentes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EstoqueRoute = EstoqueRouteImport.update({
@@ -105,6 +111,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/calculadora': typeof CalculadoraRoute
   '/configuracoes': typeof ConfiguracoesRoute
+  '/agentes': typeof AgentesRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
   '/fulfillment': typeof FulfillmentRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/calculadora': typeof CalculadoraRoute
   '/configuracoes': typeof ConfiguracoesRoute
+  '/agentes': typeof AgentesRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
   '/fulfillment': typeof FulfillmentRoute
@@ -138,6 +146,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/calculadora': typeof CalculadoraRoute
   '/configuracoes': typeof ConfiguracoesRoute
+  '/agentes': typeof AgentesRoute
   '/estoque': typeof EstoqueRoute
   '/financeiro': typeof FinanceiroRoute
   '/fulfillment': typeof FulfillmentRoute
@@ -157,6 +166,7 @@ export interface FileRouteTypes {
     | '/'
     | '/calculadora'
     | '/configuracoes'
+    | '/agentes'
     | '/estoque'
     | '/financeiro'
     | '/fulfillment'
@@ -174,6 +184,7 @@ export interface FileRouteTypes {
     | '/'
     | '/calculadora'
     | '/configuracoes'
+    | '/agentes'
     | '/estoque'
     | '/financeiro'
     | '/fulfillment'
@@ -189,6 +200,7 @@ export interface FileRouteTypes {
     | '/'
     | '/calculadora'
     | '/configuracoes'
+    | '/agentes'
     | '/estoque'
     | '/financeiro'
     | '/fulfillment'
@@ -207,6 +219,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CalculadoraRoute: typeof CalculadoraRoute
   ConfiguracoesRoute: typeof ConfiguracoesRoute
+  AgentesRoute: typeof AgentesRoute
   EstoqueRoute: typeof EstoqueRoute
   FinanceiroRoute: typeof FinanceiroRoute
   FulfillmentRoute: typeof FulfillmentRoute
@@ -238,6 +251,13 @@ declare module '@tanstack/react-router' {
       path: '/configuracoes'
       fullPath: '/configuracoes'
       preLoaderRoute: typeof ConfiguracoesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agentes': {
+      id: '/agentes'
+      path: '/agentes'
+      fullPath: '/agentes'
+      preLoaderRoute: typeof AgentesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/estoque': {
@@ -358,6 +378,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CalculadoraRoute: CalculadoraRoute,
   ConfiguracoesRoute: ConfiguracoesRoute,
+  AgentesRoute: AgentesRoute,
   EstoqueRoute: EstoqueRoute,
   FinanceiroRoute: FinanceiroRoute,
   FulfillmentRoute: FulfillmentRoute,
