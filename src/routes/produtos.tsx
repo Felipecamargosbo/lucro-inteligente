@@ -721,7 +721,15 @@ function DialogReceberAnuncios({
             <Label className="text-xs text-muted-foreground">De qual marketplace?</Label>
             <Select
               value={marketplace}
-              onValueChange={(v) => setMarketplace(v as MarketplaceId | "todos")}
+              onValueChange={(v) => {
+                const escolhido = v as MarketplaceId | "todos";
+                setMarketplace(escolhido);
+                // Buscar um anúncio específico só faz sentido dentro de UM
+                // marketplace — em "todos", trava em "puxar tudo" e some a
+                // pergunta seguinte, em vez de deixar uma combinação sem
+                // sentido disponível.
+                if (escolhido === "todos") setModo("todos");
+              }}
             >
               <SelectTrigger className="mt-1 h-9 text-xs">
                 <SelectValue />
@@ -736,20 +744,22 @@ function DialogReceberAnuncios({
             </Select>
           </div>
 
-          <div>
-            <Label className="text-xs text-muted-foreground">O quê?</Label>
-            <Select value={modo} onValueChange={(v) => setModo(v as ModoRecebimento)}>
-              <SelectTrigger className="mt-1 h-9 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Puxar todos os anúncios</SelectItem>
-                <SelectItem value="especifico">Puxar um anúncio específico</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {marketplace !== "todos" && (
+            <div>
+              <Label className="text-xs text-muted-foreground">O quê?</Label>
+              <Select value={modo} onValueChange={(v) => setModo(v as ModoRecebimento)}>
+                <SelectTrigger className="mt-1 h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Puxar todos os anúncios</SelectItem>
+                  <SelectItem value="especifico">Puxar um anúncio específico</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-          {modo === "especifico" && (
+          {modo === "especifico" && marketplace !== "todos" && (
             <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/50 p-3">
               <div>
                 <Label className="text-xs text-muted-foreground">SKU</Label>
