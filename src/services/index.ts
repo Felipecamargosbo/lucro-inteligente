@@ -25,6 +25,7 @@ import {
   obterContasAtuais,
 } from "@/data/mock";
 import type { Anuncio, ContaMarketplace, MarketplaceId, Produto } from "@/types";
+import { supabase } from "@/lib/supabase";
 
 export const vendasService = {
   listar: () => PEDIDOS,
@@ -113,59 +114,132 @@ export const anunciosService = {
 };
 
 /**
- * Catálogo de produtos — fonte única do CMV. Hoje é um array em memória
- * (src/data/mock.ts); amanhã será uma tabela real, e vincular/criar/atualizar
- * viram chamadas de API, sem mudar quem consome este serviço.
+ * Catálogo de produtos — fonte única do CMV. Agora é a tabela real
+ * `produtos` do Supabase (RLS: cada perfil só vê e só grava o próprio
+ * dado — por isso toda função abaixo pede o `perfilId` explicitamente,
+ * em vez de assumir uma sessão global).
+ *
+ * Os ANÚNCIOS continuam fictícios (dependem da API do marketplace, que
+ * depende do CNPJ) — por isso o vínculo entre um produto real e os
+ * anúncios de exemplo é feito por SKU, não pelo id antigo do mock: um
+ * id de mock nunca vai bater com um id gerado pelo Supabase.
  */
 export const produtosService = {
-  listar: () => PRODUTOS_CATALOGO,
-  buscarPorId: (id: string) => PRODUTOS_CATALOGO.find((p) => p.id === id) ?? null,
-  /** Vincula um anúncio a um produto já existente no catálogo — o CMV do
-   * anúncio passa a vir do produto a partir de agora. */
-  vincular: (anuncioId: string, produtoId: string) => {
+  listar: async (perfilId: string): Promise<Produto[]> => {
+    const { data, error } = await supabase
+      .from("produtos")
+      .select("id, sku, ean, nome, cmv")
+      .eq("perfil_id", perfilId)
+      .eq("ativo", true)
+      .order("nome");
+    if (error) {
+      console.error("produtosService.listar:", error.message);
+      return [];
+    }
+    return data ?? [];
+  },
+  /**
+   * Casa os produtos reais com os anúncios de exemplo pelo SKU, e propaga
+   * `produtoId` + `cmv` para cada um. É o que faz o resto do app (Vendas,
+   * Dashboard, Raio-X) enxergar o CMV real sem cada tela precisar saber
+   * que o catálogo agora vem do banco.
+   */
+  reconciliarComAnuncios: (produtos: Produto[]) => {
+    const porSku = new Map(produtos.map((p) => [p.sku, p]));
+    for (const a of ANUNCIOS) {
+      const produto = porSku.get(a.sku);
+      if (produto) {
+        a.produtoId = produto.id;
+        a.cmv = produto.cmv;
+      } else if (a.produtoId && !produtos.some((p) => p.id === a.produtoId)) {
+        // Produto antigo (do mock) que não existe mais no catálogo real:
+        // volta para "sem vínculo" em vez de mentir um CMV que já não vale.
+        a.produtoId = null;
+      }
+    }
+  },
+  /** Cria um produto novo, direto (sem partir de um anúncio). */
+  criar: async (
+    perfilId: string,
+    dados: { sku: string; ean?: string | null; nome: string; cmv: number },
+  ): Promise<{ produto: Produto | null; erro: string | null }> => {
+    const { data, error } = await supabase
+      .from("produtos")
+      .insert({
+        perfil_id: perfilId,
+        sku: dados.sku,
+        ean: dados.ean ?? null,
+        nome: dados.nome,
+        cmv: dados.cmv,
+      })
+      .select("id, sku, ean, nome, cmv")
+      .single();
+    if (error) {
+      const duplicado = error.code === "23505";
+      return {
+        produto: null,
+        erro: duplicado ? `Já existe um produto com o SKU "${dados.sku}".` : error.message,
+      };
+    }
+    for (const a of ANUNCIOS) {
+      if (a.sku === data.sku) {
+        a.produtoId = data.id;
+        a.cmv = data.cmv;
+      }
+    }
+    return { produto: data, erro: null };
+  },
+  /** Cria um produto novo a partir de um anúncio sem vínculo — atalho de
+   * `criar` que já preenche SKU e nome a partir do anúncio. */
+  criarAPartirDeAnuncio: (
+    perfilId: string,
+    anuncioId: string,
+    dados: { cmv: number; ean?: string | null },
+  ) => {
     const anuncio = ANUNCIOS.find((a) => a.id === anuncioId);
-    const produto = PRODUTOS_CATALOGO.find((p) => p.id === produtoId);
-    if (!anuncio || !produto) return null;
+    if (!anuncio) return Promise.resolve({ produto: null, erro: "Anúncio não encontrado." });
+    return produtosService.criar(perfilId, {
+      sku: anuncio.sku,
+      ean: dados.ean,
+      nome: anuncio.produto,
+      cmv: dados.cmv,
+    });
+  },
+  /** Vincula um anúncio a um produto já existente no catálogo — o CMV do
+   * anúncio passa a vir do produto a partir de agora. Só mexe no anúncio
+   * (fictício), não grava nada no Supabase. */
+  vincular: (anuncioId: string, produto: Produto) => {
+    const anuncio = ANUNCIOS.find((a) => a.id === anuncioId);
+    if (!anuncio) return null;
     anuncio.produtoId = produto.id;
     anuncio.cmv = produto.cmv;
     return anuncio;
   },
-  /** Cria um produto novo a partir de um anúncio sem vínculo, e já vincula a
-   * ele todo anúncio (em qualquer marketplace/conta) com o mesmo SKU. */
-  criarAPartirDeAnuncio: (
-    anuncioId: string,
-    dados: { cmv: number; ean?: string | null },
-  ): Produto | null => {
-    const anuncio = ANUNCIOS.find((a) => a.id === anuncioId);
-    if (!anuncio) return null;
-    const novoProduto: Produto = {
-      id: `prod-${anuncio.sku.toLowerCase()}-${Date.now()}`,
-      sku: anuncio.sku,
-      ean: dados.ean ?? null,
-      nome: anuncio.produto,
-      cmv: dados.cmv,
-    };
-    PRODUTOS_CATALOGO.push(novoProduto);
-    for (const a of ANUNCIOS) {
-      if (a.sku === anuncio.sku) {
-        a.produtoId = novoProduto.id;
-        a.cmv = novoProduto.cmv;
-      }
-    }
-    return novoProduto;
-  },
   /** Muda o CMV no catálogo e espalha o novo valor para todo anúncio
-   * vinculado, em qualquer marketplace — é o ponto central do catálogo. */
-  atualizarCmv: (produtoId: string, novoCmv: number) => {
-    const produto = PRODUTOS_CATALOGO.find((p) => p.id === produtoId);
-    if (!produto) return null;
-    produto.cmv = novoCmv;
+   * vinculado (por SKU), em qualquer marketplace. */
+  atualizarCmv: async (
+    produtoId: string,
+    novoCmv: number,
+  ): Promise<{ produto: Produto | null; erro: string | null }> => {
+    const { data, error } = await supabase
+      .from("produtos")
+      .update({ cmv: novoCmv })
+      .eq("id", produtoId)
+      .select("id, sku, ean, nome, cmv")
+      .single();
+    if (error) return { produto: null, erro: error.message };
     for (const a of ANUNCIOS) {
-      if (a.produtoId === produtoId) a.cmv = novoCmv;
+      if (a.sku === data.sku) a.cmv = data.cmv;
     }
-    return produto;
+    return { produto: data, erro: null };
   },
-  /** Quantos anúncios (e em quais marketplaces) usam este produto hoje. */
+  /** Desativa um produto (soft delete — some das listas, mas nada é perdido). */
+  remover: async (produtoId: string): Promise<string | null> => {
+    const { error } = await supabase.from("produtos").update({ ativo: false }).eq("id", produtoId);
+    return error?.message ?? null;
+  },
+  /** Quantos anúncios (e em quais marketplaces) usam este produto hoje.
+   * Só é confiável depois de `reconciliarComAnuncios`. */
   cobertura: (produtoId: string) => {
     const vinculados = ANUNCIOS.filter((a) => a.produtoId === produtoId);
     const marketplaces = [...new Set(vinculados.map((a) => a.marketplaceId))];
