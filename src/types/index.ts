@@ -283,6 +283,12 @@ export interface Anuncio {
   elegivelPromocao: boolean;
   /** Unidades vendidas no período — usado na curva ABC e no realizado */
   unidadesVendidas: number;
+  /**
+   * Data da última venda (ISO). null = nunca vendeu desde que entrou no
+   * sistema. É o que permite dizer "parado há 32 dias" — sem este campo o
+   * agente de giro não tem gatilho nenhum para disparar.
+   */
+  dataUltimaVenda: string | null;
 }
 
 export interface AlteracaoPreco {
@@ -530,4 +536,57 @@ export interface ItemEstoqueDetalhado {
   coberturaDias: number;
   custoUnitario: number;
   valorEstoque: number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agentes                                                            */
+/* ------------------------------------------------------------------ */
+
+export type AgenteId = "precificacao";
+
+/**
+ * Situação de uma sugestão. Enquanto não há API com permissão de escrita,
+ * "aprovada" significa que o seller aceitou e vai aplicar no marketplace na
+ * mão. Quando a API conectar, é aqui que entra "aplicada".
+ */
+export type StatusSugestao = "pendente" | "aprovada" | "recusada";
+
+/**
+ * Semáforo da decisão — a mesma linguagem do resto do sistema:
+ * verde   = continua acima da margem mínima, o agente poderia agir sozinho
+ * amarelo = cai abaixo da margem mínima, precisa do seller
+ * vermelho= abaixo do empate, é prejuízo; só o seller decide queimar
+ */
+export type SemaforoDecisao = "verde" | "amarelo" | "vermelho";
+
+/**
+ * Um evento é TUDO que um agente fez ou propôs. É a peça central: o feed, o
+ * histórico, a fila de aprovação e (mais para a frente) a sala com os
+ * avatares leem todos desta mesma lista. Um dado, várias telas.
+ */
+export interface EventoAgente {
+  id: string;
+  agenteId: AgenteId;
+  /** Quando o agente decidiu (ISO) */
+  data: string;
+  anuncioId: string;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  contaId: string;
+  /** Por que agiu, em português, para aparecer no feed */
+  motivo: string;
+  diasParado: number;
+  precoAtual: number;
+  precoSugerido: number;
+  margemAtual: number;
+  margemSugerida: number;
+  /** Piso calculado para este anúncio neste canal */
+  precoMinimo: number;
+  semaforo: SemaforoDecisao;
+  /** true quando o degrau de 5% bateria no piso e foi travado nele */
+  travadoNoPiso: boolean;
+  status: StatusSugestao;
+  /** Quando o seller decidiu (ISO); null enquanto pendente */
+  decididoEm: string | null;
 }
