@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Check, ChevronRight, Link2, Pencil, RefreshCw } from "lucide-react";
+import { Check, ChevronRight, Link2, Loader2, Pencil, Plus, RefreshCw } from "lucide-react";
 import { anunciosService, contasService, produtosService } from "@/services";
+import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
@@ -12,6 +13,15 @@ import { ExportarDados } from "@/components/comum/ExportarDados";
 import { DialogVincularProduto } from "@/components/comum/DialogVincularProduto";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -96,11 +106,34 @@ function Produtos() {
   const [valorEdicao, setValorEdicao] = useState("");
   const [sincronizando, setSincronizando] = useState(false);
   const [emVinculo, setEmVinculo] = useState<Anuncio | null>(null);
+  const [novoProdutoAberto, setNovoProdutoAberto] = useState(false);
   /** Produto com os canais abertos; null = todos fechados */
   const [expandido, setExpandido] = useState<string | null>(null);
-  // Os produtos e os anúncios vivem fora do React (src/data/mock.ts); este
-  // contador força a releitura depois de cada sincronização/edição/vínculo.
+  // Os anúncios ainda vivem fora do React (src/data/mock.ts) — dependem da
+  // API do marketplace, que depende do CNPJ. Este contador força a
+  // releitura deles depois de cada sincronização/edição/vínculo.
   const [tick, setTick] = useState(0);
+
+  const { sessao } = useAuth();
+  // Os produtos, esses já são de verdade: vêm do Supabase, um por seller.
+  const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [carregandoProdutos, setCarregandoProdutos] = useState(true);
+
+  const carregarProdutos = useCallback(async () => {
+    if (!sessao) return;
+    const lista = await produtosService.listar(sessao.user.id);
+    // Casa cada produto real com os anúncios de exemplo pelo SKU — é isso
+    // que faz o resto do sistema (Vendas, Dashboard) enxergar o CMV real
+    // sem precisar saber que o catálogo agora vem do banco.
+    produtosService.reconciliarComAnuncios(lista);
+    setProdutos(lista);
+    setCarregandoProdutos(false);
+    setTick((n) => n + 1);
+  }, [sessao]);
+
+  useEffect(() => {
+    carregarProdutos();
+  }, [carregarProdutos]);
 
   const anuncios = useMemo(() => anunciosService.listar(), [tick]);
   const pendentes = useMemo(() => anuncios.filter((a) => !a.produtoId), [anuncios]);
@@ -135,7 +168,7 @@ function Produtos() {
   // Uma linha por produto cadastrado + uma linha por anúncio pendente —
   // tudo na mesma tabela, filtrado do mesmo jeito.
   const linhas = useMemo<LinhaCustos[]>(() => {
-    const doProdutos: LinhaCustos[] = produtosService.listar().map((p) => {
+    const doProdutos: LinhaCustos[] = produtos.map((p) => {
       const {
         totalAnuncios: qtd,
         marketplaces,
@@ -195,6 +228,7 @@ function Produtos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     tick,
+    produtos,
     pendentes,
     contasSelecionadas,
     semRestricaoDeConta,
@@ -235,11 +269,15 @@ function Produtos() {
     setValorEdicao(produto.cmv.toFixed(2));
   };
 
-  const salvarCmv = (produto: Produto) => {
+  const salvarCmv = async (produto: Produto) => {
     const novoCmv = Number(valorEdicao.replace(",", ".")) || 0;
-    produtosService.atualizarCmv(produto.id, novoCmv);
     setEditando(null);
-    setTick((n) => n + 1);
+    const { erro } = await produtosService.atualizarCmv(produto.id, novoCmv);
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      return;
+    }
+    await carregarProdutos();
     const { totalAnuncios: qtd } = vinculosDoProduto(produto.id);
     toast.success(
       qtd > 0
@@ -288,13 +326,17 @@ function Produtos() {
         descricao="O CMV mora aqui — uma vez só. Mudar o custo de um produto atualiza na hora todo anúncio vinculado a ele, em qualquer marketplace"
         acoes={
           <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => setNovoProdutoAberto(true)}>
+              <Plus className="size-3.5" />
+              Novo produto
+            </Button>
             <Button size="sm" variant="outline" disabled={sincronizando} onClick={sincronizarTodos}>
               <RefreshCw className={cn("size-3.5", sincronizando && "animate-spin")} />
               {sincronizando ? "Sincronizando..." : "Sincronizar todos os marketplaces"}
             </Button>
             <ExportarDados
               nomeArquivo="custos"
-              linhas={produtosService.listar().map((p) => {
+              linhas={produtos.map((p) => {
                 const { totalAnuncios: qtd, marketplaces } = vinculosDoProduto(p.id);
                 return {
                   SKU: p.sku,
@@ -314,7 +356,7 @@ function Produtos() {
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
               Produtos cadastrados
             </p>
-            <p className="num text-lg font-bold">{formatNumero(produtosService.listar().length)}</p>
+            <p className="num text-lg font-bold">{formatNumero(produtos.length)}</p>
           </div>
           <div className="rounded-lg bg-muted px-3 py-2">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -526,13 +568,47 @@ function Produtos() {
                   </tr>
                 );
               })}
-              {linhasFiltradas.length === 0 && (
+              {carregandoProdutos && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-xs text-muted-foreground">
-                    Nada encontrado com esses filtros.
+                  <td colSpan={6} className="px-4 py-12 text-center">
+                    <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="size-3.5 animate-spin" />
+                      Carregando seu catálogo...
+                    </span>
                   </td>
                 </tr>
               )}
+              {!carregandoProdutos &&
+                linhasFiltradas.length === 0 &&
+                produtos.length === 0 &&
+                busca === "" &&
+                statusFiltro === "todos" && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-14 text-center">
+                      <p className="text-xs text-muted-foreground">
+                        Nenhum produto cadastrado ainda.
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-3"
+                        onClick={() => setNovoProdutoAberto(true)}
+                      >
+                        <Plus className="size-3.5" />
+                        Cadastrar o primeiro produto
+                      </Button>
+                    </td>
+                  </tr>
+                )}
+              {!carregandoProdutos &&
+                linhasFiltradas.length === 0 &&
+                !(produtos.length === 0 && busca === "" && statusFiltro === "todos") && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center text-xs text-muted-foreground">
+                      Nada encontrado com esses filtros.
+                    </td>
+                  </tr>
+                )}
             </tbody>
           </table>
         </div>
@@ -559,11 +635,138 @@ function Produtos() {
           aoFechar={() => setEmVinculo(null)}
           aoConcluir={() => {
             setEmVinculo(null);
-            setTick((n) => n + 1);
+            // O diálogo pode ter criado um produto novo (não só vinculado
+            // um já existente) — recarrega do banco pra pegar esse caso.
+            carregarProdutos();
+          }}
+        />
+      )}
+
+      {novoProdutoAberto && sessao && (
+        <DialogNovoProduto
+          perfilId={sessao.user.id}
+          aoFechar={() => setNovoProdutoAberto(false)}
+          aoCriar={() => {
+            setNovoProdutoAberto(false);
+            carregarProdutos();
           }}
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Cadastro direto de produto, sem precisar partir de um anúncio pendente —
+ * pra quando o seller quer montar o catálogo antes de ter qualquer anúncio
+ * vinculado. SKU é a chave que casa este produto com os anúncios (de
+ * exemplo, por ora) — dois produtos não podem repetir o mesmo SKU.
+ */
+function DialogNovoProduto({
+  perfilId,
+  aoFechar,
+  aoCriar,
+}: {
+  perfilId: string;
+  aoFechar: () => void;
+  aoCriar: (produto: Produto) => void;
+}) {
+  const [sku, setSku] = useState("");
+  const [nome, setNome] = useState("");
+  const [ean, setEan] = useState("");
+  const [cmv, setCmv] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const valido = sku.trim() !== "" && nome.trim() !== "";
+
+  const salvar = async () => {
+    if (!valido) return;
+    setSalvando(true);
+    const { produto, erro } = await produtosService.criar(perfilId, {
+      sku: sku.trim(),
+      nome: nome.trim(),
+      ean: ean.trim() || null,
+      cmv: Number(cmv.replace(",", ".")) || 0,
+    });
+    setSalvando(false);
+    if (erro) {
+      toast.error(erro);
+      return;
+    }
+    if (produto) {
+      toast.success(`Produto "${produto.nome}" cadastrado.`);
+      aoCriar(produto);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={aoFechar}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Novo produto</DialogTitle>
+          <DialogDescription>
+            O CMV cadastrado aqui vale para todo anúncio deste SKU, em qualquer marketplace.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs text-muted-foreground">SKU *</Label>
+            <Input
+              autoFocus
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              placeholder="Seu código interno"
+              className="mt-1"
+              disabled={salvando}
+            />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Nome do produto *</Label>
+            <Input
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              placeholder="Como você reconhece esse produto"
+              className="mt-1"
+              disabled={salvando}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-muted-foreground">EAN (opcional)</Label>
+              <Input
+                value={ean}
+                onChange={(e) => setEan(e.target.value)}
+                placeholder="Código de barras"
+                className="mt-1"
+                disabled={salvando}
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">CMV (R$)</Label>
+              <Input
+                inputMode="decimal"
+                value={cmv}
+                onChange={(e) => setCmv(e.target.value)}
+                placeholder="0,00"
+                className="mt-1"
+                disabled={salvando}
+              />
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={aoFechar} disabled={salvando}>
+            Cancelar
+          </Button>
+          <Button onClick={salvar} disabled={!valido || salvando}>
+            {salvando ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            Cadastrar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
