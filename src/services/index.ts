@@ -100,8 +100,11 @@ export const anunciosService = {
       status: "ativo",
       elegivelPromocao: false,
       // Recém-publicado: ainda não vendeu nada — é isso que prova que ele
-      // vem da listagem, não do histórico de vendas.
+      // vem da listagem, não do histórico de vendas. Sem venda nenhuma,
+      // não há "parado há X dias": o agente de giro ignora este anúncio
+      // até a primeira venda acontecer.
       unidadesVendidas: 0,
+      dataUltimaVenda: null,
     };
 
     ANUNCIOS.push(novoAnuncio);
