@@ -924,6 +924,21 @@ function gerarAnuncios(): Anuncio[] {
           ? Math.round(precoAtual * (0.05 + rand() * 0.1) * 100) / 100
           : 0;
 
+      const unidadesVendidas = Math.floor(rand() * rand() * 90);
+
+      // Última venda: quem gira vendeu há pouco; uma fatia do catálogo fica
+      // encalhada. É esse pedaço parado que o agente de giro procura — sem
+      // encalhe no mock, o agente abriria sempre sem nada para propor.
+      const diasSemVender =
+        unidadesVendidas === 0
+          ? 45 + Math.floor(rand() * 120)
+          : rand() > 0.78
+            ? 31 + Math.floor(rand() * 70)
+            : Math.floor(rand() * 20);
+      const dataUltimaVenda = new Date(
+        Date.now() - diasSemVender * 86400000,
+      ).toISOString();
+
       anuncios.push({
         id: `${conta.id}-${produto.sku}`,
         marketplaceId: conta.marketplaceId,
@@ -948,7 +963,8 @@ function gerarAnuncios(): Anuncio[] {
         produtoId,
         status: rand() > 0.9 ? "pausado" : rand() > 0.95 ? "sem-estoque" : "ativo",
         elegivelPromocao: rand() > 0.55,
-        unidadesVendidas: Math.floor(rand() * rand() * 90),
+        unidadesVendidas,
+        dataUltimaVenda,
       });
     }
   }
