@@ -7,6 +7,8 @@ import {
   definirContasAtuais,
   empresaPorCnpj,
 } from "@/data/mock";
+import { metasService } from "@/services";
+import { useAuth } from "@/context/auth";
 import type {
   ConfiguracaoFiscal,
   ContaMarketplace,
@@ -110,6 +112,19 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
     return inicial;
   });
 
+  const { sessao } = useAuth();
+
+  // Carrega as metas salvas de verdade e sobrepõe aos valores de exemplo —
+  // uma conta sem linha salva ainda continua mostrando o padrão do mock,
+  // até o seller mexer nela pela primeira vez.
+  useEffect(() => {
+    if (!sessao) return;
+    metasService.listar(sessao.user.id).then((salvas) => {
+      if (Object.keys(salvas).length === 0) return;
+      setMetasPorConta((atual) => ({ ...atual, ...salvas }));
+    });
+  }, [sessao]);
+
   const [custos, setCustos] = useState<CustoOperacional[]>(CUSTOS_INICIAIS);
 
   const valor = useMemo<ConfiguracoesContexto>(() => {
@@ -163,11 +178,28 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
           const { [id]: _removida, ...resto } = atual;
           return resto;
         });
+        if (sessao) {
+          metasService.remover(sessao.user.id, id).then((erro) => {
+            if (erro) console.error("Não consegui remover a meta:", erro);
+          });
+        }
       },
 
       metasPorConta,
-      salvarMetas: (contaId, metas) =>
-        setMetasPorConta((atual) => ({ ...atual, [contaId]: metas })),
+      salvarMetas: (contaId, metas) => {
+        // Otimista: a tela responde na hora, o Supabase confirma depois.
+        setMetasPorConta((atual) => ({ ...atual, [contaId]: metas }));
+        if (!sessao) return;
+        if (metas === null) {
+          metasService.remover(sessao.user.id, contaId).then((erro) => {
+            if (erro) console.error("Não consegui remover a meta:", erro);
+          });
+        } else {
+          metasService.salvar(sessao.user.id, contaId, metas).then((erro) => {
+            if (erro) console.error("Não consegui salvar a meta:", erro);
+          });
+        }
+      },
 
       custos,
       adicionarCusto: (custo) =>
@@ -185,7 +217,7 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
         detalhar(precoVenda).reduce((s, i) => s + i.valor, 0),
       custoOperacionalDetalhado: detalhar,
     };
-  }, [empresa, fiscal, empresas, contas, metasPorConta, custos]);
+  }, [empresa, fiscal, empresas, contas, metasPorConta, custos, sessao]);
 
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }
