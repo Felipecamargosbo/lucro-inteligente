@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Search } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { produtosService } from "@/services";
+import { useAuth } from "@/context/auth";
 import { formatBRL } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +23,12 @@ import type { Anuncio, Produto } from "@/types";
  * ou nome) — ou cria um produto novo a partir do próprio anúncio quando ele
  * ainda não existe no catálogo. Uma vez vinculado, o CMV passa a vir do
  * catálogo e some da fila de Pendências. Usado tanto na aba Pendências de
- * cada conta quanto no Catálogo (onde reúne pendências de todo marketplace).
+ * cada conta quanto na tela de Custos (onde reúne pendências de todo
+ * marketplace).
+ *
+ * O catálogo em si já é real (tabela `produtos` no Supabase); o anúncio
+ * continua fictício até a API do marketplace conectar — por isso vincular
+ * só muda o anúncio local, e criar é o único passo que grava no banco.
  */
 export function DialogVincularProduto({
   anuncio,
@@ -33,14 +39,31 @@ export function DialogVincularProduto({
   aoFechar: () => void;
   aoConcluir: () => void;
 }) {
+  const { sessao } = useAuth();
   const [busca, setBusca] = useState(anuncio.sku);
   const [cmvNovoProduto, setCmvNovoProduto] = useState("");
+  const [catalogo, setCatalogo] = useState<Produto[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    if (!sessao) return;
+    let ativo = true;
+    produtosService.listar(sessao.user.id).then((lista) => {
+      if (ativo) {
+        setCatalogo(lista);
+        setCarregando(false);
+      }
+    });
+    return () => {
+      ativo = false;
+    };
+  }, [sessao]);
 
   const resultados = useMemo<Produto[]>(() => {
     const termo = busca.trim().toLowerCase();
     if (!termo) return [];
-    return produtosService
-      .listar()
+    return catalogo
       .filter(
         (p) =>
           p.sku.toLowerCase().includes(termo) ||
@@ -48,17 +71,28 @@ export function DialogVincularProduto({
           (p.ean ?? "").includes(termo),
       )
       .slice(0, 8);
-  }, [busca]);
+  }, [catalogo, busca]);
 
   const vincularA = (produto: Produto) => {
-    produtosService.vincular(anuncio.id, produto.id);
+    produtosService.vincular(anuncio.id, produto);
     toast.success(`Anúncio vinculado a "${produto.nome}" — CMV agora vem do catálogo.`);
     aoConcluir();
   };
 
-  const criarNovo = () => {
+  const criarNovo = async () => {
+    if (!sessao) return;
     const cmv = Number(cmvNovoProduto.replace(",", ".")) || 0;
-    const produto = produtosService.criarAPartirDeAnuncio(anuncio.id, { cmv });
+    setSalvando(true);
+    const { produto, erro } = await produtosService.criarAPartirDeAnuncio(
+      sessao.user.id,
+      anuncio.id,
+      { cmv },
+    );
+    setSalvando(false);
+    if (erro) {
+      toast.error(erro);
+      return;
+    }
     if (produto) {
       toast.success(`Produto "${produto.nome}" criado e vinculado.`);
       aoConcluir();
@@ -93,7 +127,13 @@ export function DialogVincularProduto({
           </div>
 
           <div className="max-h-56 space-y-1 overflow-y-auto">
-            {resultados.length === 0 && (
+            {carregando && (
+              <p className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-2 text-[11px] text-muted-foreground">
+                <Loader2 className="size-3 animate-spin" />
+                Carregando seu catálogo...
+              </p>
+            )}
+            {!carregando && resultados.length === 0 && (
               <p className="rounded-lg bg-muted px-3 py-2 text-[11px] text-muted-foreground">
                 Nenhum produto encontrado no catálogo com esse termo.
               </p>
@@ -129,16 +169,19 @@ export function DialogVincularProduto({
                   onChange={(e) => setCmvNovoProduto(e.target.value)}
                   placeholder="0,00"
                   className="mt-1"
+                  disabled={salvando}
                 />
               </div>
-              <Button variant="outline" onClick={criarNovo}>
+              <Button variant="outline" onClick={criarNovo} disabled={salvando}>
+                {salvando ? <Loader2 className="size-3.5 animate-spin" /> : null}
                 Criar produto
               </Button>
             </div>
           </div>
 
           <p className="text-[10px] text-muted-foreground">
-            No protótipo o catálogo é fictício e vive apenas nesta sessão.
+            O produto criado aqui já fica salvo na sua conta — os anúncios continuam de
+            exemplo até a conexão com o marketplace.
           </p>
         </div>
 
