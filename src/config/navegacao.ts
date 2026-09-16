@@ -1,5 +1,6 @@
 import {
   BadgePercent,
+  Bot,
   Boxes,
   Calculator,
   Landmark,
@@ -80,6 +81,15 @@ export const MENU: ItemMenu[] = [
     grupo: "Análise",
     descricao: "Pedidos cancelados que podem ser retomados",
     usaPeriodo: true,
+    usaFiltroContas: true,
+  },
+  {
+    titulo: "Agentes",
+    url: "/agentes",
+    icone: Bot,
+    grupo: "Operação",
+    descricao: "O que os agentes decidiram e o que espera a sua aprovação",
+    usaPeriodo: false,
     usaFiltroContas: true,
   },
   {
