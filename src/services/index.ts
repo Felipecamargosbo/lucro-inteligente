@@ -89,6 +89,7 @@ export const anunciosService = {
       precoAtual,
       precoCheio: null,
       emPromocao: false,
+      ean: null,
       cmv: produtoBase ? produtoBase.cmv : null,
       impostoPercentual: 0.1,
       comissaoPercentual: conta.comissaoPercentual,
@@ -104,6 +105,47 @@ export const anunciosService = {
       // vem da listagem, não do histórico de vendas. Sem venda nenhuma,
       // não há "parado há X dias": o agente de giro ignora este anúncio
       // até a primeira venda acontecer.
+      unidadesVendidas: 0,
+      dataUltimaVenda: null,
+    };
+
+    ANUNCIOS.push(novoAnuncio);
+    return novoAnuncio;
+  },
+  /**
+   * "Receber anúncios" no modo específico: busca (aqui, fabrica) um único
+   * anúncio com o SKU e/ou EAN que o seller informou, em vez de um
+   * qualquer aleatório. Fica sem CMV — o vínculo com o produto real
+   * acontece pelo SKU assim que a tela de Custos carregar de novo.
+   */
+  puxarAnuncioEspecifico: (
+    conta: ContaMarketplace,
+    busca: { sku?: string; ean?: string },
+  ): Anuncio => {
+    const sku = busca.sku?.trim() || `EAN-${busca.ean?.trim()}`;
+    const precoAtual = Math.round((99 + Math.random() * 300) * 100) / 100;
+
+    const novoAnuncio: Anuncio = {
+      id: `${conta.id}-${sku}-${Date.now()}`,
+      marketplaceId: conta.marketplaceId,
+      contaId: conta.id,
+      sku,
+      ean: busca.ean?.trim() || null,
+      produto: `Anúncio ${sku}`,
+      precoAtual,
+      precoCheio: null,
+      emPromocao: false,
+      cmv: null,
+      impostoPercentual: 0.1,
+      comissaoPercentual: conta.comissaoPercentual,
+      taxaFixa: conta.taxaFixa,
+      freteUnitario: 0,
+      custoMidiaUnitario: 0,
+      custoAfiliadoUnitario: 0,
+      origemTaxas: "estimado",
+      produtoId: null,
+      status: "ativo",
+      elegivelPromocao: false,
       unidadesVendidas: 0,
       dataUltimaVenda: null,
     };
@@ -282,7 +324,12 @@ export const marketplacesService = {
  */
 export const contasService = {
   listar: () => obterContasAtuais(),
-  ativas: () => obterContasAtuais().filter((c) => c.statusConexao !== "desconectado"),
+  /** Contas conectadas — opcionalmente só as de um marketplace, para o
+   * "Receber anúncios" filtrar antes de puxar. */
+  ativas: (marketplaceId?: MarketplaceId) =>
+    obterContasAtuais().filter(
+      (c) => c.statusConexao !== "desconectado" && (!marketplaceId || c.marketplaceId === marketplaceId),
+    ),
   doCanal: (id: MarketplaceId) => contasDoCanal(id),
   buscar: (id: string) => getConta(id),
 };
