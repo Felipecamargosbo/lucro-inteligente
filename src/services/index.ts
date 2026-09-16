@@ -24,7 +24,17 @@ import {
   getConta,
   obterContasAtuais,
 } from "@/data/mock";
-import type { Anuncio, ContaMarketplace, MarketplaceId, Produto } from "@/types";
+import type {
+  AgenteId,
+  Anuncio,
+  ContaMarketplace,
+  EventoAgente,
+  MarketplaceId,
+  MetasMargem,
+  Produto,
+  SemaforoDecisao,
+  StatusSugestao,
+} from "@/types";
 import { supabase } from "@/lib/supabase";
 
 export const vendasService = {
@@ -348,4 +358,170 @@ export const logsService = {
 
 export const recuperacaoService = {
   listar: () => OPORTUNIDADES_RECUPERACAO,
+};
+
+/**
+ * Metas de margem por conta — a régua que o agente usa pra decidir até
+ * onde pode cortar preço. `contaId` é o id da conta (fictícia hoje, real
+ * quando a conexão existir), guardado como texto puro.
+ */
+export const metasService = {
+  listar: async (perfilId: string): Promise<Record<string, MetasMargem>> => {
+    const { data, error } = await supabase
+      .from("metas_margem")
+      .select("conta_id, margem_minima, margem_ideal")
+      .eq("perfil_id", perfilId);
+    if (error) {
+      console.error("metasService.listar:", error.message);
+      return {};
+    }
+    const mapa: Record<string, MetasMargem> = {};
+    for (const linha of data ?? []) {
+      mapa[linha.conta_id] = {
+        margemMinima: linha.margem_minima,
+        margemIdeal: linha.margem_ideal,
+      };
+    }
+    return mapa;
+  },
+  salvar: async (
+    perfilId: string,
+    contaId: string,
+    metas: MetasMargem,
+  ): Promise<string | null> => {
+    const { error } = await supabase.from("metas_margem").upsert(
+      {
+        perfil_id: perfilId,
+        conta_id: contaId,
+        margem_minima: metas.margemMinima,
+        margem_ideal: metas.margemIdeal,
+        atualizado_em: new Date().toISOString(),
+      },
+      { onConflict: "perfil_id,conta_id" },
+    );
+    return error?.message ?? null;
+  },
+  remover: async (perfilId: string, contaId: string): Promise<string | null> => {
+    const { error } = await supabase
+      .from("metas_margem")
+      .delete()
+      .eq("perfil_id", perfilId)
+      .eq("conta_id", contaId);
+    return error?.message ?? null;
+  },
+};
+
+/** Como uma linha de `eventos_agente` chega do Supabase — campos soltos
+ * (SKU, preço sugerido, margens...) ficam dentro de `dados`, um JSON
+ * livre, pra não precisar prever coluna nova a cada agente diferente. */
+interface LinhaEventoAgente {
+  id: string;
+  agente_id: string;
+  conta_id: string | null;
+  sku: string | null;
+  criado_em: string;
+  motivo: string;
+  dados: Record<string, unknown>;
+  semaforo: string;
+  status: string;
+  decidido_em: string | null;
+}
+
+function linhaParaEvento(l: LinhaEventoAgente): EventoAgente {
+  const d = l.dados ?? {};
+  return {
+    id: l.id,
+    agenteId: l.agente_id as AgenteId,
+    data: l.criado_em,
+    anuncioId: (d.anuncioId as string) ?? "",
+    sku: l.sku ?? (d.sku as string) ?? "",
+    produto: (d.produto as string) ?? "",
+    marketplaceId: d.marketplaceId as MarketplaceId,
+    contaId: l.conta_id ?? "",
+    motivo: l.motivo,
+    diasParado: (d.diasParado as number) ?? 0,
+    precoAtual: (d.precoAtual as number) ?? 0,
+    precoSugerido: (d.precoSugerido as number) ?? 0,
+    margemAtual: (d.margemAtual as number) ?? 0,
+    margemSugerida: (d.margemSugerida as number) ?? 0,
+    precoMinimo: (d.precoMinimo as number) ?? 0,
+    semaforo: l.semaforo as SemaforoDecisao,
+    travadoNoPiso: (d.travadoNoPiso as boolean) ?? false,
+    status: l.status as StatusSugestao,
+    decididoEm: l.decidido_em,
+  };
+}
+
+/**
+ * O registro central dos agentes — o que o feed, o histórico e (mais pra
+ * frente) a sala 3D leem. Uma sugestão gravada aqui sobrevive a atualizar
+ * a página, fechar o navegador, voltar amanhã.
+ */
+export const eventosAgenteService = {
+  listar: async (perfilId: string): Promise<EventoAgente[]> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .order("criado_em", { ascending: false });
+    if (error) {
+      console.error("eventosAgenteService.listar:", error.message);
+      return [];
+    }
+    return (data ?? []).map(linhaParaEvento);
+  },
+  /** SKUs que já têm sugestão pendente deste agente — pra a varredura não
+   * criar a mesma sugestão de novo toda vez que a tela abrir. */
+  skusPendentes: async (perfilId: string, agenteId: AgenteId): Promise<Set<string>> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("sku")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", agenteId)
+      .eq("status", "pendente");
+    if (error) {
+      console.error("eventosAgenteService.skusPendentes:", error.message);
+      return new Set();
+    }
+    return new Set((data ?? []).map((r) => r.sku).filter((s): s is string => Boolean(s)));
+  },
+  criar: async (
+    perfilId: string,
+    evento: Omit<EventoAgente, "id" | "status" | "decididoEm" | "data">,
+  ): Promise<string | null> => {
+    const { error } = await supabase.from("eventos_agente").insert({
+      perfil_id: perfilId,
+      agente_id: evento.agenteId,
+      conta_id: evento.contaId,
+      sku: evento.sku,
+      tipo: "sugestao_preco",
+      motivo: evento.motivo,
+      semaforo: evento.semaforo,
+      status: "pendente",
+      dados: {
+        anuncioId: evento.anuncioId,
+        sku: evento.sku,
+        produto: evento.produto,
+        marketplaceId: evento.marketplaceId,
+        diasParado: evento.diasParado,
+        precoAtual: evento.precoAtual,
+        precoSugerido: evento.precoSugerido,
+        margemAtual: evento.margemAtual,
+        margemSugerida: evento.margemSugerida,
+        precoMinimo: evento.precoMinimo,
+        travadoNoPiso: evento.travadoNoPiso,
+      },
+    });
+    return error?.message ?? null;
+  },
+  decidir: async (
+    eventoId: string,
+    status: Extract<StatusSugestao, "aprovada" | "recusada">,
+  ): Promise<string | null> => {
+    const { error } = await supabase
+      .from("eventos_agente")
+      .update({ status, decidido_em: new Date().toISOString() })
+      .eq("id", eventoId);
+    return error?.message ?? null;
+  },
 };
