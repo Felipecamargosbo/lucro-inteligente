@@ -252,6 +252,9 @@ export interface Anuncio {
   /** Conta em que o anúncio está publicado */
   contaId: string;
   sku: string;
+  /** Código de barras do anúncio no canal, quando o marketplace informa —
+   * segundo critério de busca em "Receber anúncios" além do SKU. */
+  ean: string | null;
   produto: string;
   precoAtual: number;
   /** Preço cheio quando o anúncio está em promoção; null se não está */
