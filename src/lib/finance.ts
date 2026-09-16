@@ -13,6 +13,7 @@ import type {
   Pedido,
   Periodo,
   Promocao,
+  SemaforoDecisao,
 } from "@/types";
 import { dentroDoPeriodo, inicioDoDia, listarDias } from "./period";
 
@@ -240,23 +241,41 @@ export interface OpcoesLimites {
   custosOperacionais?: (preco: number) => number;
 }
 
+/** Percentuais e valores fixos de um anúncio, separados — é a separação que
+ * explica por que a margem despenca tão rápido em ticket baixo: o frete e o
+ * CMV continuam inteiros enquanto o preço encolhe. */
+function componentes(a: Anuncio, opcoes: OpcoesLimites) {
+  const aliquota = opcoes.aliquotaImposto ?? a.impostoPercentual;
+  return {
+    percentuais: aliquota + a.comissaoPercentual,
+    fixos:
+      (a.cmv ?? 0) +
+      a.taxaFixa +
+      a.freteUnitario +
+      a.custoMidiaUnitario +
+      a.custoAfiliadoUnitario,
+    resolverOp: opcoes.custosOperacionais ?? (() => 0),
+  };
+}
+
+/** Margem que sobraria se este anúncio fosse vendido a `preco`. */
+export function margemNoPreco(
+  a: Anuncio,
+  preco: number,
+  opcoes: OpcoesLimites = {},
+): number {
+  if (preco <= 0) return 0;
+  const { percentuais, fixos, resolverOp } = componentes(a, opcoes);
+  return (preco - preco * percentuais - fixos - resolverOp(preco)) / preco;
+}
+
 export function limitesDePreco(
   a: Anuncio,
   margemMinima: number,
   opcoes: OpcoesLimites = {},
 ): LimitesPreco {
   const calculavel = a.cmv !== null;
-  const cmv = a.cmv ?? 0;
-  const aliquota = opcoes.aliquotaImposto ?? a.impostoPercentual;
-  const resolverOp = opcoes.custosOperacionais ?? (() => 0);
-
-  // Tudo que sai como PERCENTUAL do preço: sobe e desce junto com ele.
-  const percentuais = aliquota + a.comissaoPercentual;
-  // Tudo que sai em REAIS por venda: não muda quando o preço muda. É por
-  // isso que a margem despenca rápido em produto de ticket baixo com frete
-  // caro — o frete continua lá inteiro enquanto o preço encolhe.
-  const fixos =
-    cmv + a.taxaFixa + a.freteUnitario + a.custoMidiaUnitario + a.custoAfiliadoUnitario;
+  const { percentuais, fixos, resolverOp } = componentes(a, opcoes);
 
   // Custo operacional percentual depende do preço, e o preço depende dele.
   // Duas passadas já convergem na casa do centavo para os valores reais.
@@ -270,10 +289,7 @@ export function limitesDePreco(
 
   const precoMinimo = precoPara(margemMinima);
   const precoEmpate = precoPara(0);
-
-  const lucroAtual =
-    a.precoAtual - a.precoAtual * percentuais - fixos - resolverOp(a.precoAtual);
-  const margemAtual = a.precoAtual > 0 ? lucroAtual / a.precoAtual : 0;
+  const margemAtual = margemNoPreco(a, a.precoAtual, opcoes);
 
   return {
     precoMinimo,
@@ -284,6 +300,97 @@ export function limitesDePreco(
     faltaParaMinimo:
       calculavel && precoMinimo > a.precoAtual ? precoMinimo - a.precoAtual : 0,
     calculavel,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente de giro                                                      */
+/* ------------------------------------------------------------------ */
+
+/** Dias sem vender a partir dos quais o produto conta como parado. */
+export const DIAS_PARADO_PADRAO = 30;
+
+/**
+ * Quanto o agente corta por vez. Desconto pequeno de propósito: a ideia é
+ * parar no PRIMEIRO preço que volta a vender, não ir direto ao piso e
+ * queimar margem que talvez nem fosse necessário queimar.
+ */
+export const DEGRAU_DESCONTO_PADRAO = 0.05;
+
+/** Há quantos dias este anúncio não vende. null = nunca vendeu. */
+export function diasSemVender(a: Anuncio, referencia = new Date()): number | null {
+  if (!a.dataUltimaVenda) return null;
+  const dias = Math.floor(
+    (referencia.getTime() - new Date(a.dataUltimaVenda).getTime()) / 86400000,
+  );
+  return Math.max(0, dias);
+}
+
+export interface SugestaoGiro {
+  precoSugerido: number;
+  margemSugerida: number;
+  margemAtual: number;
+  precoMinimo: number;
+  precoEmpate: number;
+  diasParado: number;
+  /** O degrau bateria abaixo do piso e foi travado nele */
+  travadoNoPiso: boolean;
+  semaforo: SemaforoDecisao;
+}
+
+/**
+ * A decisão do agente de precificação, em uma função pura.
+ *
+ * Regra: produto parado há mais de `diasParado` dias leva um corte de um
+ * degrau, NUNCA abaixo do preço mínimo daquele canal. Se o corte cheio
+ * passaria do piso, o agente para no piso e marca `travadoNoPiso` — cabe ao
+ * seller decidir se quer ir além.
+ *
+ * Devolve null quando não há o que propor: sem CMV (não dá para calcular),
+ * sem venda nenhuma (não existe "parado"), ainda girando, ou já no piso.
+ */
+export function sugerirPrecoPorGiro(
+  a: Anuncio,
+  margemMinima: number,
+  opcoes: OpcoesLimites = {},
+  config: { diasParado?: number; degrau?: number; referencia?: Date } = {},
+): SugestaoGiro | null {
+  const limiteDias = config.diasParado ?? DIAS_PARADO_PADRAO;
+  const degrau = config.degrau ?? DEGRAU_DESCONTO_PADRAO;
+
+  const dias = diasSemVender(a, config.referencia);
+  if (dias === null || dias < limiteDias) return null;
+
+  const lim = limitesDePreco(a, margemMinima, opcoes);
+  if (!lim.calculavel) return null;
+
+  // Já está no piso ou abaixo dele: cortar mais fura a margem mínima, e
+  // isso o agente não propõe sozinho — quem decide queimar é o seller.
+  if (a.precoAtual <= lim.precoMinimo) return null;
+
+  const alvo = Math.round(a.precoAtual * (1 - degrau) * 100) / 100;
+  const travadoNoPiso = alvo < lim.precoMinimo;
+  const precoSugerido = travadoNoPiso
+    ? Math.round(lim.precoMinimo * 100) / 100
+    : alvo;
+
+  const margemSugerida = margemNoPreco(a, precoSugerido, opcoes);
+  const semaforo: SemaforoDecisao =
+    precoSugerido < lim.precoEmpate
+      ? "vermelho"
+      : margemSugerida < margemMinima - 0.0001
+        ? "amarelo"
+        : "verde";
+
+  return {
+    precoSugerido,
+    margemSugerida,
+    margemAtual: lim.margemAtual,
+    precoMinimo: lim.precoMinimo,
+    precoEmpate: lim.precoEmpate,
+    diasParado: dias,
+    travadoNoPiso,
+    semaforo,
   };
 }
 
