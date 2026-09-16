@@ -944,6 +944,7 @@ function gerarAnuncios(): Anuncio[] {
         marketplaceId: conta.marketplaceId,
         contaId: conta.id,
         sku: produto.sku,
+        ean: null,
         produto: produto.nome,
         precoAtual,
         precoCheio,
