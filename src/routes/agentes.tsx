@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Bot, Check, Clock, TrendingDown, X } from "lucide-react";
-import { anunciosService, contasService } from "@/services";
+import { Bot, Check, Clock, Loader2, TrendingDown, X } from "lucide-react";
+import { anunciosService, contasService, eventosAgenteService, produtosService } from "@/services";
+import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
@@ -40,20 +41,30 @@ function Agentes() {
   const { metasPorConta, fiscal, custoOperacionalTotal } = useConfiguracoes();
   const { selecionadas: contasSelecionadas, todasSelecionadas: semRestricaoDeConta } =
     useSelecaoContas();
+  const { sessao } = useAuth();
   const [aba, setAba] = useState<Aba>("operacao");
-  /** Decisões do seller nesta sessão: id do evento → aprovada/recusada */
-  const [decisoes, setDecisoes] = useState<Record<string, StatusSugestao>>({});
+  const [eventos, setEventos] = useState<EventoAgente[]>([]);
+  const [carregando, setCarregando] = useState(true);
 
   /**
-   * A varredura do agente. Hoje ela roda quando a tela abre; quando houver
-   * servidor, é exatamente esta função que passa a rodar de hora em hora
-   * sem ninguém olhando — o resultado (a lista de eventos) é o mesmo.
+   * A varredura do agente. Hoje roda quando a tela abre; quando houver
+   * servidor, é esta mesma função que passa a rodar de hora em hora sem
+   * ninguém olhando. Só GRAVA sugestão nova pra SKU que ainda não tem
+   * uma pendente — sem isso, toda vez que a tela abrisse duplicaria tudo.
    */
-  const eventos = useMemo<EventoAgente[]>(() => {
-    const achados: EventoAgente[] = [];
+  const carregarEventos = useCallback(async () => {
+    if (!sessao) return;
+    const perfilId = sessao.user.id;
+
+    // Garante que o CMV dos produtos reais já está espalhado pros
+    // anúncios de exemplo, mesmo que o seller nunca tenha passado pela
+    // tela de Custos nesta sessão — senão o agente avalia sem custo.
+    const produtos = await produtosService.listar(perfilId);
+    produtosService.reconciliarComAnuncios(produtos);
+
+    const candidatos: Omit<EventoAgente, "id" | "status" | "decididoEm" | "data">[] = [];
     for (const a of anunciosService.listar()) {
       if (a.status !== "ativo") continue;
-      if (!semRestricaoDeConta && !contasSelecionadas.has(a.contaId)) continue;
 
       const metas = metasPorConta[a.contaId] ?? null;
       const margemMinima = metas?.margemMinima ?? FAIXAS_MARGEM_PADRAO.margemMinima;
@@ -66,11 +77,8 @@ function Agentes() {
       );
       if (!s) continue;
 
-      achados.push({
-        id: `ev-${a.id}`,
+      candidatos.push({
         agenteId: "precificacao",
-        // Sem servidor ainda, a hora do evento é a hora da varredura.
-        data: new Date().toISOString(),
         anuncioId: a.id,
         sku: a.sku,
         produto: a.produto,
@@ -87,27 +95,50 @@ function Agentes() {
         precoMinimo: s.precoMinimo,
         semaforo: s.semaforo,
         travadoNoPiso: s.travadoNoPiso,
-        status: "pendente",
-        decididoEm: null,
       });
     }
-    // Mais parado primeiro: é onde o dinheiro está preso há mais tempo.
-    return achados.sort((x, y) => y.diasParado - x.diasParado);
-  }, [
-    contasSelecionadas,
-    semRestricaoDeConta,
-    metasPorConta,
-    fiscal,
-    custoOperacionalTotal,
-  ]);
 
-  const comStatus = eventos.map((e) => ({ ...e, status: decisoes[e.id] ?? e.status }));
-  const pendentes = comStatus.filter((e) => e.status === "pendente");
-  const decididos = comStatus.filter((e) => e.status !== "pendente");
+    const jaPendentes = await eventosAgenteService.skusPendentes(perfilId, "precificacao");
+    for (const c of candidatos) {
+      if (jaPendentes.has(c.sku)) continue;
+      const erro = await eventosAgenteService.criar(perfilId, c);
+      if (erro) console.error("Não consegui gravar a sugestão:", erro);
+    }
+
+    const lista = await eventosAgenteService.listar(perfilId);
+    setEventos(lista);
+    setCarregando(false);
+  }, [sessao, metasPorConta, fiscal, custoOperacionalTotal]);
+
+  useEffect(() => {
+    carregarEventos();
+  }, [carregarEventos]);
+
+  // O filtro de canal ("Todas as contas") só recorta o que aparece — não
+  // muda o que o agente já gravou. Assim trocar o filtro não refaz a
+  // varredura nem conversa de novo com o banco.
+  const eventosNaSelecao = semRestricaoDeConta
+    ? eventos
+    : eventos.filter((e) => contasSelecionadas.has(e.contaId));
+
+  const pendentes = eventosNaSelecao.filter((e) => e.status === "pendente");
+  const decididos = eventosNaSelecao.filter((e) => e.status !== "pendente");
   const aprovadas = decididos.filter((e) => e.status === "aprovada").length;
 
-  const decidir = (evento: EventoAgente, status: StatusSugestao) => {
-    setDecisoes((atual) => ({ ...atual, [evento.id]: status }));
+  const decidir = async (evento: EventoAgente, status: StatusSugestao) => {
+    if (status !== "aprovada" && status !== "recusada") return;
+    // Otimista: a tela responde na hora.
+    setEventos((atual) =>
+      atual.map((e) =>
+        e.id === evento.id ? { ...e, status, decididoEm: new Date().toISOString() } : e,
+      ),
+    );
+    const erro = await eventosAgenteService.decidir(evento.id, status);
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      await carregarEventos();
+      return;
+    }
     if (status === "aprovada") {
       toast.success(
         `Aprovado: ${evento.produto} de ${formatBRL(evento.precoAtual)} para ${formatBRL(evento.precoSugerido)}. Aplique no marketplace — sem API conectada, o agente ainda não altera sozinho.`,
@@ -199,11 +230,18 @@ function Agentes() {
 
         {/* Feed */}
         <div className="divide-y">
-          {lista.map((e) => (
+          {carregando && (
+            <div className="flex items-center justify-center gap-2 px-4 py-14 text-xs text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" />
+              Verificando seus produtos...
+            </div>
+          )}
+
+          {!carregando && lista.map((e) => (
             <CardDecisao key={e.id} evento={e} aoDecidir={decidir} />
           ))}
 
-          {lista.length === 0 && (
+          {!carregando && lista.length === 0 && (
             <div className="px-4 py-14 text-center">
               <p className="text-xs text-muted-foreground">
                 {aba === "operacao"
