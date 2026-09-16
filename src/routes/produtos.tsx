@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Check, ChevronRight, Link2, Loader2, Pencil, Plus, RefreshCw } from "lucide-react";
+import { Check, ChevronRight, Link2, Loader2, Pencil, RefreshCw } from "lucide-react";
 import { anunciosService, contasService, produtosService } from "@/services";
 import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
@@ -104,9 +104,8 @@ function Produtos() {
   const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>("todos");
   const [editando, setEditando] = useState<string | null>(null);
   const [valorEdicao, setValorEdicao] = useState("");
-  const [sincronizando, setSincronizando] = useState(false);
   const [emVinculo, setEmVinculo] = useState<Anuncio | null>(null);
-  const [novoProdutoAberto, setNovoProdutoAberto] = useState(false);
+  const [receberAberto, setReceberAberto] = useState(false);
   /** Produto com os canais abertos; null = todos fechados */
   const [expandido, setExpandido] = useState<string | null>(null);
   // Os anúncios ainda vivem fora do React (src/data/mock.ts) — dependem da
@@ -286,29 +285,6 @@ function Produtos() {
     );
   };
 
-  const sincronizarTodos = async () => {
-    setSincronizando(true);
-    // Fictício: simula puxar o feed de LISTAGENS de cada marketplace de uma
-    // vez, sem precisar entrar conta por conta. Quando a API real conectar,
-    // isso vira uma chamada por conta ativa, em paralelo.
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-    const contasAtivas = contasService.ativas();
-    let vinculadosAuto = 0;
-    for (const conta of contasAtivas) {
-      const novo = anunciosService.puxarNovoAnuncio(conta);
-      if (novo.produtoId) vinculadosAuto++;
-      atualizarConta(conta.id, { ultimaSincronizacao: new Date().toISOString() });
-    }
-    setTick((n) => n + 1);
-    setSincronizando(false);
-    toast.success(
-      `${formatNumero(contasAtivas.length)} conta(s) sincronizada(s) — ${formatNumero(contasAtivas.length)} anúncio(s) novo(s) encontrado(s)` +
-        (vinculadosAuto > 0
-          ? `, ${formatNumero(vinculadosAuto)} já vinculado(s) automaticamente pelo SKU.`
-          : "."),
-    );
-  };
-
   const BOTOES_STATUS: { id: StatusFiltro; rotulo: string; qtd: number }[] = [
     { id: "todos", rotulo: "Todos", qtd: linhas.length },
     {
@@ -326,13 +302,9 @@ function Produtos() {
         descricao="O CMV mora aqui — uma vez só. Mudar o custo de um produto atualiza na hora todo anúncio vinculado a ele, em qualquer marketplace"
         acoes={
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => setNovoProdutoAberto(true)}>
-              <Plus className="size-3.5" />
-              Novo produto
-            </Button>
-            <Button size="sm" variant="outline" disabled={sincronizando} onClick={sincronizarTodos}>
-              <RefreshCw className={cn("size-3.5", sincronizando && "animate-spin")} />
-              {sincronizando ? "Sincronizando..." : "Sincronizar todos os marketplaces"}
+            <Button size="sm" onClick={() => setReceberAberto(true)}>
+              <RefreshCw className="size-3.5" />
+              Receber anúncios
             </Button>
             <ExportarDados
               nomeArquivo="custos"
@@ -586,16 +558,17 @@ function Produtos() {
                   <tr>
                     <td colSpan={6} className="px-4 py-14 text-center">
                       <p className="text-xs text-muted-foreground">
-                        Nenhum produto cadastrado ainda.
+                        Nenhum produto cadastrado ainda. Receba os anúncios do marketplace e
+                        vincule o CMV de cada um.
                       </p>
                       <Button
                         size="sm"
                         variant="outline"
                         className="mt-3"
-                        onClick={() => setNovoProdutoAberto(true)}
+                        onClick={() => setReceberAberto(true)}
                       >
-                        <Plus className="size-3.5" />
-                        Cadastrar o primeiro produto
+                        <RefreshCw className="size-3.5" />
+                        Receber anúncios
                       </Button>
                     </td>
                   </tr>
@@ -642,12 +615,12 @@ function Produtos() {
         />
       )}
 
-      {novoProdutoAberto && sessao && (
-        <DialogNovoProduto
-          perfilId={sessao.user.id}
-          aoFechar={() => setNovoProdutoAberto(false)}
-          aoCriar={() => {
-            setNovoProdutoAberto(false);
+      {receberAberto && (
+        <DialogReceberAnuncios
+          atualizarConta={atualizarConta}
+          aoFechar={() => setReceberAberto(false)}
+          aoConcluir={() => {
+            setReceberAberto(false);
             carregarProdutos();
           }}
         />
@@ -656,113 +629,164 @@ function Produtos() {
   );
 }
 
+const OPCOES_MARKETPLACE: { id: MarketplaceId | "todos"; nome: string }[] = [
+  { id: "todos", nome: "Todos os marketplaces" },
+  { id: "mercado-livre", nome: "Mercado Livre" },
+  { id: "shopee", nome: "Shopee" },
+  { id: "amazon", nome: "Amazon" },
+  { id: "magalu", nome: "Magalu" },
+  { id: "tiktok-shop", nome: "TikTok Shop" },
+  { id: "shein", nome: "Shein" },
+];
+
+type ModoRecebimento = "todos" | "especifico";
+
 /**
- * Cadastro direto de produto, sem precisar partir de um anúncio pendente —
- * pra quando o seller quer montar o catálogo antes de ter qualquer anúncio
- * vinculado. SKU é a chave que casa este produto com os anúncios (de
- * exemplo, por ora) — dois produtos não podem repetir o mesmo SKU.
+ * "Receber anúncios" — o único jeito de anúncio entrar no sistema, hoje de
+ * mentira (não há API ainda) e amanhã de verdade, sem mudar esta tela.
+ *
+ * Duas escolhas em sequência: de qual marketplace (ou todos), e se é pra
+ * trazer tudo que existe lá ou só um anúncio específico por SKU/EAN — pro
+ * caso do seller só querer testar ou resolver um produto pontual.
  */
-function DialogNovoProduto({
-  perfilId,
+function DialogReceberAnuncios({
+  atualizarConta,
   aoFechar,
-  aoCriar,
+  aoConcluir,
 }: {
-  perfilId: string;
+  atualizarConta: (contaId: string, dados: { ultimaSincronizacao: string }) => void;
   aoFechar: () => void;
-  aoCriar: (produto: Produto) => void;
+  aoConcluir: () => void;
 }) {
+  const [marketplace, setMarketplace] = useState<MarketplaceId | "todos">("todos");
+  const [modo, setModo] = useState<ModoRecebimento>("todos");
   const [sku, setSku] = useState("");
-  const [nome, setNome] = useState("");
   const [ean, setEan] = useState("");
-  const [cmv, setCmv] = useState("");
-  const [salvando, setSalvando] = useState(false);
+  const [buscando, setBuscando] = useState(false);
 
-  const valido = sku.trim() !== "" && nome.trim() !== "";
+  const buscaValida = modo === "todos" || sku.trim() !== "" || ean.trim() !== "";
 
-  const salvar = async () => {
-    if (!valido) return;
-    setSalvando(true);
-    const { produto, erro } = await produtosService.criar(perfilId, {
-      sku: sku.trim(),
-      nome: nome.trim(),
-      ean: ean.trim() || null,
-      cmv: Number(cmv.replace(",", ".")) || 0,
-    });
-    setSalvando(false);
-    if (erro) {
-      toast.error(erro);
+  const receber = async () => {
+    if (!buscaValida) return;
+    setBuscando(true);
+    // Fictício: sem API ainda, cada clique fabrica anúncio de exemplo. O
+    // filtro por marketplace e o modo específico já ficam prontos pro dia
+    // em que isso vira uma chamada real por conta.
+    await new Promise((resolve) => setTimeout(resolve, 900));
+
+    const alvo = marketplace === "todos" ? undefined : marketplace;
+    const contasAtivas = contasService.ativas(alvo);
+
+    if (contasAtivas.length === 0) {
+      setBuscando(false);
+      toast.error("Nenhuma conta conectada nesse marketplace ainda.");
       return;
     }
-    if (produto) {
-      toast.success(`Produto "${produto.nome}" cadastrado.`);
-      aoCriar(produto);
+
+    let vinculadosAuto = 0;
+    for (const conta of contasAtivas) {
+      const novo =
+        modo === "todos"
+          ? anunciosService.puxarNovoAnuncio(conta)
+          : anunciosService.puxarAnuncioEspecifico(conta, { sku, ean });
+      if (novo.produtoId) vinculadosAuto++;
+      atualizarConta(conta.id, { ultimaSincronizacao: new Date().toISOString() });
     }
+
+    setBuscando(false);
+    toast.success(
+      modo === "todos"
+        ? `${formatNumero(contasAtivas.length)} conta(s) verificada(s) — anúncio(s) novo(s) encontrado(s)` +
+            (vinculadosAuto > 0
+              ? `, ${formatNumero(vinculadosAuto)} já vinculado(s) automaticamente pelo SKU.`
+              : ".")
+        : `Anúncio buscado em ${formatNumero(contasAtivas.length)} conta(s).`,
+    );
+    aoConcluir();
   };
 
   return (
     <Dialog open onOpenChange={aoFechar}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Novo produto</DialogTitle>
+          <DialogTitle>Receber anúncios</DialogTitle>
           <DialogDescription>
-            O CMV cadastrado aqui vale para todo anúncio deste SKU, em qualquer marketplace.
+            Puxa os anúncios do marketplace para a tela de Custos — o que chegar sem CMV
+            cai em "sem vínculo", esperando você informar o custo.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div>
-            <Label className="text-xs text-muted-foreground">SKU *</Label>
-            <Input
-              autoFocus
-              value={sku}
-              onChange={(e) => setSku(e.target.value)}
-              placeholder="Seu código interno"
-              className="mt-1"
-              disabled={salvando}
-            />
+            <Label className="text-xs text-muted-foreground">De qual marketplace?</Label>
+            <Select
+              value={marketplace}
+              onValueChange={(v) => setMarketplace(v as MarketplaceId | "todos")}
+            >
+              <SelectTrigger className="mt-1 h-9 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {OPCOES_MARKETPLACE.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>
+                    {o.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
+
           <div>
-            <Label className="text-xs text-muted-foreground">Nome do produto *</Label>
-            <Input
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              placeholder="Como você reconhece esse produto"
-              className="mt-1"
-              disabled={salvando}
-            />
+            <Label className="text-xs text-muted-foreground">O quê?</Label>
+            <Select value={modo} onValueChange={(v) => setModo(v as ModoRecebimento)}>
+              <SelectTrigger className="mt-1 h-9 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Puxar todos os anúncios</SelectItem>
+                <SelectItem value="especifico">Puxar um anúncio específico</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs text-muted-foreground">EAN (opcional)</Label>
-              <Input
-                value={ean}
-                onChange={(e) => setEan(e.target.value)}
-                placeholder="Código de barras"
-                className="mt-1"
-                disabled={salvando}
-              />
+
+          {modo === "especifico" && (
+            <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/50 p-3">
+              <div>
+                <Label className="text-xs text-muted-foreground">SKU</Label>
+                <Input
+                  value={sku}
+                  onChange={(e) => setSku(e.target.value)}
+                  placeholder="Código do anúncio"
+                  className="mt-1"
+                  disabled={buscando}
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">EAN</Label>
+                <Input
+                  value={ean}
+                  onChange={(e) => setEan(e.target.value)}
+                  placeholder="Código de barras"
+                  className="mt-1"
+                  disabled={buscando}
+                />
+              </div>
+              {!buscaValida && (
+                <p className="col-span-2 text-[10px] text-muted-foreground">
+                  Informe pelo menos SKU ou EAN.
+                </p>
+              )}
             </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">CMV (R$)</Label>
-              <Input
-                inputMode="decimal"
-                value={cmv}
-                onChange={(e) => setCmv(e.target.value)}
-                placeholder="0,00"
-                className="mt-1"
-                disabled={salvando}
-              />
-            </div>
-          </div>
+          )}
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={aoFechar} disabled={salvando}>
+          <Button variant="ghost" onClick={aoFechar} disabled={buscando}>
             Cancelar
           </Button>
-          <Button onClick={salvar} disabled={!valido || salvando}>
-            {salvando ? <Loader2 className="size-3.5 animate-spin" /> : null}
-            Cadastrar
+          <Button onClick={receber} disabled={!buscaValida || buscando}>
+            {buscando ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            Receber
           </Button>
         </DialogFooter>
       </DialogContent>
