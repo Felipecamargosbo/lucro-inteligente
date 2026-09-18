@@ -311,8 +311,15 @@ export const CONTAS_ATIVAS = CONTAS.filter(
   (c) => c.statusConexao !== "desconectado",
 );
 
-export const getMarketplace = (id: MarketplaceId) =>
-  MARKETPLACES.find((m) => m.id === id)!;
+/** Nunca lança erro, mesmo com um id desconhecido ou vazio — uma linha
+ * salva no banco com esse campo faltando não pode derrubar a tela
+ * inteira. Sem achar, devolve um "marketplace" genérico só pra exibir
+ * algo em vez de quebrar. */
+export const getMarketplace = (id: MarketplaceId | null | undefined): Marketplace =>
+  MARKETPLACES.find((m) => m.id === id) ?? {
+    id: (id ?? "desconhecido") as MarketplaceId,
+    nome: id ? String(id) : "Marketplace",
+  };
 
 /** Semente de produto usada só para gerar pedidos/anúncios fictícios — não
  * confundir com o Produto do catálogo (@/types), que é o que o seller edita. */
