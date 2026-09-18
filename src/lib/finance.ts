@@ -15,7 +15,7 @@ import type {
   Promocao,
   SemaforoDecisao,
 } from "@/types";
-import { dentroDoPeriodo, inicioDoDia, listarDias } from "./period";
+import { dentroDoPeriodo, fimDoDia, inicioDoDia, listarDias, somarDias } from "./period";
 
 export interface ResultadoVenda {
   precoVenda: number;
@@ -1071,5 +1071,164 @@ export function montarDre(entrada: {
     margemSeguranca,
     lancamentosDespesa,
     lancamentosReceita,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente Analista                                                     */
+/* ------------------------------------------------------------------ */
+// As cinco frentes do Analista: cada função aqui olha um pedaço do que o
+// sistema já calcula e decide se há algo que merece virar aviso. Nenhuma
+// delas decide preço ou executa nada — só aponta o que merece atenção,
+// igual um analista de verdade faria numa reunião de resultado.
+
+export interface DiagnosticoMargem {
+  margemAtual: number;
+  margemAnterior: number;
+  faturamentoAtual: number;
+  faturamentoAnterior: number;
+  /** Pontos percentuais de diferença — negativo é piora */
+  diferencaPP: number;
+  periodoRotulo: string;
+}
+
+/** Quantos pontos percentuais de queda já valem um aviso. Queda menor que
+ * isso é ruído normal do dia a dia, não vale interromper o seller. */
+export const LIMIAR_QUEDA_MARGEM_PP = 3;
+
+/**
+ * Compara a margem dos últimos `dias` com o período igual, imediatamente
+ * anterior — hoje vs. os `dias` dias antes de hoje. Só retorna algo
+ * quando a queda passa do limiar; alta ou estabilidade não geram aviso.
+ */
+export function diagnosticarQuedaMargem(
+  pedidos: Pedido[],
+  dias = 7,
+  referencia = new Date(),
+): DiagnosticoMargem | null {
+  const fimAtual = fimDoDia(referencia);
+  const inicioAtual = inicioDoDia(somarDias(referencia, -(dias - 1)));
+  const fimAnterior = fimDoDia(somarDias(inicioAtual, -1));
+  const inicioAnterior = inicioDoDia(somarDias(inicioAtual, -dias));
+
+  const periodoAtual: Periodo = { inicio: inicioAtual, fim: fimAtual, rotulo: `Últimos ${dias} dias` };
+  const periodoAnterior: Periodo = {
+    inicio: inicioAnterior,
+    fim: fimAnterior,
+    rotulo: `${dias} dias anteriores`,
+  };
+
+  const resumoAtual = resumir(filtrarPorPeriodo(pedidos, periodoAtual));
+  const resumoAnterior = resumir(filtrarPorPeriodo(pedidos, periodoAnterior));
+
+  // Sem venda no período anterior pra comparar — não dá pra dizer se
+  // piorou ou melhorou, então não inventa um diagnóstico.
+  if (resumoAnterior.faturamento <= 0 || resumoAtual.faturamento <= 0) return null;
+
+  const diferencaPP = (resumoAtual.margem - resumoAnterior.margem) * 100;
+  if (diferencaPP > -LIMIAR_QUEDA_MARGEM_PP) return null;
+
+  return {
+    margemAtual: resumoAtual.margem,
+    margemAnterior: resumoAnterior.margem,
+    faturamentoAtual: resumoAtual.faturamento,
+    faturamentoAnterior: resumoAnterior.faturamento,
+    diferencaPP,
+    periodoRotulo: periodoAtual.rotulo,
+  };
+}
+
+export interface DiagnosticoAbc {
+  /** Os poucos produtos que sozinhos respondem pela maior fatia do faturamento */
+  topA: ItemCurvaABC[];
+  /** Baixo faturamento (classe C) E vendendo com prejuízo — candidato a descontinuar */
+  cEmPrejuizo: ItemCurvaABC[];
+}
+
+/**
+ * Não recalcula a curva ABC — só lê o que `curvaABC()` já produz e separa
+ * o que merece virar aviso: quem carrega o negócio, e quem nem vende
+ * muito nem dá lucro.
+ */
+export function diagnosticarCurvaAbc(
+  anuncios: Anuncio[],
+  opcoes: OpcoesLimites = {},
+): DiagnosticoAbc | null {
+  const itens = curvaABC(anuncios.filter((a) => a.status === "ativo"));
+  if (itens.length === 0) return null;
+
+  const topA = itens.filter((i) => i.classe === "A").slice(0, 5);
+  const cEmPrejuizo = itens.filter(
+    (i) => i.classe === "C" && margemNoPreco(i.anuncio, i.anuncio.precoAtual, opcoes) < 0,
+  );
+
+  if (topA.length === 0 && cEmPrejuizo.length === 0) return null;
+  return { topA, cEmPrejuizo };
+}
+
+export interface DiagnosticoDadoFaltando {
+  anunciosSemCusto: number;
+  contasSemMeta: number;
+}
+
+/**
+ * O que impede o resto do sistema (inclusive os outros agentes) de
+ * calcular direito. Sem isso, o preço mínimo e a margem mostrada são
+ * chute, não conta.
+ */
+export function diagnosticarDadoFaltando(
+  anuncios: Anuncio[],
+  contasAtivas: ContaMarketplace[],
+  metasPorConta: Record<string, MetasMargem | null>,
+): DiagnosticoDadoFaltando | null {
+  const anunciosSemCusto = anuncios.filter((a) => a.status === "ativo" && a.cmv === null).length;
+  const contasSemMeta = contasAtivas.filter((c) => !metasPorConta[c.id]).length;
+  if (anunciosSemCusto === 0 && contasSemMeta === 0) return null;
+  return { anunciosSemCusto, contasSemMeta };
+}
+
+export interface AlertaSaudeConta {
+  conta: ContaMarketplace;
+  alerta: string;
+}
+
+/**
+ * Não fala de lucro — fala da conta continuar existindo. `reputacao.alerta`
+ * já vem calculado por conta; aqui só reúne quem está com algo acesso.
+ */
+export function diagnosticarSaudeContas(contas: ContaMarketplace[]): AlertaSaudeConta[] {
+  return contas
+    .filter((c) => c.reputacao?.alerta)
+    .map((c) => ({ conta: c, alerta: c.reputacao!.alerta! }));
+}
+
+export interface ResumoDiario {
+  faturamento: number;
+  margem: number;
+  pedidos: number;
+  quedaDeMargem: boolean;
+  anunciosSemCusto: number;
+  contasEmAlerta: number;
+  destaqueAbc: string | null;
+}
+
+/** Um resumo curto do dia, juntando o que as outras quatro frentes já
+ * apuraram — pensado pra ler em 10 segundos, não pra substituir elas. */
+export function montarResumoDiario(
+  pedidosHoje: Pedido[],
+  quedaMargem: DiagnosticoMargem | null,
+  dadoFaltando: DiagnosticoDadoFaltando | null,
+  saude: AlertaSaudeConta[],
+  abc: DiagnosticoAbc | null,
+): ResumoDiario {
+  const resumo = resumir(pedidosHoje);
+  return {
+    faturamento: resumo.faturamento,
+    margem: resumo.margem,
+    pedidos: resumo.pedidos,
+    quedaDeMargem: quedaMargem !== null,
+    anunciosSemCusto: dadoFaltando?.anunciosSemCusto ?? 0,
+    contasEmAlerta: saude.length,
+    destaqueAbc: abc && abc.topA.length > 0 ? abc.topA[0]!.anuncio.produto : null,
   };
 }
