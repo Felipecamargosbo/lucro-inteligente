@@ -13,7 +13,7 @@ import {
   Store,
 } from "lucide-react";
 
-import type { MarketplaceId } from "@/types";
+import type { MarketplaceId, RecursosPlano } from "@/types";
 
 export interface ItemMenu {
   titulo: string;
@@ -24,6 +24,9 @@ export interface ItemMenu {
   usaPeriodo: boolean;
   /** Mostra o filtro global de contas (canal/conta) no topo desta página */
   usaFiltroContas: boolean;
+  /** Só aparece pra quem tem esse recurso liberado no plano — ausente =
+   * item visível pra todo mundo. */
+  requerRecurso?: keyof RecursosPlano;
 }
 
 export const MENU: ItemMenu[] = [
@@ -91,6 +94,7 @@ export const MENU: ItemMenu[] = [
     descricao: "O que os agentes decidiram e o que espera a sua aprovação",
     usaPeriodo: false,
     usaFiltroContas: true,
+    requerRecurso: "agentes",
   },
   {
     titulo: "Estoque",
