@@ -129,7 +129,7 @@ export function MenuLateral({
   alternar: () => void;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { perfil, sair } = useAuth();
+  const { perfil, recursos, sair } = useAuth();
 
   const ativo = (url: string) =>
     url === "/" ? pathname === "/" : pathname.startsWith(url);
@@ -180,7 +180,11 @@ export function MenuLateral({
                 {grupo}
               </p>
             )}
-            {MENU.filter((item) => item.grupo === grupo).map((item) => {
+            {MENU.filter(
+              (item) =>
+                item.grupo === grupo &&
+                (!item.requerRecurso || recursos[item.requerRecurso]),
+            ).map((item) => {
               // "Marketplaces" não é um link simples: é um grupo que abre
               // a lista de canais conectados.
               if (item.url === "/marketplaces") {
