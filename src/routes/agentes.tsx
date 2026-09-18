@@ -41,7 +41,7 @@ function Agentes() {
   const { metasPorConta, fiscal, custoOperacionalTotal } = useConfiguracoes();
   const { selecionadas: contasSelecionadas, todasSelecionadas: semRestricaoDeConta } =
     useSelecaoContas();
-  const { sessao } = useAuth();
+  const { sessao, recursos } = useAuth();
   const [aba, setAba] = useState<Aba>("operacao");
   const [eventos, setEventos] = useState<EventoAgente[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -53,7 +53,7 @@ function Agentes() {
    * uma pendente — sem isso, toda vez que a tela abrisse duplicaria tudo.
    */
   const carregarEventos = useCallback(async () => {
-    if (!sessao) return;
+    if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
     // Garante que o CMV dos produtos reais já está espalhado pros
@@ -108,7 +108,7 @@ function Agentes() {
     const lista = await eventosAgenteService.listar(perfilId);
     setEventos(lista);
     setCarregando(false);
-  }, [sessao, metasPorConta, fiscal, custoOperacionalTotal]);
+  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
 
   useEffect(() => {
     carregarEventos();
@@ -149,6 +149,25 @@ function Agentes() {
   };
 
   const lista = aba === "operacao" ? pendentes : decididos;
+
+  if (!recursos.agentes) {
+    return (
+      <div className="mx-auto max-w-[1100px]">
+        <Painel titulo="Agentes" descricao="Recurso do plano com Agentes">
+          <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
+            <div className="flex size-12 items-center justify-center rounded-full bg-brand/15 text-brand">
+              <Bot className="size-5" />
+            </div>
+            <p className="text-sm font-semibold">Isso ainda não está no seu plano</p>
+            <p className="max-w-sm text-xs text-muted-foreground">
+              Os agentes de IA fazem parte do plano com Agentes. Fale com o suporte pra
+              fazer o upgrade e ligar essa tela pra sua conta.
+            </p>
+          </div>
+        </Painel>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-6">
