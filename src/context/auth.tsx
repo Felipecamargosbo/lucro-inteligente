@@ -7,7 +7,7 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import type { Perfil } from "@/types";
+import type { Perfil, RecursosPlano } from "@/types";
 
 /**
  * Sessão de login do seller (Supabase Auth) + o perfil dele (tabela
@@ -20,6 +20,9 @@ type DadosEditaveis = Partial<Pick<Perfil, "nomeExibicao" | "razaoSocial" | "log
 interface AuthContexto {
   sessao: Session | null;
   perfil: Perfil | null;
+  /** O que o plano atual libera — enquanto carrega ou se algo falhar, vem
+   * fechado (só o essencial), nunca aberto por padrão. */
+  recursos: RecursosPlano;
   carregando: boolean;
   entrar: (email: string, senha: string) => Promise<{ erro: string | null }>;
   cadastrar: (
@@ -41,6 +44,23 @@ const Ctx = createContext<AuthContexto | null>(null);
 
 const BUCKET_LOGOS = "logos";
 
+/** Fechado por padrão: enquanto não se sabe o plano (ou se a consulta
+ * falhar), o seller não vê recurso pago nenhum liberado por engano. */
+const RECURSOS_PADRAO: RecursosPlano = {
+  dashboard: true,
+  agentes: false,
+  agentesEscrita: false,
+};
+
+function mapearRecursos(json: unknown): RecursosPlano {
+  const j = (json ?? {}) as Record<string, unknown>;
+  return {
+    dashboard: Boolean(j.dashboard),
+    agentes: Boolean(j.agentes),
+    agentesEscrita: Boolean(j.agentes_escrita),
+  };
+}
+
 function linhaParaPerfil(linha: {
   id: string;
   nome_exibicao: string;
@@ -48,6 +68,7 @@ function linhaParaPerfil(linha: {
   email: string;
   logo_url: string | null;
   plano: string;
+  plano_id: string;
 }): Perfil {
   return {
     id: linha.id,
@@ -56,18 +77,20 @@ function linhaParaPerfil(linha: {
     email: linha.email,
     logoUrl: linha.logo_url,
     plano: linha.plano,
+    planoId: linha.plano_id,
   };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [sessao, setSessao] = useState<Session | null>(null);
   const [perfil, setPerfil] = useState<Perfil | null>(null);
+  const [recursos, setRecursos] = useState<RecursosPlano>(RECURSOS_PADRAO);
   const [carregando, setCarregando] = useState(true);
 
   async function buscarPerfil(userId: string) {
     const { data, error } = await supabase
       .from("perfis")
-      .select("id, nome_exibicao, razao_social, email, logo_url, plano")
+      .select("id, nome_exibicao, razao_social, email, logo_url, plano, plano_id")
       .eq("id", userId)
       .single();
 
@@ -76,9 +99,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // se não achou, o mais provável é ela ainda não ter rodado. Não é
       // motivo pra travar o app; a lateral cai num nome padrão.
       setPerfil(null);
+      setRecursos(RECURSOS_PADRAO);
       return;
     }
     setPerfil(linhaParaPerfil(data));
+
+    const { data: plano } = await supabase
+      .from("planos")
+      .select("recursos")
+      .eq("id", data.plano_id)
+      .single();
+    setRecursos(plano ? mapearRecursos(plano.recursos) : RECURSOS_PADRAO);
   }
 
   useEffect(() => {
@@ -94,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         buscarPerfil(novaSessao.user.id);
       } else {
         setPerfil(null);
+        setRecursos(RECURSOS_PADRAO);
       }
     });
 
@@ -206,6 +238,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         sessao,
         perfil,
+        recursos,
         carregando,
         entrar,
         cadastrar,
