@@ -481,7 +481,7 @@ function linhaParaEvento(l: LinhaEventoAgente): EventoAgente {
     anuncioId: (d.anuncioId as string) ?? "",
     sku: l.sku ?? (d.sku as string) ?? "",
     produto: (d.produto as string) ?? "",
-    marketplaceId: d.marketplaceId as MarketplaceId,
+    marketplaceId: (d.marketplaceId as MarketplaceId) ?? "mercado-livre",
     contaId: l.conta_id ?? "",
     motivo: l.motivo,
     diasParado: (d.diasParado as number) ?? 0,
