@@ -555,7 +555,7 @@ export interface ItemEstoqueDetalhado {
 /* Agentes                                                            */
 /* ------------------------------------------------------------------ */
 
-export type AgenteId = "precificacao";
+export type AgenteId = "precificacao" | "analista";
 
 /**
  * Situação de uma sugestão. Enquanto não há API com permissão de escrita,
@@ -602,4 +602,35 @@ export interface EventoAgente {
   status: StatusSugestao;
   /** Quando o seller decidiu (ISO); null enquanto pendente */
   decididoEm: string | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente Analista                                                     */
+/* ------------------------------------------------------------------ */
+
+/** As cinco frentes do Analista — cada uma vira um tipo de aviso no feed. */
+export type TipoInsightAnalista =
+  | "queda_margem"
+  | "curva_abc"
+  | "dado_faltando"
+  | "saude_conta"
+  | "resumo_diario";
+
+/**
+ * Um aviso do Analista. Mais simples que `EventoAgente`: não é uma
+ * decisão de preço, é uma observação — por isso não tem "preço antes/
+ * depois", só o motivo e os números que sustentam ele em `dados`.
+ */
+export interface InsightAnalista {
+  id: string;
+  tipo: TipoInsightAnalista;
+  data: string;
+  /** null quando o aviso é do negócio como um todo, não de uma conta específica */
+  contaId: string | null;
+  motivo: string;
+  semaforo: SemaforoDecisao;
+  /** "aprovada" aqui significa "visto/reconhecido", não "aplicado" */
+  status: StatusSugestao;
+  decididoEm: string | null;
+  dados: Record<string, unknown>;
 }
