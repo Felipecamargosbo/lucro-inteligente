@@ -1,8 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Bot, Check, Clock, Loader2, TrendingDown, X } from "lucide-react";
-import { anunciosService, contasService, eventosAgenteService, produtosService } from "@/services";
+import {
+  AlertTriangle,
+  BarChart3,
+  Bot,
+  Check,
+  Clock,
+  Loader2,
+  ShieldAlert,
+  Sparkles,
+  TrendingDown,
+  X,
+} from "lucide-react";
+import {
+  anunciosService,
+  contasService,
+  eventosAgenteService,
+  produtosService,
+  vendasService,
+} from "@/services";
 import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
@@ -10,13 +27,24 @@ import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import {
   DEGRAU_DESCONTO_PADRAO,
   DIAS_PARADO_PADRAO,
+  diagnosticarCurvaAbc,
+  diagnosticarDadoFaltando,
+  diagnosticarQuedaMargem,
+  diagnosticarSaudeContas,
   FAIXAS_MARGEM_PADRAO,
+  montarResumoDiario,
   sugerirPrecoPorGiro,
 } from "@/lib/finance";
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { EventoAgente, SemaforoDecisao, StatusSugestao } from "@/types";
+import type {
+  EventoAgente,
+  InsightAnalista,
+  SemaforoDecisao,
+  StatusSugestao,
+  TipoInsightAnalista,
+} from "@/types";
 
 export const Route = createFileRoute("/agentes")({
   head: () => ({
@@ -34,6 +62,7 @@ export const Route = createFileRoute("/agentes")({
 });
 
 const NOME_AGENTE = "Agente de Precificação";
+const NOME_ANALISTA = "Agente Analista";
 
 type Aba = "operacao" | "historico";
 
@@ -44,6 +73,7 @@ function Agentes() {
   const { sessao, recursos } = useAuth();
   const [aba, setAba] = useState<Aba>("operacao");
   const [eventos, setEventos] = useState<EventoAgente[]>([]);
+  const [insights, setInsights] = useState<InsightAnalista[]>([]);
   const [carregando, setCarregando] = useState(true);
 
   /**
@@ -110,9 +140,119 @@ function Agentes() {
     setCarregando(false);
   }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
 
+  const [carregandoInsights, setCarregandoInsights] = useState(true);
+
+  /**
+   * As cinco frentes do Analista, rodando de uma vez: queda de margem,
+   * curva ABC, dado faltando, saúde da conta e o resumo do dia. Cada
+   * frente só vira aviso quando tem algo que realmente merece atenção —
+   * sem novidade, fica quieto.
+   */
+  const carregarInsights = useCallback(async () => {
+    if (!sessao || !recursos.agentes) return;
+    const perfilId = sessao.user.id;
+
+    const pedidos = vendasService.listar();
+    const anuncios = anunciosService.listar();
+    const contasAtivas = contasService.ativas();
+    const opcoesCusto = {
+      aliquotaImposto: fiscal.aliquota,
+      custosOperacionais: custoOperacionalTotal,
+    };
+
+    const quedaMargem = diagnosticarQuedaMargem(pedidos);
+    const abc = diagnosticarCurvaAbc(anuncios, opcoesCusto);
+    const dadoFaltando = diagnosticarDadoFaltando(anuncios, contasAtivas, metasPorConta);
+    const saude = diagnosticarSaudeContas(contasAtivas);
+    const hoje = new Date();
+    const pedidosHoje = pedidos.filter(
+      (p) => new Date(p.data).toDateString() === hoje.toDateString(),
+    );
+    const resumo = montarResumoDiario(pedidosHoje, quedaMargem, dadoFaltando, saude, abc);
+
+    const candidatos: Omit<InsightAnalista, "id" | "status" | "decididoEm" | "data">[] = [];
+
+    if (quedaMargem) {
+      candidatos.push({
+        tipo: "queda_margem",
+        contaId: null,
+        motivo: `Margem caiu ${Math.abs(quedaMargem.diferencaPP).toFixed(1)} pontos percentuais — de ${formatPercentual(quedaMargem.margemAnterior)} para ${formatPercentual(quedaMargem.margemAtual)} no período.`,
+        semaforo: "amarelo",
+        dados: { ...quedaMargem },
+      });
+    }
+
+    if (abc && abc.cEmPrejuizo.length > 0) {
+      candidatos.push({
+        tipo: "curva_abc",
+        contaId: null,
+        motivo: `${abc.cEmPrejuizo.length} produto${abc.cEmPrejuizo.length > 1 ? "s" : ""} de baixo faturamento vendendo com prejuízo — candidato a rever preço ou descontinuar.`,
+        semaforo: "vermelho",
+        dados: {
+          cEmPrejuizo: abc.cEmPrejuizo.map((i) => ({
+            produto: i.anuncio.produto,
+            sku: i.anuncio.sku,
+          })),
+          topA: abc.topA.map((i) => ({ produto: i.anuncio.produto, participacao: i.participacao })),
+        },
+      });
+    } else if (abc && abc.topA.length > 0) {
+      candidatos.push({
+        tipo: "curva_abc",
+        contaId: null,
+        motivo: `${abc.topA.length} produto${abc.topA.length > 1 ? "s" : ""} concentra${abc.topA.length > 1 ? "m" : ""} a maior parte do seu faturamento.`,
+        semaforo: "verde",
+        dados: {
+          topA: abc.topA.map((i) => ({ produto: i.anuncio.produto, participacao: i.participacao })),
+        },
+      });
+    }
+
+    if (dadoFaltando) {
+      candidatos.push({
+        tipo: "dado_faltando",
+        contaId: null,
+        motivo: `${dadoFaltando.anunciosSemCusto} anúncio(s) sem CMV e ${dadoFaltando.contasSemMeta} conta(s) sem margem mínima configurada — os cálculos desses ficam incompletos até isso ser preenchido.`,
+        semaforo: "amarelo",
+        dados: { ...dadoFaltando },
+      });
+    }
+
+    for (const item of saude) {
+      candidatos.push({
+        tipo: "saude_conta",
+        contaId: item.conta.id,
+        motivo: item.alerta,
+        semaforo: "vermelho",
+        dados: { contaNome: item.conta.nome, marketplaceId: item.conta.marketplaceId },
+      });
+    }
+
+    candidatos.push({
+      tipo: "resumo_diario",
+      contaId: null,
+      motivo: `Hoje: ${formatBRL(resumo.faturamento)} em ${formatNumero(resumo.pedidos)} pedido(s), margem de ${formatPercentual(resumo.margem)}.`,
+      semaforo: resumo.quedaDeMargem || resumo.contasEmAlerta > 0 ? "amarelo" : "verde",
+      dados: { ...resumo },
+    });
+
+    const jaPendentes = await eventosAgenteService.tiposPendentes(perfilId);
+    for (const c of candidatos) {
+      const chave = `${c.tipo}:${c.contaId ?? ""}`;
+      if (jaPendentes.has(chave)) continue;
+      const erro = await eventosAgenteService.criarInsight(perfilId, c);
+      if (erro) console.error("Não consegui gravar o aviso:", erro);
+    }
+
+    const lista = await eventosAgenteService.listarInsights(perfilId);
+    setInsights(lista);
+    setCarregandoInsights(false);
+  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
+
   useEffect(() => {
     carregarEventos();
-  }, [carregarEventos]);
+    carregarInsights();
+  }, [carregarEventos, carregarInsights]);
 
   // O filtro de canal ("Todas as contas") só recorta o que aparece — não
   // muda o que o agente já gravou. Assim trocar o filtro não refaz a
@@ -148,6 +288,19 @@ function Agentes() {
     }
   };
 
+  const dispensarInsight = async (insight: InsightAnalista) => {
+    setInsights((atual) =>
+      atual.map((i) =>
+        i.id === insight.id ? { ...i, status: "aprovada", decididoEm: new Date().toISOString() } : i,
+      ),
+    );
+    const erro = await eventosAgenteService.decidir(insight.id, "aprovada");
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      await carregarInsights();
+    }
+  };
+
   const lista = aba === "operacao" ? pendentes : decididos;
 
   if (!recursos.agentes) {
@@ -171,6 +324,12 @@ function Agentes() {
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-6">
+      <PainelAnalista
+        insights={insights}
+        carregando={carregandoInsights}
+        aoDispensar={dispensarInsight}
+      />
+
       <Painel
         titulo="Agentes"
         descricao="Cada decisão vem com o motivo, o antes e o depois. Nada é aplicado sem você aprovar"
@@ -277,6 +436,168 @@ function Agentes() {
           em Configurações.
         </div>
       </Painel>
+    </div>
+  );
+}
+
+const ICONE_INSIGHT: Record<TipoInsightAnalista, typeof AlertTriangle> = {
+  queda_margem: TrendingDown,
+  curva_abc: BarChart3,
+  dado_faltando: AlertTriangle,
+  saude_conta: ShieldAlert,
+  resumo_diario: Sparkles,
+};
+
+const TITULO_INSIGHT: Record<TipoInsightAnalista, string> = {
+  queda_margem: "Margem em queda",
+  curva_abc: "Curva ABC",
+  dado_faltando: "Dado faltando",
+  saude_conta: "Saúde da conta",
+  resumo_diario: "Resumo do dia",
+};
+
+/**
+ * O painel do Analista: cinco frentes, um card por aviso ativo. Diferente
+ * do Precificação, aqui não tem aprovar/recusar — é "marcar como visto",
+ * porque não é uma decisão de preço, é uma observação.
+ */
+function PainelAnalista({
+  insights,
+  carregando,
+  aoDispensar,
+}: {
+  insights: InsightAnalista[];
+  carregando: boolean;
+  aoDispensar: (i: InsightAnalista) => void;
+}) {
+  const pendentes = insights.filter((i) => i.status === "pendente");
+
+  return (
+    <Painel
+      titulo="Analista"
+      descricao="Cinco frentes, sempre olhando: margem, curva ABC, dado faltando, saúde da conta e o resumo do dia"
+    >
+      <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <Bot className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold">{NOME_ANALISTA}</p>
+          <p className="text-[10px] text-muted-foreground">
+            Lê os números do negócio e avisa o que merece atenção
+          </p>
+        </div>
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-profit-soft px-2.5 py-1 text-[10px] font-semibold text-profit">
+          <span className="size-1.5 rounded-full bg-profit" />
+          Ativo
+        </span>
+      </div>
+
+      <div className="divide-y">
+        {carregando && (
+          <div className="flex items-center justify-center gap-2 px-4 py-10 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            Analisando seus números...
+          </div>
+        )}
+
+        {!carregando &&
+          pendentes.map((i) => (
+            <CardInsight key={i.id} insight={i} aoDispensar={aoDispensar} />
+          ))}
+
+        {!carregando && pendentes.length === 0 && (
+          <div className="px-4 py-10 text-center">
+            <p className="text-xs text-muted-foreground">
+              Nada fora do esperado agora. Quando algo merecer atenção, aparece aqui.
+            </p>
+          </div>
+        )}
+      </div>
+    </Painel>
+  );
+}
+
+function CardInsight({
+  insight,
+  aoDispensar,
+}: {
+  insight: InsightAnalista;
+  aoDispensar: (i: InsightAnalista) => void;
+}) {
+  const Icone = ICONE_INSIGHT[insight.tipo];
+  const sem = ESTILO_SEMAFORO[insight.semaforo];
+  const d = insight.dados;
+
+  return (
+    <div className="px-4 py-4">
+      <div className="flex gap-3">
+        <div
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-full",
+            insight.semaforo === "vermelho"
+              ? "bg-loss-soft text-loss"
+              : insight.semaforo === "amarelo"
+                ? "bg-warning-soft text-warning"
+                : "bg-profit-soft text-profit",
+          )}
+        >
+          <Icone className="size-3.5" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold">{TITULO_INSIGHT[insight.tipo]}</span>
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+              <Clock className="size-3" />
+              {new Date(insight.data).toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+          </div>
+
+          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+            {insight.motivo}
+          </p>
+
+          {/* Resumo diário ganha três números em destaque — os outros
+              tipos já contam tudo que precisam no `motivo`. */}
+          {insight.tipo === "resumo_diario" && (
+            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 rounded-lg bg-muted/50 px-3 py-2.5">
+              <div>
+                <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  Faturamento hoje
+                </p>
+                <p className="num text-sm font-semibold">
+                  {formatBRL(d.faturamento as number)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  Margem
+                </p>
+                <p className={cn("num text-sm font-semibold", sem.texto)}>
+                  {formatPercentual(d.margem as number)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  Pedidos
+                </p>
+                <p className="num text-sm font-semibold">{formatNumero(d.pedidos as number)}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-3">
+            <Button size="sm" variant="outline" onClick={() => aoDispensar(insight)}>
+              <Check className="size-3.5" />
+              Marcar como visto
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
