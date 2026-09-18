@@ -137,7 +137,7 @@ function Produtos() {
   }, [carregarProdutos]);
 
   const anuncios = useMemo(() => anunciosService.listar(), [tick]);
-  const pendentes = useMemo(() => anuncios.filter((a) => !a.produtoId), [anuncios]);
+  const pendentes = useMemo(() => anuncios.filter((a) => !a.produtoId), [anuncios, tick]);
 
   const vinculosDoProduto = (produtoId: string) => {
     const vinculados = anuncios.filter((a) => a.produtoId === produtoId);
