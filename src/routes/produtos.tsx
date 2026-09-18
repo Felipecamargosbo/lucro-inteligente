@@ -35,13 +35,13 @@ import type { Anuncio, MarketplaceId, Produto } from "@/types";
 export const Route = createFileRoute("/produtos")({
   head: () => ({
     meta: [
-      { title: "Custos | Planeta97" },
+      { title: "Custos | NEXO" },
       {
         name: "description",
         content:
           "O CMV de cada produto, cadastrado uma vez só e válido em todo marketplace vinculado.",
       },
-      { property: "og:title", content: "Custos | Planeta97" },
+      { property: "og:title", content: "Custos | NEXO" },
       {
         property: "og:description",
         content: "Custo do produto cadastrado uma vez, refletido em todo anúncio vinculado.",
