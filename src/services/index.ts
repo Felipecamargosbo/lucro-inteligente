@@ -74,10 +74,14 @@ export const anunciosService = {
    * vínculo, até o seller resolver).
    */
   puxarNovoAnuncio: (conta: ContaMarketplace): Anuncio => {
-    const jaVinculados = new Set(
-      ANUNCIOS.filter((a) => a.contaId === conta.id && a.produtoId).map((a) => a.produtoId),
+    // Olha todo SKU que essa conta já tem — vinculado ou ainda pendente —
+    // pra nunca puxar o mesmo duas vezes. Antes só olhava o vinculado, e
+    // por isso "Receber anúncios" clicado de novo podia duplicar um
+    // pendente que já estava esperando "Vincular".
+    const skusExistentes = new Set(
+      ANUNCIOS.filter((a) => a.contaId === conta.id).map((a) => a.sku),
     );
-    const catalogoDisponivel = PRODUTOS_CATALOGO.filter((p) => !jaVinculados.has(p.id));
+    const catalogoDisponivel = PRODUTOS_CATALOGO.filter((p) => !skusExistentes.has(p.sku));
     const autoVincula = catalogoDisponivel.length > 0 && Math.random() > 0.5;
     const produtoBase = autoVincula
       ? catalogoDisponivel[Math.floor(Math.random() * catalogoDisponivel.length)]!
@@ -133,6 +137,12 @@ export const anunciosService = {
     busca: { sku?: string; ean?: string },
   ): Anuncio => {
     const sku = busca.sku?.trim() || `EAN-${busca.ean?.trim()}`;
+
+    // Essa conta já tem um anúncio com esse SKU? Não duplica — devolve o
+    // que já existe, pendente ou não.
+    const existente = ANUNCIOS.find((a) => a.contaId === conta.id && a.sku === sku);
+    if (existente) return existente;
+
     const precoAtual = Math.round((99 + Math.random() * 300) * 100) / 100;
 
     const novoAnuncio: Anuncio = {
@@ -162,6 +172,16 @@ export const anunciosService = {
 
     ANUNCIOS.push(novoAnuncio);
     return novoAnuncio;
+  },
+  /** Remove um anúncio sem vínculo da lista — pra descartar duplicata ou
+   * anúncio de exemplo que o seller não quer nem vincular. Só existe
+   * enquanto o anúncio for fictício: quando vier de verdade da API, o
+   * "descartar" muda de sentido (arquivar no marketplace), não é isto. */
+  dispensar: (anuncioId: string): boolean => {
+    const indice = ANUNCIOS.findIndex((a) => a.id === anuncioId);
+    if (indice === -1) return false;
+    ANUNCIOS.splice(indice, 1);
+    return true;
   },
 };
 
