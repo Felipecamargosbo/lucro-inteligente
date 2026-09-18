@@ -285,6 +285,29 @@ export const produtosService = {
     }
     return { produto: data, erro: null };
   },
+  /** Edita SKU, nome, EAN e CMV de um produto já cadastrado — corrige erro
+   * de digitação sem precisar apagar e recriar. Como o vínculo com o
+   * anúncio é sempre recalculado por SKU, mudar o SKU aqui já re-liga
+   * (ou desliga) os anúncios corretos na próxima leitura. */
+  atualizar: async (
+    produtoId: string,
+    dados: { sku: string; nome: string; ean: string | null; cmv: number },
+  ): Promise<{ produto: Produto | null; erro: string | null }> => {
+    const { data, error } = await supabase
+      .from("produtos")
+      .update({ sku: dados.sku, nome: dados.nome, ean: dados.ean, cmv: dados.cmv })
+      .eq("id", produtoId)
+      .select("id, sku, ean, nome, cmv")
+      .single();
+    if (error) {
+      const duplicado = error.code === "23505";
+      return {
+        produto: null,
+        erro: duplicado ? `Já existe um produto com o SKU "${dados.sku}".` : error.message,
+      };
+    }
+    return { produto: data, erro: null };
+  },
   /** Desativa um produto (soft delete — some das listas, mas nada é perdido). */
   remover: async (produtoId: string): Promise<string | null> => {
     const { error } = await supabase.from("produtos").update({ ativo: false }).eq("id", produtoId);
