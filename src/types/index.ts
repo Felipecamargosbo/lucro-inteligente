@@ -409,6 +409,16 @@ export interface Perfil {
   email: string;
   logoUrl: string | null;
   plano: string;
+  /** Aponta pra `planos.id` ('essencial' | 'agentes') — é o que decide o
+   * que o app libera, diferente de `plano`, que é só o texto exibido. */
+  planoId: string;
+}
+
+/** O que o plano do seller libera — vem de `planos.recursos` no banco. */
+export interface RecursosPlano {
+  dashboard: boolean;
+  agentes: boolean;
+  agentesEscrita: boolean;
 }
 
 export interface DadosEmpresa {
