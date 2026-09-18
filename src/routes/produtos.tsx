@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Check, ChevronRight, Link2, Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { Check, ChevronRight, Link2, Loader2, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import { anunciosService, contasService, produtosService } from "@/services";
 import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
@@ -264,6 +264,12 @@ function Produtos() {
   const produtosForaDaMeta = linhas.filter(
     (l) => l.tipo === "produto" && (l.situacao === "abaixo" || l.situacao === "prejuizo"),
   ).length;
+
+  const dispensarAnuncio = (anuncio: Anuncio) => {
+    anunciosService.dispensar(anuncio.id);
+    setTick((n) => n + 1);
+    toast(`"${anuncio.produto}" descartado — não aparece mais na fila.`);
+  };
 
   const iniciarEdicao = (produto: Produto) => {
     setEditando(produto.id);
@@ -556,10 +562,19 @@ function Produtos() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Button size="sm" variant="outline" onClick={() => setEmVinculo(a)}>
-                        <Link2 className="size-3.5" />
-                        Vincular
-                      </Button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => dispensarAnuncio(a)}
+                          title="Descartar este anúncio (não vincula nem mostra de novo)"
+                          className="text-muted-foreground transition-colors hover:text-loss"
+                        >
+                          <X className="size-4" />
+                        </button>
+                        <Button size="sm" variant="outline" onClick={() => setEmVinculo(a)}>
+                          <Link2 className="size-3.5" />
+                          Vincular
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 );
