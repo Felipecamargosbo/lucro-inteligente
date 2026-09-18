@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Check, ChevronRight, Link2, Loader2, Pencil, RefreshCw } from "lucide-react";
+import { Check, ChevronRight, Link2, Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { anunciosService, contasService, produtosService } from "@/services";
 import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
@@ -105,6 +105,8 @@ function Produtos() {
   const [editando, setEditando] = useState<string | null>(null);
   const [valorEdicao, setValorEdicao] = useState("");
   const [emVinculo, setEmVinculo] = useState<Anuncio | null>(null);
+  const [emEdicaoProduto, setEmEdicaoProduto] = useState<Produto | null>(null);
+  const [emExclusao, setEmExclusao] = useState<Produto | null>(null);
   const [receberAberto, setReceberAberto] = useState(false);
   /** Produto com os canais abertos; null = todos fechados */
   const [expandido, setExpandido] = useState<string | null>(null);
@@ -477,16 +479,38 @@ function Produtos() {
                         <SeloSituacao situacao={linha.situacao} qtdAbaixo={linha.qtdAbaixo} />
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {podeAbrir ? (
-                          <ChevronRight
-                            className={cn(
-                              "ml-auto size-4 text-muted-foreground transition-transform",
-                              aberto && "rotate-90",
-                            )}
-                          />
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">—</span>
-                        )}
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEmEdicaoProduto(p);
+                            }}
+                            title="Editar produto"
+                            className="text-muted-foreground transition-colors hover:text-brand"
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEmExclusao(p);
+                            }}
+                            title="Excluir produto"
+                            className="text-muted-foreground transition-colors hover:text-loss"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                          {podeAbrir ? (
+                            <ChevronRight
+                              className={cn(
+                                "size-4 text-muted-foreground transition-transform",
+                                aberto && "rotate-90",
+                              )}
+                            />
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">—</span>
+                          )}
+                        </div>
                       </td>
                     </tr>,
 
@@ -615,6 +639,29 @@ function Produtos() {
         />
       )}
 
+      {emEdicaoProduto && (
+        <DialogEditarProduto
+          produto={emEdicaoProduto}
+          aoFechar={() => setEmEdicaoProduto(null)}
+          aoSalvar={() => {
+            setEmEdicaoProduto(null);
+            carregarProdutos();
+          }}
+        />
+      )}
+
+      {emExclusao && (
+        <DialogConfirmarExclusao
+          produto={emExclusao}
+          qtdAnuncios={vinculosDoProduto(emExclusao.id).totalAnuncios}
+          aoFechar={() => setEmExclusao(null)}
+          aoExcluir={() => {
+            setEmExclusao(null);
+            carregarProdutos();
+          }}
+        />
+      )}
+
       {receberAberto && (
         <DialogReceberAnuncios
           atualizarConta={atualizarConta}
@@ -640,6 +687,172 @@ const OPCOES_MARKETPLACE: { id: MarketplaceId | "todos"; nome: string }[] = [
 ];
 
 type ModoRecebimento = "todos" | "especifico";
+
+/**
+ * Corrige SKU, nome, EAN ou CMV de um produto já cadastrado. Diferente do
+ * lápis de CMV na tabela (que é só um atalho pro campo mais usado), este
+ * diálogo edita o produto inteiro — pra quando o erro foi no SKU ou no
+ * nome, não no custo.
+ */
+function DialogEditarProduto({
+  produto,
+  aoFechar,
+  aoSalvar,
+}: {
+  produto: Produto;
+  aoFechar: () => void;
+  aoSalvar: (produto: Produto) => void;
+}) {
+  const [sku, setSku] = useState(produto.sku);
+  const [nome, setNome] = useState(produto.nome);
+  const [ean, setEan] = useState(produto.ean ?? "");
+  const [cmv, setCmv] = useState(produto.cmv.toFixed(2).replace(".", ","));
+  const [salvando, setSalvando] = useState(false);
+
+  const valido = sku.trim() !== "" && nome.trim() !== "";
+
+  const salvar = async () => {
+    if (!valido) return;
+    setSalvando(true);
+    const { produto: atualizado, erro } = await produtosService.atualizar(produto.id, {
+      sku: sku.trim(),
+      nome: nome.trim(),
+      ean: ean.trim() || null,
+      cmv: Number(cmv.replace(",", ".")) || 0,
+    });
+    setSalvando(false);
+    if (erro) {
+      toast.error(erro);
+      return;
+    }
+    if (atualizado) {
+      toast.success(`"${atualizado.nome}" atualizado.`);
+      aoSalvar(atualizado);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={aoFechar}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Editar produto</DialogTitle>
+          <DialogDescription>
+            Mudar o SKU refaz o vínculo com os anúncios — passa a casar pelo SKU novo.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs text-muted-foreground">SKU *</Label>
+            <Input
+              autoFocus
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              className="mt-1"
+              disabled={salvando}
+            />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Nome do produto *</Label>
+            <Input
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              className="mt-1"
+              disabled={salvando}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-muted-foreground">EAN (opcional)</Label>
+              <Input
+                value={ean}
+                onChange={(e) => setEan(e.target.value)}
+                className="mt-1"
+                disabled={salvando}
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">CMV (R$)</Label>
+              <Input
+                inputMode="decimal"
+                value={cmv}
+                onChange={(e) => setCmv(e.target.value)}
+                className="mt-1"
+                disabled={salvando}
+              />
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={aoFechar} disabled={salvando}>
+            Cancelar
+          </Button>
+          <Button onClick={salvar} disabled={!valido || salvando}>
+            {salvando ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            Salvar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Confirmação de exclusão. Avisa quantos anúncios ficam sem vínculo depois
+ * — não é bloqueio, é só pra ninguém apagar sem saber o efeito colateral.
+ */
+function DialogConfirmarExclusao({
+  produto,
+  qtdAnuncios,
+  aoFechar,
+  aoExcluir,
+}: {
+  produto: Produto;
+  qtdAnuncios: number;
+  aoFechar: () => void;
+  aoExcluir: () => void;
+}) {
+  const [excluindo, setExcluindo] = useState(false);
+
+  const confirmar = async () => {
+    setExcluindo(true);
+    const erro = await produtosService.remover(produto.id);
+    setExcluindo(false);
+    if (erro) {
+      toast.error(`Não consegui excluir: ${erro}`);
+      return;
+    }
+    toast.success(`"${produto.nome}" excluído.`);
+    aoExcluir();
+  };
+
+  return (
+    <Dialog open onOpenChange={aoFechar}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Excluir "{produto.nome}"?</DialogTitle>
+          <DialogDescription>
+            {qtdAnuncios > 0
+              ? `${qtdAnuncios} anúncio${qtdAnuncios > 1 ? "s" : ""} vinculado${qtdAnuncios > 1 ? "s" : ""} a este produto ${qtdAnuncios > 1 ? "ficam" : "fica"} sem CMV depois de excluir.`
+              : "Este produto não tem anúncio vinculado hoje."}
+            {" "}Não dá pra desfazer.
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={aoFechar} disabled={excluindo}>
+            Cancelar
+          </Button>
+          <Button variant="destructive" onClick={confirmar} disabled={excluindo}>
+            {excluindo ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            Excluir
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 /**
  * "Receber anúncios" — o único jeito de anúncio entrar no sistema, hoje de
