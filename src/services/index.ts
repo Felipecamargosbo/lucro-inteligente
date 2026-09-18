@@ -29,11 +29,13 @@ import type {
   Anuncio,
   ContaMarketplace,
   EventoAgente,
+  InsightAnalista,
   MarketplaceId,
   MetasMargem,
   Produto,
   SemaforoDecisao,
   StatusSugestao,
+  TipoInsightAnalista,
 } from "@/types";
 import { supabase } from "@/lib/supabase";
 
@@ -565,6 +567,78 @@ export const eventosAgenteService = {
       .from("eventos_agente")
       .update({ status, decidido_em: new Date().toISOString() })
       .eq("id", eventoId);
+    return error?.message ?? null;
+  },
+
+  /** Linha crua de `eventos_agente` para um aviso do Analista. */
+  linhaParaInsight: (l: {
+    id: string;
+    tipo: string;
+    conta_id: string | null;
+    criado_em: string;
+    motivo: string;
+    dados: Record<string, unknown>;
+    semaforo: string;
+    status: string;
+    decidido_em: string | null;
+  }): InsightAnalista => ({
+    id: l.id,
+    tipo: l.tipo as TipoInsightAnalista,
+    data: l.criado_em,
+    contaId: l.conta_id,
+    motivo: l.motivo,
+    semaforo: l.semaforo as SemaforoDecisao,
+    status: l.status as StatusSugestao,
+    decididoEm: l.decidido_em,
+    dados: l.dados ?? {},
+  }),
+
+  /** Só os avisos do Analista — mesma tabela, filtro diferente. */
+  listarInsights: async (perfilId: string): Promise<InsightAnalista[]> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "analista")
+      .order("criado_em", { ascending: false });
+    if (error) {
+      console.error("eventosAgenteService.listarInsights:", error.message);
+      return [];
+    }
+    return (data ?? []).map(eventosAgenteService.linhaParaInsight);
+  },
+
+  /** Tipos de aviso que já estão pendentes (e pra qual conta) — pra não
+   * recriar o mesmo aviso toda vez que a tela abre. Uma "queda_margem"
+   * é do negócio inteiro (contaId null); "saude_conta" é por conta. */
+  tiposPendentes: async (perfilId: string): Promise<Set<string>> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("tipo, conta_id")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "analista")
+      .eq("status", "pendente");
+    if (error) {
+      console.error("eventosAgenteService.tiposPendentes:", error.message);
+      return new Set();
+    }
+    return new Set((data ?? []).map((r) => `${r.tipo}:${r.conta_id ?? ""}`));
+  },
+
+  criarInsight: async (
+    perfilId: string,
+    insight: Omit<InsightAnalista, "id" | "status" | "decididoEm" | "data">,
+  ): Promise<string | null> => {
+    const { error } = await supabase.from("eventos_agente").insert({
+      perfil_id: perfilId,
+      agente_id: "analista",
+      conta_id: insight.contaId,
+      tipo: insight.tipo,
+      motivo: insight.motivo,
+      semaforo: insight.semaforo,
+      status: "pendente",
+      dados: insight.dados,
+    });
     return error?.message ?? null;
   },
 };
