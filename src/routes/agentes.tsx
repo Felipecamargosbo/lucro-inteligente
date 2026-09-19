@@ -87,6 +87,7 @@ function Agentes() {
     useSelecaoContas();
   const { sessao, recursos } = useAuth();
   const [aba, setAba] = useState<Aba>("operacao");
+  const [abaAgente, setAbaAgente] = useState<"analista" | "precificacao" | "sac">("analista");
   const [eventos, setEventos] = useState<EventoAgente[]>([]);
   const [insights, setInsights] = useState<InsightAnalista[]>([]);
   const [tickets, setTickets] = useState<TicketSac[]>([]);
@@ -414,6 +415,8 @@ function Agentes() {
   };
 
   const lista = aba === "operacao" ? pendentes : decididos;
+  const insightsPendentes = insights.filter((i) => i.status === "pendente").length;
+  const ticketsPendentes = tickets.filter((t) => t.status === "pendente").length;
 
   if (!recursos.agentes) {
     return (
@@ -435,17 +438,57 @@ function Agentes() {
   }
 
   return (
-    <div className="mx-auto max-w-[1100px] space-y-6">
-      <PainelAnalista
-        insights={insights}
-        carregando={carregandoInsights}
-        aoDispensar={dispensarInsight}
-      />
+    <div className="mx-auto max-w-[1100px] space-y-4">
+      {/* Um agente por vez, ocupando a tela toda — antes ficavam os três
+          empilhados, e pra responder o SAC era preciso rolar a tela
+          inteira passando pelos outros dois. */}
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {(
+          [
+            ["analista", "Analista", BarChart3, insightsPendentes] as const,
+            ["precificacao", "Precificação", TrendingDown, pendentes.length] as const,
+            ["sac", "SAC", MessageCircle, ticketsPendentes] as const,
+          ] as const
+        ).map(([id, nome, Icone, contagem]) => (
+          <button
+            key={id}
+            onClick={() => setAbaAgente(id)}
+            className={cn(
+              "flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors",
+              abaAgente === id
+                ? "border-brand bg-brand/10 text-foreground"
+                : "border-transparent bg-muted/50 text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Icone className="size-3.5" />
+            {nome}
+            {contagem > 0 && (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                  abaAgente === id ? "bg-brand text-white" : "bg-muted-foreground/20",
+                )}
+              >
+                {contagem}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
 
-      <Painel
-        titulo="Agentes"
-        descricao="Cada decisão vem com o motivo, o antes e o depois. Nada é aplicado sem você aprovar"
-      >
+      {abaAgente === "analista" && (
+        <PainelAnalista
+          insights={insights}
+          carregando={carregandoInsights}
+          aoDispensar={dispensarInsight}
+        />
+      )}
+
+      {abaAgente === "precificacao" && (
+        <Painel
+          titulo="Agentes"
+          descricao="Cada decisão vem com o motivo, o antes e o depois. Nada é aplicado sem você aprovar"
+        >
         {/* Indicadores */}
         <div className="grid gap-3 border-b p-4 sm:grid-cols-3">
           <div className="rounded-lg bg-muted px-3 py-2">
@@ -548,16 +591,19 @@ function Agentes() {
           em Configurações.
         </div>
       </Painel>
+      )}
 
-      <PainelSac
-        tickets={tickets}
-        carregando={carregandoTickets}
-        gerandoId={gerandoId}
-        rascunhos={rascunhos}
-        aoMudarRascunho={(id, texto) => setRascunhos((atual) => ({ ...atual, [id]: texto }))}
-        aoGerar={gerarRespostaSac}
-        aoDecidir={decidirTicket}
-      />
+      {abaAgente === "sac" && (
+        <PainelSac
+          tickets={tickets}
+          carregando={carregandoTickets}
+          gerandoId={gerandoId}
+          rascunhos={rascunhos}
+          aoMudarRascunho={(id, texto) => setRascunhos((atual) => ({ ...atual, [id]: texto }))}
+          aoGerar={gerarRespostaSac}
+          aoDecidir={decidirTicket}
+        />
+      )}
     </div>
   );
 }
