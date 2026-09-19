@@ -35,6 +35,7 @@ import type {
   Produto,
   SemaforoDecisao,
   StatusSugestao,
+  TicketSac,
   TipoInsightAnalista,
 } from "@/types";
 import { supabase } from "@/lib/supabase";
@@ -639,6 +640,118 @@ export const eventosAgenteService = {
       status: "pendente",
       dados: insight.dados,
     });
+    return error?.message ?? null;
+  },
+};
+
+/** Como uma linha de `eventos_agente` vira um TicketSac. */
+function linhaParaTicketSac(l: {
+  id: string;
+  conta_id: string | null;
+  criado_em: string;
+  status: string;
+  decidido_em: string | null;
+  dados: Record<string, unknown>;
+}): TicketSac {
+  const d = l.dados ?? {};
+  return {
+    id: l.id,
+    data: l.criado_em,
+    contaId: l.conta_id,
+    anuncioId: (d.anuncioId as string) ?? null,
+    produto: (d.produto as string) ?? "",
+    sku: (d.sku as string) ?? "",
+    marketplaceId: d.marketplaceId as MarketplaceId,
+    pergunta: (d.pergunta as string) ?? "",
+    resposta: (d.resposta as string) ?? null,
+    status: l.status as StatusSugestao,
+    decididoEm: l.decidido_em,
+  };
+}
+
+/**
+ * O Agente de SAC. A pergunta do cliente é sempre fictícia por enquanto
+ * (não há API de mensagens ainda). A resposta é real — gerada pela OpenAI
+ * — mas só quando o seller pede, nunca sozinha: é o único passo desse
+ * agente que custa token de verdade, então fica sob controle do clique.
+ */
+export const sacService = {
+  listar: async (perfilId: string): Promise<TicketSac[]> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "sac")
+      .order("criado_em", { ascending: false });
+    if (error) {
+      console.error("sacService.listar:", error.message);
+      return [];
+    }
+    return (data ?? []).map(linhaParaTicketSac);
+  },
+
+  criarTicket: async (
+    perfilId: string,
+    ticket: {
+      contaId: string | null;
+      anuncioId: string | null;
+      produto: string;
+      sku: string;
+      marketplaceId: MarketplaceId;
+      pergunta: string;
+    },
+  ): Promise<string | null> => {
+    const { error } = await supabase.from("eventos_agente").insert({
+      perfil_id: perfilId,
+      agente_id: "sac",
+      conta_id: ticket.contaId,
+      sku: ticket.sku,
+      tipo: "pergunta_cliente",
+      motivo: ticket.pergunta,
+      semaforo: "amarelo",
+      status: "pendente",
+      dados: {
+        anuncioId: ticket.anuncioId,
+        produto: ticket.produto,
+        sku: ticket.sku,
+        marketplaceId: ticket.marketplaceId,
+        pergunta: ticket.pergunta,
+      },
+    });
+    return error?.message ?? null;
+  },
+
+  /** Chama a Edge Function — é aqui, e só aqui, que sai custo de token real. */
+  gerarResposta: async (
+    pergunta: string,
+    produto: string,
+  ): Promise<{ resposta: string | null; erro: string | null }> => {
+    const { data, error } = await supabase.functions.invoke("responder-sac", {
+      body: { pergunta, produto },
+    });
+    if (error) {
+      return { resposta: null, erro: error.message ?? "Não consegui falar com a IA." };
+    }
+    if (data?.erro) {
+      return { resposta: null, erro: data.erro as string };
+    }
+    return { resposta: (data?.resposta as string) ?? null, erro: null };
+  },
+
+  /** Grava a resposta gerada (ou editada pelo seller) no ticket, sem
+   * mudar o status ainda — aprovar é um passo separado, deliberado. */
+  salvarResposta: async (ticketId: string, resposta: string): Promise<string | null> => {
+    const { data: atual, error: erroLeitura } = await supabase
+      .from("eventos_agente")
+      .select("dados")
+      .eq("id", ticketId)
+      .single();
+    if (erroLeitura) return erroLeitura.message;
+
+    const { error } = await supabase
+      .from("eventos_agente")
+      .update({ dados: { ...(atual?.dados ?? {}), resposta } })
+      .eq("id", ticketId);
     return error?.message ?? null;
   },
 };
