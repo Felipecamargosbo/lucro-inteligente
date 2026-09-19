@@ -8,6 +8,7 @@ import {
   Check,
   Clock,
   Loader2,
+  MessageCircle,
   ShieldAlert,
   Sparkles,
   TrendingDown,
@@ -18,6 +19,7 @@ import {
   contasService,
   eventosAgenteService,
   produtosService,
+  sacService,
   vendasService,
 } from "@/services";
 import { useAuth } from "@/context/auth";
@@ -37,12 +39,14 @@ import {
 } from "@/lib/finance";
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type {
   EventoAgente,
   InsightAnalista,
   SemaforoDecisao,
   StatusSugestao,
+  TicketSac,
   TipoInsightAnalista,
 } from "@/types";
 
@@ -63,6 +67,17 @@ export const Route = createFileRoute("/agentes")({
 
 const NOME_AGENTE = "Agente de Precificação";
 const NOME_ANALISTA = "Agente Analista";
+const NOME_SAC = "Agente de SAC";
+
+/** Perguntas comuns de cliente de marketplace, só pra semear os
+ * primeiros tickets de exemplo — fictícias até a API de mensagens
+ * conectar. */
+const PERGUNTAS_FICTICIAS = [
+  "Esse produto tem garantia? Por quanto tempo?",
+  "Qual o prazo de entrega pro meu CEP?",
+  "Vocês têm em outra cor ou modelo?",
+  "Posso trocar se não servir ou não gostar?",
+];
 
 type Aba = "operacao" | "historico";
 
@@ -74,6 +89,13 @@ function Agentes() {
   const [aba, setAba] = useState<Aba>("operacao");
   const [eventos, setEventos] = useState<EventoAgente[]>([]);
   const [insights, setInsights] = useState<InsightAnalista[]>([]);
+  const [tickets, setTickets] = useState<TicketSac[]>([]);
+  const [carregandoTickets, setCarregandoTickets] = useState(true);
+  /** Ticket com resposta em andamento de gerar (mostra o spinner só nele) */
+  const [gerandoId, setGerandoId] = useState<string | null>(null);
+  /** Rascunho editável de cada ticket, por id — separado do que já está
+   * salvo, pra o seller poder ajustar antes de aprovar. */
+  const [rascunhos, setRascunhos] = useState<Record<string, string>>({});
   const [carregando, setCarregando] = useState(true);
 
   /**
@@ -249,10 +271,43 @@ function Agentes() {
     setCarregandoInsights(false);
   }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
 
+  /**
+   * Quatro perguntas comuns de cliente de marketplace, usadas só pra
+   * semear os primeiros tickets de exemplo — a API de mensagens ainda
+   * não existe, então a pergunta em si é sempre fictícia.
+   */
+  const carregarTickets = useCallback(async () => {
+    if (!sessao || !recursos.agentes) return;
+    const perfilId = sessao.user.id;
+
+    const existentes = await sacService.listar(perfilId);
+    if (existentes.length === 0) {
+      const anunciosAtivos = anunciosService.listar().filter((a) => a.status === "ativo");
+      const amostra = anunciosAtivos.slice(0, Math.min(4, anunciosAtivos.length));
+      for (let i = 0; i < amostra.length; i++) {
+        const a = amostra[i]!;
+        const erro = await sacService.criarTicket(perfilId, {
+          contaId: a.contaId,
+          anuncioId: a.id,
+          produto: a.produto,
+          sku: a.sku,
+          marketplaceId: a.marketplaceId,
+          pergunta: PERGUNTAS_FICTICIAS[i % PERGUNTAS_FICTICIAS.length]!,
+        });
+        if (erro) console.error("Não consegui criar o ticket de exemplo:", erro);
+      }
+    }
+
+    const lista = await sacService.listar(perfilId);
+    setTickets(lista);
+    setCarregandoTickets(false);
+  }, [sessao, recursos.agentes]);
+
   useEffect(() => {
     carregarEventos();
     carregarInsights();
-  }, [carregarEventos, carregarInsights]);
+    carregarTickets();
+  }, [carregarEventos, carregarInsights, carregarTickets]);
 
   // O filtro de canal ("Todas as contas") só recorta o que aparece — não
   // muda o que o agente já gravou. Assim trocar o filtro não refaz a
@@ -300,6 +355,65 @@ function Agentes() {
       await carregarInsights();
     }
   };
+
+  /** Só aqui sai custo de token de verdade — por isso é sempre um clique
+   * do seller, nunca automático. */
+  const gerarRespostaSac = async (ticket: TicketSac) => {
+    setGerandoId(ticket.id);
+    const { resposta, erro } = await sacService.gerarResposta(ticket.pergunta, ticket.produto);
+    setGerandoId(null);
+    if (erro) {
+      toast.error(`Não consegui gerar a resposta: ${erro}`);
+      return;
+    }
+    if (!resposta) return;
+    const erroSalvar = await sacService.salvarResposta(ticket.id, resposta);
+    if (erroSalvar) {
+      toast.error(`Gerei a resposta, mas não consegui salvar: ${erroSalvar}`);
+      return;
+    }
+    setTickets((atual) => atual.map((t) => (t.id === ticket.id ? { ...t, resposta } : t)));
+    setRascunhos((atual) => ({ ...atual, [ticket.id]: resposta }));
+  };
+
+  const decidirTicket = async (
+    ticket: TicketSac,
+    status: Extract<StatusSugestao, "aprovada" | "recusada">,
+  ) => {
+    const rascunho = rascunhos[ticket.id];
+    if (status === "aprovada" && rascunho && rascunho !== ticket.resposta) {
+      const erroSalvar = await sacService.salvarResposta(ticket.id, rascunho);
+      if (erroSalvar) {
+        toast.error(`Não consegui salvar a edição: ${erroSalvar}`);
+        return;
+      }
+    }
+    setTickets((atual) =>
+      atual.map((t) =>
+        t.id === ticket.id
+          ? {
+              ...t,
+              status,
+              decididoEm: new Date().toISOString(),
+              resposta: status === "aprovada" ? (rascunho ?? t.resposta) : t.resposta,
+            }
+          : t,
+      ),
+    );
+    const erro = await eventosAgenteService.decidir(ticket.id, status);
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      await carregarTickets();
+      return;
+    }
+    toast.success(
+      status === "aprovada"
+        ? "Aprovado. Sem canal de mensagem conectado ainda — copie e envie essa resposta no marketplace."
+        : `Descartado: pergunta sobre "${ticket.produto}".`,
+    );
+  };
+
+  const ticketsPendentes = tickets.filter((t) => t.status === "pendente");
 
   const lista = aba === "operacao" ? pendentes : decididos;
 
@@ -436,6 +550,183 @@ function Agentes() {
           em Configurações.
         </div>
       </Painel>
+
+      <PainelSac
+        tickets={ticketsPendentes}
+        carregando={carregandoTickets}
+        gerandoId={gerandoId}
+        rascunhos={rascunhos}
+        aoMudarRascunho={(id, texto) => setRascunhos((atual) => ({ ...atual, [id]: texto }))}
+        aoGerar={gerarRespostaSac}
+        aoDecidir={decidirTicket}
+      />
+    </div>
+  );
+}
+
+/**
+ * O painel de SAC: uma pergunta de cliente por card. Diferente dos
+ * outros dois agentes, tem um passo intermediário — "Gerar resposta" —
+ * porque é o único ponto do sistema que gasta token de verdade, então
+ * fica sempre atrás de um clique explícito, nunca automático.
+ */
+function PainelSac({
+  tickets,
+  carregando,
+  gerandoId,
+  rascunhos,
+  aoMudarRascunho,
+  aoGerar,
+  aoDecidir,
+}: {
+  tickets: TicketSac[];
+  carregando: boolean;
+  gerandoId: string | null;
+  rascunhos: Record<string, string>;
+  aoMudarRascunho: (id: string, texto: string) => void;
+  aoGerar: (t: TicketSac) => void;
+  aoDecidir: (t: TicketSac, status: Extract<StatusSugestao, "aprovada" | "recusada">) => void;
+}) {
+  return (
+    <Painel
+      titulo="SAC"
+      descricao="Perguntas de cliente esperando resposta — a IA sugere, você decide"
+    >
+      <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <MessageCircle className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold">{NOME_SAC}</p>
+          <p className="text-[10px] text-muted-foreground">
+            Sugere a resposta; enviar ainda é manual até a API de mensagens conectar
+          </p>
+        </div>
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-profit-soft px-2.5 py-1 text-[10px] font-semibold text-profit">
+          <span className="size-1.5 rounded-full bg-profit" />
+          Ativo
+        </span>
+      </div>
+
+      <div className="divide-y">
+        {carregando && (
+          <div className="flex items-center justify-center gap-2 px-4 py-10 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            Carregando perguntas...
+          </div>
+        )}
+
+        {!carregando &&
+          tickets.map((t) => (
+            <CardTicketSac
+              key={t.id}
+              ticket={t}
+              gerando={gerandoId === t.id}
+              rascunho={rascunhos[t.id] ?? t.resposta ?? ""}
+              aoMudarRascunho={(texto) => aoMudarRascunho(t.id, texto)}
+              aoGerar={() => aoGerar(t)}
+              aoDecidir={(status) => aoDecidir(t, status)}
+            />
+          ))}
+
+        {!carregando && tickets.length === 0 && (
+          <div className="px-4 py-10 text-center">
+            <p className="text-xs text-muted-foreground">
+              Nenhuma pergunta pendente agora.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
+        A pergunta do cliente ainda é de exemplo — não há API de mensagens conectada. A
+        resposta, essa é gerada de verdade por IA quando você pede.
+      </div>
+    </Painel>
+  );
+}
+
+function CardTicketSac({
+  ticket,
+  gerando,
+  rascunho,
+  aoMudarRascunho,
+  aoGerar,
+  aoDecidir,
+}: {
+  ticket: TicketSac;
+  gerando: boolean;
+  rascunho: string;
+  aoMudarRascunho: (texto: string) => void;
+  aoGerar: () => void;
+  aoDecidir: (status: Extract<StatusSugestao, "aprovada" | "recusada">) => void;
+}) {
+  const temResposta = ticket.resposta !== null;
+
+  return (
+    <div className="px-4 py-4">
+      <div className="flex gap-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <MessageCircle className="size-3.5" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <SeloMarketplace id={ticket.marketplaceId} />
+            <span className="truncate text-xs font-medium">{ticket.produto}</span>
+            <span className="num text-[10px] text-muted-foreground">{ticket.sku}</span>
+          </div>
+
+          <div className="mt-2 rounded-lg bg-muted/50 px-3 py-2">
+            <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+              Pergunta do cliente
+            </p>
+            <p className="mt-0.5 text-xs">{ticket.pergunta}</p>
+          </div>
+
+          {!temResposta ? (
+            <div className="mt-3">
+              <Button size="sm" variant="outline" onClick={aoGerar} disabled={gerando}>
+                {gerando ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="size-3.5" />
+                )}
+                {gerando ? "Gerando..." : "Gerar resposta com IA"}
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2">
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                Resposta sugerida — pode editar antes de aprovar
+              </p>
+              <Textarea
+                value={rascunho}
+                onChange={(e) => aoMudarRascunho(e.target.value)}
+                className="min-h-20 text-xs"
+              />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => aoDecidir("aprovada")}>
+                  <Check className="size-3.5" />
+                  Aprovar
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => aoDecidir("recusada")}>
+                  <X className="size-3.5" />
+                  Descartar
+                </Button>
+                <Button size="sm" variant="ghost" onClick={aoGerar} disabled={gerando}>
+                  {gerando ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-3.5" />
+                  )}
+                  Gerar de novo
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
