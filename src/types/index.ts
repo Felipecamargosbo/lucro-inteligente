@@ -555,7 +555,7 @@ export interface ItemEstoqueDetalhado {
 /* Agentes                                                            */
 /* ------------------------------------------------------------------ */
 
-export type AgenteId = "precificacao" | "analista";
+export type AgenteId = "precificacao" | "analista" | "sac";
 
 /**
  * Situação de uma sugestão. Enquanto não há API com permissão de escrita,
@@ -633,4 +633,29 @@ export interface InsightAnalista {
   status: StatusSugestao;
   decididoEm: string | null;
   dados: Record<string, unknown>;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente SAC                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Uma pergunta de cliente (fictícia, até a API de mensagens conectar) e,
+ * quando o seller pedir, a resposta gerada por IA — nunca gerada
+ * sozinha: só quando alguém clica em "Gerar resposta", porque é o único
+ * passo desse agente que custa token de verdade.
+ */
+export interface TicketSac {
+  id: string;
+  data: string;
+  contaId: string | null;
+  anuncioId: string | null;
+  produto: string;
+  sku: string;
+  marketplaceId: MarketplaceId;
+  pergunta: string;
+  /** null até o seller pedir a IA gerar */
+  resposta: string | null;
+  status: StatusSugestao;
+  decididoEm: string | null;
 }
