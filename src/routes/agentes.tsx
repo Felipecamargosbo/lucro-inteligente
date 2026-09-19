@@ -413,8 +413,6 @@ function Agentes() {
     );
   };
 
-  const ticketsPendentes = tickets.filter((t) => t.status === "pendente");
-
   const lista = aba === "operacao" ? pendentes : decididos;
 
   if (!recursos.agentes) {
@@ -552,7 +550,7 @@ function Agentes() {
       </Painel>
 
       <PainelSac
-        tickets={ticketsPendentes}
+        tickets={tickets}
         carregando={carregandoTickets}
         gerandoId={gerandoId}
         rascunhos={rascunhos}
@@ -587,6 +585,11 @@ function PainelSac({
   aoGerar: (t: TicketSac) => void;
   aoDecidir: (t: TicketSac, status: Extract<StatusSugestao, "aprovada" | "recusada">) => void;
 }) {
+  const [aba, setAba] = useState<Aba>("operacao");
+  const pendentes = tickets.filter((t) => t.status === "pendente");
+  const decididos = tickets.filter((t) => t.status !== "pendente");
+  const lista = aba === "operacao" ? pendentes : decididos;
+
   return (
     <Painel
       titulo="SAC"
@@ -608,6 +611,29 @@ function PainelSac({
         </span>
       </div>
 
+      {/* Abas */}
+      <div className="flex gap-1 border-b px-4 pt-3">
+        {(
+          [
+            ["operacao", `Operação (${pendentes.length})`],
+            ["historico", `Histórico (${decididos.length})`],
+          ] as const
+        ).map(([id, rotulo]) => (
+          <button
+            key={id}
+            onClick={() => setAba(id)}
+            className={cn(
+              "rounded-t-md px-3 py-2 text-xs font-semibold transition-colors",
+              aba === id
+                ? "border-b-2 border-brand text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {rotulo}
+          </button>
+        ))}
+      </div>
+
       <div className="divide-y">
         {carregando && (
           <div className="flex items-center justify-center gap-2 px-4 py-10 text-xs text-muted-foreground">
@@ -617,7 +643,7 @@ function PainelSac({
         )}
 
         {!carregando &&
-          tickets.map((t) => (
+          lista.map((t) => (
             <CardTicketSac
               key={t.id}
               ticket={t}
@@ -629,10 +655,12 @@ function PainelSac({
             />
           ))}
 
-        {!carregando && tickets.length === 0 && (
+        {!carregando && lista.length === 0 && (
           <div className="px-4 py-10 text-center">
             <p className="text-xs text-muted-foreground">
-              Nenhuma pergunta pendente agora.
+              {aba === "operacao"
+                ? "Nenhuma pergunta pendente agora."
+                : "Nenhuma decisão registrada ainda."}
             </p>
           </div>
         )}
@@ -662,6 +690,7 @@ function CardTicketSac({
   aoDecidir: (status: Extract<StatusSugestao, "aprovada" | "recusada">) => void;
 }) {
   const temResposta = ticket.resposta !== null;
+  const decidido = ticket.status !== "pendente";
 
   return (
     <div className="px-4 py-4">
@@ -675,6 +704,29 @@ function CardTicketSac({
             <SeloMarketplace id={ticket.marketplaceId} />
             <span className="truncate text-xs font-medium">{ticket.produto}</span>
             <span className="num text-[10px] text-muted-foreground">{ticket.sku}</span>
+            {decidido && (
+              <span
+                className={cn(
+                  "rounded px-2 py-0.5 text-[10px] font-semibold",
+                  ticket.status === "aprovada"
+                    ? "bg-profit-soft text-profit"
+                    : "bg-muted text-muted-foreground",
+                )}
+              >
+                {ticket.status === "aprovada" ? "aprovada" : "descartada"}
+              </span>
+            )}
+            {decidido && ticket.decididoEm && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                <Clock className="size-3" />
+                {new Date(ticket.decididoEm).toLocaleString("pt-BR", {
+                  day: "2-digit",
+                  month: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            )}
           </div>
 
           <div className="mt-2 rounded-lg bg-muted/50 px-3 py-2">
@@ -684,7 +736,17 @@ function CardTicketSac({
             <p className="mt-0.5 text-xs">{ticket.pergunta}</p>
           </div>
 
-          {!temResposta ? (
+          {decidido ? (
+            // Histórico: só leitura — o que foi decidido já foi decidido.
+            ticket.resposta && (
+              <div className="mt-2 rounded-lg bg-muted/30 px-3 py-2">
+                <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  {ticket.status === "aprovada" ? "Resposta enviada" : "Resposta descartada"}
+                </p>
+                <p className="mt-0.5 text-xs">{ticket.resposta}</p>
+              </div>
+            )
+          ) : !temResposta ? (
             <div className="mt-3">
               <Button size="sm" variant="outline" onClick={aoGerar} disabled={gerando}>
                 {gerando ? (
