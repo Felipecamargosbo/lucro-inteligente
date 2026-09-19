@@ -1,750 +1,1153 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { Target } from "lucide-react";
-import { formatBRL, formatPercentual } from "@/lib/format";
-import { cn } from "@/lib/utils";
-import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import type { MarketplaceId } from "@/types";
+  AlertTriangle,
+  BarChart3,
+  Bot,
+  Check,
+  Clock,
+  Loader2,
+  MessageCircle,
+  ShieldAlert,
+  Sparkles,
+  TrendingDown,
+  X,
+} from "lucide-react";
+import {
+  anunciosService,
+  contasService,
+  eventosAgenteService,
+  produtosService,
+  sacService,
+  vendasService,
+} from "@/services";
+import { useAuth } from "@/context/auth";
+import { useConfiguracoes } from "@/context/configuracoes";
+import { useSelecaoContas } from "@/context/selecao-contas";
+import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
+import {
+  DEGRAU_DESCONTO_PADRAO,
+  DIAS_PARADO_PADRAO,
+  diagnosticarCurvaAbc,
+  diagnosticarDadoFaltando,
+  diagnosticarQuedaMargem,
+  diagnosticarSaudeContas,
+  FAIXAS_MARGEM_PADRAO,
+  montarResumoDiario,
+  sugerirPrecoPorGiro,
+} from "@/lib/finance";
+import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import type {
+  EventoAgente,
+  InsightAnalista,
+  SemaforoDecisao,
+  StatusSugestao,
+  TicketSac,
+  TipoInsightAnalista,
+} from "@/types";
 
-export const Route = createFileRoute("/calculadora")({
+export const Route = createFileRoute("/agentes")({
   head: () => ({
     meta: [
-      { title: "Calculadora de precificação | Planeta97" },
+      { title: "Agentes | NEXO" },
       {
         name: "description",
         content:
-          "Simule preço de venda, custos, impostos, comissões e descubra a margem líquida real do seu produto em cada marketplace.",
+          "O que os agentes decidiram, por quê, e o que está esperando a sua aprovação.",
       },
-      { property: "og:title", content: "Calculadora de precificação | Planeta97" },
-      {
-        property: "og:description",
-        content:
-          "DRE em tempo real para sellers: veja quanto sobra depois de todos os custos do marketplace.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
+      { property: "og:title", content: "Agentes | NEXO" },
     ],
   }),
-  component: Calculadora,
+  component: Agentes,
 });
 
-/* ------------------------------------------------------------------ */
-/* Modelo: cada canal guarda seus próprios campos, de forma 100%      */
-/* independente. "Todos" não é um canal com dados — é uma tela de     */
-/* leitura que reflete o que foi preenchido em cada canal individual. */
-/* ------------------------------------------------------------------ */
+const NOME_AGENTE = "Agente de Precificação";
+const NOME_ANALISTA = "Agente Analista";
+const NOME_SAC = "Agente de SAC";
 
-type CanalId = "mercado-livre" | "shopee" | "amazon" | "magalu";
-type AbaId = CanalId | "todos";
-
-interface CamposCanal {
-  precoVenda: string;
-  cmv: string;
-  imposto: string;
-  taxaFixa: string;
-  comissao: string;
-  frete: string;
-  embalagem: string;
-  ads: string;
-  margemDesejada: string;
-}
-
-const CANAIS_INFO: { id: CanalId; nome: string }[] = [
-  { id: "mercado-livre", nome: "Mercado Livre" },
-  { id: "shopee", nome: "Shopee" },
-  { id: "amazon", nome: "Amazon" },
-  { id: "magalu", nome: "Magalu" },
+/** Perguntas comuns de cliente de marketplace, só pra semear os
+ * primeiros tickets de exemplo — fictícias até a API de mensagens
+ * conectar. */
+const PERGUNTAS_FICTICIAS = [
+  "Esse produto tem garantia? Por quanto tempo?",
+  "Qual o prazo de entrega pro meu CEP?",
+  "Vocês têm em outra cor ou modelo?",
+  "Posso trocar se não servir ou não gostar?",
 ];
 
-const ABAS: { id: AbaId; nome: string }[] = [
-  ...CANAIS_INFO,
-  { id: "todos", nome: "Todos" },
-];
+type Aba = "operacao" | "historico";
 
-// Valores de exemplo pré-preenchidos por canal — cada um editável de forma
-// independente. Comissão e frete refletem uma média típica de cada
-// marketplace; os demais campos começam iguais, mas podem ser alterados
-// canal a canal a qualquer momento.
-const PADRAO: Record<CanalId, CamposCanal> = {
-  "mercado-livre": {
-    precoVenda: "150,00",
-    cmv: "65,00",
-    imposto: "9,00",
-    taxaFixa: "0,00",
-    comissao: "16,00",
-    frete: "8,00",
-    embalagem: "3,50",
-    ads: "10,00",
-    margemDesejada: "20,00",
-  },
-  shopee: {
-    precoVenda: "150,00",
-    cmv: "65,00",
-    imposto: "9,00",
-    taxaFixa: "0,00",
-    comissao: "20,00",
-    frete: "10,00",
-    embalagem: "3,50",
-    ads: "10,00",
-    margemDesejada: "20,00",
-  },
-  amazon: {
-    precoVenda: "150,00",
-    cmv: "65,00",
-    imposto: "9,00",
-    taxaFixa: "0,00",
-    comissao: "15,00",
-    frete: "12,00",
-    embalagem: "3,50",
-    ads: "10,00",
-    margemDesejada: "20,00",
-  },
-  magalu: {
-    precoVenda: "150,00",
-    cmv: "65,00",
-    imposto: "9,00",
-    taxaFixa: "0,00",
-    comissao: "18,00",
-    frete: "9,00",
-    embalagem: "3,50",
-    ads: "10,00",
-    margemDesejada: "20,00",
-  },
-};
+function Agentes() {
+  const { metasPorConta, fiscal, custoOperacionalTotal } = useConfiguracoes();
+  const { selecionadas: contasSelecionadas, todasSelecionadas: semRestricaoDeConta } =
+    useSelecaoContas();
+  const { sessao, recursos } = useAuth();
+  const [aba, setAba] = useState<Aba>("operacao");
+  const [abaAgente, setAbaAgente] = useState<"analista" | "precificacao" | "sac">("analista");
+  const [eventos, setEventos] = useState<EventoAgente[]>([]);
+  const [insights, setInsights] = useState<InsightAnalista[]>([]);
+  const [tickets, setTickets] = useState<TicketSac[]>([]);
+  const [carregandoTickets, setCarregandoTickets] = useState(true);
+  /** Ticket com resposta em andamento de gerar (mostra o spinner só nele) */
+  const [gerandoId, setGerandoId] = useState<string | null>(null);
+  /** Rascunho editável de cada ticket, por id — separado do que já está
+   * salvo, pra o seller poder ajustar antes de aprovar. */
+  const [rascunhos, setRascunhos] = useState<Record<string, string>>({});
+  const [carregando, setCarregando] = useState(true);
 
-function paraNumero(valor: string) {
-  return Number(valor.replace(/\./g, "").replace(",", ".")) || 0;
-}
+  /**
+   * A varredura do agente. Hoje roda quando a tela abre; quando houver
+   * servidor, é esta mesma função que passa a rodar de hora em hora sem
+   * ninguém olhando. Só GRAVA sugestão nova pra SKU que ainda não tem
+   * uma pendente — sem isso, toda vez que a tela abrisse duplicaria tudo.
+   */
+  const carregarEventos = useCallback(async () => {
+    if (!sessao || !recursos.agentes) return;
+    const perfilId = sessao.user.id;
 
-function simular(entrada: {
-  preco: number;
-  custoProduto: number;
-  taxaImposto: number;
-  taxaComissao: number;
-  taxaAds: number;
-  valorFrete: number;
-  valorEmbalagem: number;
-  valorTaxaFixa: number;
-}) {
-  const impostos = entrada.preco * entrada.taxaImposto;
-  const comissaoValor = entrada.preco * entrada.taxaComissao;
-  const adsValor = entrada.preco * entrada.taxaAds;
-  const freteEmbalagem = entrada.valorFrete + entrada.valorEmbalagem;
-  const custoTotal =
-    entrada.custoProduto + impostos + comissaoValor + freteEmbalagem + adsValor + entrada.valorTaxaFixa;
-  const lucroLiquido = entrada.preco - custoTotal;
-  return {
-    preco: entrada.preco,
-    custoProduto: entrada.custoProduto,
-    impostos,
-    comissaoValor,
-    adsValor,
-    freteEmbalagem,
-    valorFrete: entrada.valorFrete,
-    valorEmbalagem: entrada.valorEmbalagem,
-    taxaFixa: entrada.valorTaxaFixa,
-    custoTotal,
-    lucroLiquido,
-    margem: entrada.preco > 0 ? lucroLiquido / entrada.preco : 0,
-  };
-}
+    // Garante que o CMV dos produtos reais já está espalhado pros
+    // anúncios de exemplo, mesmo que o seller nunca tenha passado pela
+    // tela de Custos nesta sessão — senão o agente avalia sem custo.
+    const produtos = await produtosService.listar(perfilId);
+    produtosService.reconciliarComAnuncios(produtos);
 
-function calcularSimulacaoCanal(dados: CamposCanal) {
-  const base = {
-    preco: paraNumero(dados.precoVenda),
-    custoProduto: paraNumero(dados.cmv),
-    taxaImposto: paraNumero(dados.imposto) / 100,
-    taxaComissao: paraNumero(dados.comissao) / 100,
-    taxaAds: paraNumero(dados.ads) / 100,
-    valorFrete: paraNumero(dados.frete),
-    valorEmbalagem: paraNumero(dados.embalagem),
-    valorTaxaFixa: paraNumero(dados.taxaFixa),
-  };
-  const sim = simular(base);
+    const candidatos: Omit<EventoAgente, "id" | "status" | "decididoEm" | "data">[] = [];
+    for (const a of anunciosService.listar()) {
+      if (a.status !== "ativo") continue;
 
-  const margemAlvo = paraNumero(dados.margemDesejada) / 100;
-  const divisor = 1 - base.taxaImposto - base.taxaComissao - base.taxaAds - margemAlvo;
-  const precoSugerido =
-    divisor > 0
-      ? (base.custoProduto + base.valorFrete + base.valorEmbalagem + base.valorTaxaFixa) / divisor
-      : 0;
+      const metas = metasPorConta[a.contaId] ?? null;
+      const margemMinima = metas?.margemMinima ?? FAIXAS_MARGEM_PADRAO.margemMinima;
 
-  return { ...sim, precoSugerido };
-}
+      const s = sugerirPrecoPorGiro(
+        a,
+        margemMinima,
+        { aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal },
+        { diasParado: DIAS_PARADO_PADRAO, degrau: DEGRAU_DESCONTO_PADRAO },
+      );
+      if (!s) continue;
 
-type SimulacaoCanal = ReturnType<typeof calcularSimulacaoCanal>;
-
-function Calculadora() {
-  const [aba, setAba] = useState<AbaId>("mercado-livre");
-  const [dados, setDados] = useState<Record<CanalId, CamposCanal>>(PADRAO);
-  const [detalheAberto, setDetalheAberto] = useState<CanalId | null>(null);
-
-  const atualizarCampo = (canal: CanalId, campo: keyof CamposCanal, valor: string) => {
-    setDados((prev) => ({ ...prev, [canal]: { ...prev[canal], [campo]: valor } }));
-  };
-
-  const simulacoes = useMemo(() => {
-    const resultado = {} as Record<CanalId, SimulacaoCanal>;
-    for (const c of CANAIS_INFO) {
-      resultado[c.id] = calcularSimulacaoCanal(dados[c.id]);
+      candidatos.push({
+        agenteId: "precificacao",
+        anuncioId: a.id,
+        sku: a.sku,
+        produto: a.produto,
+        marketplaceId: a.marketplaceId,
+        contaId: a.contaId,
+        motivo: s.travadoNoPiso
+          ? `Parado há ${s.diasParado} dias. O corte de ${formatPercentual(DEGRAU_DESCONTO_PADRAO, 0)} passaria do piso, então parei no preço mínimo.`
+          : `Parado há ${s.diasParado} dias. Sugiro cortar ${formatPercentual(DEGRAU_DESCONTO_PADRAO, 0)} e ver se volta a girar.`,
+        diasParado: s.diasParado,
+        precoAtual: a.precoAtual,
+        precoSugerido: s.precoSugerido,
+        margemAtual: s.margemAtual,
+        margemSugerida: s.margemSugerida,
+        precoMinimo: s.precoMinimo,
+        semaforo: s.semaforo,
+        travadoNoPiso: s.travadoNoPiso,
+      });
     }
-    return resultado;
-  }, [dados]);
 
-  const canalAtivo = aba !== "todos" ? aba : null;
-  const dadosAtivos = canalAtivo ? dados[canalAtivo] : null;
-  const simulacaoAtiva = canalAtivo ? simulacoes[canalAtivo] : null;
+    const jaPendentes = await eventosAgenteService.skusPendentes(perfilId, "precificacao");
+    for (const c of candidatos) {
+      if (jaPendentes.has(c.sku)) continue;
+      const erro = await eventosAgenteService.criar(perfilId, c);
+      if (erro) console.error("Não consegui gravar a sugestão:", erro);
+    }
 
-  const composicao = simulacaoAtiva
-    ? [
-        { rotulo: "CMV", valor: simulacaoAtiva.custoProduto, cor: "bg-loss" },
-        { rotulo: "Impostos", valor: simulacaoAtiva.impostos, cor: "bg-warning" },
-        { rotulo: "Comissão", valor: simulacaoAtiva.comissaoValor, cor: "bg-info" },
-        { rotulo: "Taxa fixa", valor: simulacaoAtiva.taxaFixa, cor: "bg-secondary" },
-        { rotulo: "Frete + embalagem", valor: simulacaoAtiva.freteEmbalagem, cor: "bg-primary" },
-        { rotulo: "ADS", valor: simulacaoAtiva.adsValor, cor: "bg-brand" },
-      ]
-    : [];
+    const lista = await eventosAgenteService.listar(perfilId);
+    setEventos(lista);
+    setCarregando(false);
+  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
 
-  const totalAtivo = simulacaoAtiva && simulacaoAtiva.preco > 0 ? simulacaoAtiva.preco : 1;
+  const [carregandoInsights, setCarregandoInsights] = useState(true);
+
+  /**
+   * As cinco frentes do Analista, rodando de uma vez: queda de margem,
+   * curva ABC, dado faltando, saúde da conta e o resumo do dia. Cada
+   * frente só vira aviso quando tem algo que realmente merece atenção —
+   * sem novidade, fica quieto.
+   */
+  const carregarInsights = useCallback(async () => {
+    if (!sessao || !recursos.agentes) return;
+    const perfilId = sessao.user.id;
+
+    const pedidos = vendasService.listar();
+    const anuncios = anunciosService.listar();
+    const contasAtivas = contasService.ativas();
+    const opcoesCusto = {
+      aliquotaImposto: fiscal.aliquota,
+      custosOperacionais: custoOperacionalTotal,
+    };
+
+    const quedaMargem = diagnosticarQuedaMargem(pedidos);
+    const abc = diagnosticarCurvaAbc(anuncios, opcoesCusto);
+    const dadoFaltando = diagnosticarDadoFaltando(anuncios, contasAtivas, metasPorConta);
+    const saude = diagnosticarSaudeContas(contasAtivas);
+    const hoje = new Date();
+    const pedidosHoje = pedidos.filter(
+      (p) => new Date(p.data).toDateString() === hoje.toDateString(),
+    );
+    const resumo = montarResumoDiario(pedidosHoje, quedaMargem, dadoFaltando, saude, abc);
+
+    const candidatos: Omit<InsightAnalista, "id" | "status" | "decididoEm" | "data">[] = [];
+
+    if (quedaMargem) {
+      candidatos.push({
+        tipo: "queda_margem",
+        contaId: null,
+        motivo: `Margem caiu ${Math.abs(quedaMargem.diferencaPP).toFixed(1)} pontos percentuais — de ${formatPercentual(quedaMargem.margemAnterior)} para ${formatPercentual(quedaMargem.margemAtual)} no período.`,
+        semaforo: "amarelo",
+        dados: { ...quedaMargem },
+      });
+    }
+
+    if (abc && abc.cEmPrejuizo.length > 0) {
+      candidatos.push({
+        tipo: "curva_abc",
+        contaId: null,
+        motivo: `${abc.cEmPrejuizo.length} produto${abc.cEmPrejuizo.length > 1 ? "s" : ""} de baixo faturamento vendendo com prejuízo — candidato a rever preço ou descontinuar.`,
+        semaforo: "vermelho",
+        dados: {
+          cEmPrejuizo: abc.cEmPrejuizo.map((i) => ({
+            produto: i.anuncio.produto,
+            sku: i.anuncio.sku,
+          })),
+          topA: abc.topA.map((i) => ({ produto: i.anuncio.produto, participacao: i.participacao })),
+        },
+      });
+    } else if (abc && abc.topA.length > 0) {
+      candidatos.push({
+        tipo: "curva_abc",
+        contaId: null,
+        motivo: `${abc.topA.length} produto${abc.topA.length > 1 ? "s" : ""} concentra${abc.topA.length > 1 ? "m" : ""} a maior parte do seu faturamento.`,
+        semaforo: "verde",
+        dados: {
+          topA: abc.topA.map((i) => ({ produto: i.anuncio.produto, participacao: i.participacao })),
+        },
+      });
+    }
+
+    if (dadoFaltando) {
+      candidatos.push({
+        tipo: "dado_faltando",
+        contaId: null,
+        motivo: `${dadoFaltando.anunciosSemCusto} anúncio(s) sem CMV e ${dadoFaltando.contasSemMeta} conta(s) sem margem mínima configurada — os cálculos desses ficam incompletos até isso ser preenchido.`,
+        semaforo: "amarelo",
+        dados: { ...dadoFaltando },
+      });
+    }
+
+    for (const item of saude) {
+      candidatos.push({
+        tipo: "saude_conta",
+        contaId: item.conta.id,
+        motivo: item.alerta,
+        semaforo: "vermelho",
+        dados: { contaNome: item.conta.nome, marketplaceId: item.conta.marketplaceId },
+      });
+    }
+
+    candidatos.push({
+      tipo: "resumo_diario",
+      contaId: null,
+      motivo: `Hoje: ${formatBRL(resumo.faturamento)} em ${formatNumero(resumo.pedidos)} pedido(s), margem de ${formatPercentual(resumo.margem)}.`,
+      semaforo: resumo.quedaDeMargem || resumo.contasEmAlerta > 0 ? "amarelo" : "verde",
+      dados: { ...resumo },
+    });
+
+    const jaPendentes = await eventosAgenteService.tiposPendentes(perfilId);
+    for (const c of candidatos) {
+      const chave = `${c.tipo}:${c.contaId ?? ""}`;
+      if (jaPendentes.has(chave)) continue;
+      const erro = await eventosAgenteService.criarInsight(perfilId, c);
+      if (erro) console.error("Não consegui gravar o aviso:", erro);
+    }
+
+    const lista = await eventosAgenteService.listarInsights(perfilId);
+    setInsights(lista);
+    setCarregandoInsights(false);
+  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
+
+  /**
+   * Quatro perguntas comuns de cliente de marketplace, usadas só pra
+   * semear os primeiros tickets de exemplo — a API de mensagens ainda
+   * não existe, então a pergunta em si é sempre fictícia.
+   */
+  const carregarTickets = useCallback(async () => {
+    if (!sessao || !recursos.agentes) return;
+    const perfilId = sessao.user.id;
+
+    const existentes = await sacService.listar(perfilId);
+    if (existentes.length === 0) {
+      const anunciosAtivos = anunciosService.listar().filter((a) => a.status === "ativo");
+      const amostra = anunciosAtivos.slice(0, Math.min(4, anunciosAtivos.length));
+      for (let i = 0; i < amostra.length; i++) {
+        const a = amostra[i]!;
+        const erro = await sacService.criarTicket(perfilId, {
+          contaId: a.contaId,
+          anuncioId: a.id,
+          produto: a.produto,
+          sku: a.sku,
+          marketplaceId: a.marketplaceId,
+          pergunta: PERGUNTAS_FICTICIAS[i % PERGUNTAS_FICTICIAS.length]!,
+        });
+        if (erro) console.error("Não consegui criar o ticket de exemplo:", erro);
+      }
+    }
+
+    const lista = await sacService.listar(perfilId);
+    setTickets(lista);
+    setCarregandoTickets(false);
+  }, [sessao, recursos.agentes]);
+
+  useEffect(() => {
+    carregarEventos();
+    carregarInsights();
+    carregarTickets();
+  }, [carregarEventos, carregarInsights, carregarTickets]);
+
+  // O filtro de canal ("Todas as contas") só recorta o que aparece — não
+  // muda o que o agente já gravou. Assim trocar o filtro não refaz a
+  // varredura nem conversa de novo com o banco.
+  const eventosNaSelecao = semRestricaoDeConta
+    ? eventos
+    : eventos.filter((e) => contasSelecionadas.has(e.contaId));
+
+  const pendentes = eventosNaSelecao.filter((e) => e.status === "pendente");
+  const decididos = eventosNaSelecao.filter((e) => e.status !== "pendente");
+  const aprovadas = decididos.filter((e) => e.status === "aprovada").length;
+
+  const decidir = async (evento: EventoAgente, status: StatusSugestao) => {
+    if (status !== "aprovada" && status !== "recusada") return;
+    // Otimista: a tela responde na hora.
+    setEventos((atual) =>
+      atual.map((e) =>
+        e.id === evento.id ? { ...e, status, decididoEm: new Date().toISOString() } : e,
+      ),
+    );
+    const erro = await eventosAgenteService.decidir(evento.id, status);
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      await carregarEventos();
+      return;
+    }
+    if (status === "aprovada") {
+      toast.success(
+        `Aprovado: ${evento.produto} de ${formatBRL(evento.precoAtual)} para ${formatBRL(evento.precoSugerido)}. Aplique no marketplace — sem API conectada, o agente ainda não altera sozinho.`,
+      );
+    } else {
+      toast(`Recusado: ${evento.produto} segue em ${formatBRL(evento.precoAtual)}.`);
+    }
+  };
+
+  const dispensarInsight = async (insight: InsightAnalista) => {
+    setInsights((atual) =>
+      atual.map((i) =>
+        i.id === insight.id ? { ...i, status: "aprovada", decididoEm: new Date().toISOString() } : i,
+      ),
+    );
+    const erro = await eventosAgenteService.decidir(insight.id, "aprovada");
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      await carregarInsights();
+    }
+  };
+
+  /** Só aqui sai custo de token de verdade — por isso é sempre um clique
+   * do seller, nunca automático. */
+  const gerarRespostaSac = async (ticket: TicketSac) => {
+    setGerandoId(ticket.id);
+    const { resposta, erro } = await sacService.gerarResposta(ticket.pergunta, ticket.produto);
+    setGerandoId(null);
+    if (erro) {
+      toast.error(`Não consegui gerar a resposta: ${erro}`);
+      return;
+    }
+    if (!resposta) return;
+    const erroSalvar = await sacService.salvarResposta(ticket.id, resposta);
+    if (erroSalvar) {
+      toast.error(`Gerei a resposta, mas não consegui salvar: ${erroSalvar}`);
+      return;
+    }
+    setTickets((atual) => atual.map((t) => (t.id === ticket.id ? { ...t, resposta } : t)));
+    setRascunhos((atual) => ({ ...atual, [ticket.id]: resposta }));
+  };
+
+  const decidirTicket = async (
+    ticket: TicketSac,
+    status: Extract<StatusSugestao, "aprovada" | "recusada">,
+  ) => {
+    const rascunho = rascunhos[ticket.id];
+    if (status === "aprovada" && rascunho && rascunho !== ticket.resposta) {
+      const erroSalvar = await sacService.salvarResposta(ticket.id, rascunho);
+      if (erroSalvar) {
+        toast.error(`Não consegui salvar a edição: ${erroSalvar}`);
+        return;
+      }
+    }
+    setTickets((atual) =>
+      atual.map((t) =>
+        t.id === ticket.id
+          ? {
+              ...t,
+              status,
+              decididoEm: new Date().toISOString(),
+              resposta: status === "aprovada" ? (rascunho ?? t.resposta) : t.resposta,
+            }
+          : t,
+      ),
+    );
+    const erro = await eventosAgenteService.decidir(ticket.id, status);
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      await carregarTickets();
+      return;
+    }
+    toast.success(
+      status === "aprovada"
+        ? "Aprovado. Sem canal de mensagem conectado ainda — copie e envie essa resposta no marketplace."
+        : `Descartado: pergunta sobre "${ticket.produto}".`,
+    );
+  };
+
+  const lista = aba === "operacao" ? pendentes : decididos;
+  const insightsPendentes = insights.filter((i) => i.status === "pendente").length;
+  const ticketsPendentes = tickets.filter((t) => t.status === "pendente").length;
+
+  if (!recursos.agentes) {
+    return (
+      <div className="mx-auto max-w-[1100px]">
+        <Painel titulo="Agentes" descricao="Recurso do plano com Agentes">
+          <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
+            <div className="flex size-12 items-center justify-center rounded-full bg-brand/15 text-brand">
+              <Bot className="size-5" />
+            </div>
+            <p className="text-sm font-semibold">Isso ainda não está no seu plano</p>
+            <p className="max-w-sm text-xs text-muted-foreground">
+              Os agentes de IA fazem parte do plano com Agentes. Fale com o suporte pra
+              fazer o upgrade e ligar essa tela pra sua conta.
+            </p>
+          </div>
+        </Painel>
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-[1200px] space-y-4">
-      <div>
-        <h1 className="truncate text-lg font-semibold tracking-tight">
-          Calculadora de precificação
-        </h1>
-        <p className="text-xs text-muted-foreground">
-          Configure os custos de cada marketplace de forma independente e descubra o preço ideal por
-          canal.
-        </p>
-      </div>
-
-      <div className="card-glow flex flex-wrap gap-2 p-2">
-        {ABAS.map((a) => (
+    <div className="mx-auto max-w-[1100px] space-y-4">
+      {/* Um agente por vez, ocupando a tela toda — antes ficavam os três
+          empilhados, e pra responder o SAC era preciso rolar a tela
+          inteira passando pelos outros dois. */}
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {(
+          [
+            ["analista", "Analista", BarChart3, insightsPendentes] as const,
+            ["precificacao", "Precificação", TrendingDown, pendentes.length] as const,
+            ["sac", "SAC", MessageCircle, ticketsPendentes] as const,
+          ] as const
+        ).map(([id, nome, Icone, contagem]) => (
           <button
-            key={a.id}
-            type="button"
-            onClick={() => setAba(a.id)}
+            key={id}
+            onClick={() => setAbaAgente(id)}
             className={cn(
-              "rounded-xl px-3 py-2 text-xs font-semibold transition-colors",
-              aba === a.id
-                ? "bg-brand text-brand-foreground"
-                : "text-muted-foreground hover:bg-muted",
+              "flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors",
+              abaAgente === id
+                ? "border-brand bg-brand/10 text-foreground"
+                : "border-transparent bg-muted/50 text-muted-foreground hover:text-foreground",
             )}
           >
-            {a.nome}
+            <Icone className="size-3.5" />
+            {nome}
+            {contagem > 0 && (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                  abaAgente === id ? "bg-brand text-white" : "bg-muted-foreground/20",
+                )}
+              >
+                {contagem}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
-      {aba === "todos" || !dadosAtivos || !simulacaoAtiva ? (
-        <TelaTodos dados={dados} simulacoes={simulacoes} aoAbrirDetalhe={(id) => setDetalheAberto(id)} />
-      ) : (
-        <div className="grid items-start gap-4 lg:grid-cols-2">
-          {/* Coluna esquerda */}
-          <div className="space-y-4">
-            <Painel
-              titulo="Dados da simulação"
-              descricao={`Custos do produto neste canal (${CANAIS_INFO.find((c) => c.id === canalAtivo)?.nome})`}
-            >
-              <div className="grid grid-cols-2 gap-3 p-5">
-                <Campo
-                  rotulo="Preço de venda desejado"
-                  valor={dadosAtivos.precoVenda}
-                  aoAlterar={(v) => atualizarCampo(canalAtivo!, "precoVenda", v)}
-                  prefixo="R$"
-                  exemplo="150,00"
-                />
-                <Campo
-                  rotulo="Custo do produto / CMV"
-                  valor={dadosAtivos.cmv}
-                  aoAlterar={(v) => atualizarCampo(canalAtivo!, "cmv", v)}
-                  prefixo="R$"
-                  exemplo="65,00"
-                />
-                <Campo
-                  rotulo="Comissão do marketplace"
-                  valor={dadosAtivos.comissao}
-                  aoAlterar={(v) => atualizarCampo(canalAtivo!, "comissao", v)}
-                  prefixo="%"
-                  exemplo="16,00"
-                />
-                <Campo
-                  rotulo="Taxa fixa"
-                  valor={dadosAtivos.taxaFixa}
-                  aoAlterar={(v) => atualizarCampo(canalAtivo!, "taxaFixa", v)}
-                  prefixo="R$"
-                  exemplo="0,00"
-                />
-                <Campo
-                  rotulo="Frete médio"
-                  valor={dadosAtivos.frete}
-                  aoAlterar={(v) => atualizarCampo(canalAtivo!, "frete", v)}
-                  prefixo="R$"
-                  exemplo="8,00"
-                />
-                <Campo
-                  rotulo="Imposto"
-                  valor={dadosAtivos.imposto}
-                  aoAlterar={(v) => atualizarCampo(canalAtivo!, "imposto", v)}
-                  prefixo="%"
-                  exemplo="9,00"
-                />
-                <Campo
-                  rotulo="Embalagem / operacional"
-                  valor={dadosAtivos.embalagem}
-                  aoAlterar={(v) => atualizarCampo(canalAtivo!, "embalagem", v)}
-                  prefixo="R$"
-                  exemplo="3,50"
-                />
-                <Campo
-                  rotulo="Investimento em ADS"
-                  valor={dadosAtivos.ads}
-                  aoAlterar={(v) => atualizarCampo(canalAtivo!, "ads", v)}
-                  prefixo="%"
-                  exemplo="10,00"
-                />
-              </div>
-            </Painel>
-
-            <Painel titulo="Margem alvo" descricao="Preço sugerido para a margem desejada neste canal">
-              <div className="space-y-4 p-5">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Campo
-                    rotulo="Margem desejada"
-                    valor={dadosAtivos.margemDesejada}
-                    aoAlterar={(v) => atualizarCampo(canalAtivo!, "margemDesejada", v)}
-                    prefixo="%"
-                    exemplo="20,00"
-                  />
-                  <div className="rounded-xl border bg-muted/40 p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Preço de venda sugerido
-                    </p>
-                    <p className="num mt-1 text-xl font-bold text-brand">
-                      {formatBRL(simulacaoAtiva.precoSugerido)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="rounded-xl border bg-profit-soft p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="shrink-0 rounded-full bg-profit/20 p-2">
-                      <Target className="size-4 text-profit" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold">Como funciona o cálculo</p>
-                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                        O preço sugerido cobre CMV, frete, embalagem, taxa fixa, impostos, comissão e
-                        ADS deste canal, garantindo a margem definida. Se ficar acima do mercado,
-                        reveja custos fixos ou o canal escolhido.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Painel>
-          </div>
-
-          {/* Coluna direita */}
-          <div className="space-y-4">
-            <Painel titulo="DRE simulada" descricao="Composição do preço de venda em tempo real">
-              <div className="space-y-4 p-5">
-                <div className="flex items-center justify-between border-b pb-3">
-                  <span className="text-sm font-medium text-muted-foreground">
-                    Faturamento bruto
-                  </span>
-                  <span className="num text-lg font-bold">{formatBRL(simulacaoAtiva.preco)}</span>
-                </div>
-
-                <div className="space-y-1.5">
-                  <LinhaDre rotulo="(-) Impostos" valor={simulacaoAtiva.impostos} />
-                  <LinhaDre rotulo="(-) Comissões" valor={simulacaoAtiva.comissaoValor} />
-                  <LinhaDre rotulo="(-) Taxa fixa" valor={simulacaoAtiva.taxaFixa} />
-                  <LinhaDre rotulo="(-) Frete e embalagem" valor={simulacaoAtiva.freteEmbalagem} />
-                  <LinhaDre rotulo="(-) Custo do produto (CMV)" valor={simulacaoAtiva.custoProduto} />
-                  <LinhaDre rotulo="(-) Investimento em ADS" valor={simulacaoAtiva.adsValor} />
-                </div>
-
-                <div className="flex items-center justify-between border-t pt-3">
-                  <span
-                    className={cn(
-                      "text-sm font-bold",
-                      simulacaoAtiva.lucroLiquido >= 0 ? "text-profit" : "text-loss",
-                    )}
-                  >
-                    (=) Lucro líquido
-                  </span>
-                  <span
-                    className={cn(
-                      "num text-xl font-bold",
-                      simulacaoAtiva.lucroLiquido >= 0 ? "text-profit" : "text-loss",
-                    )}
-                  >
-                    {formatBRL(simulacaoAtiva.lucroLiquido)}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-muted-foreground">Margem líquida</span>
-                  <span
-                    className={cn(
-                      "num text-sm font-bold",
-                      simulacaoAtiva.margem >= 0 ? "text-profit" : "text-loss",
-                    )}
-                  >
-                    {formatPercentual(simulacaoAtiva.margem)}
-                  </span>
-                </div>
-              </div>
-            </Painel>
-
-            <Painel titulo="Composição do preço" descricao="Para onde vai cada real da venda">
-              <div className="p-5">
-                <div className="mb-2 flex justify-between text-[10px] text-muted-foreground">
-                  <span>Preço de venda</span>
-                  <span className="num">{formatBRL(simulacaoAtiva.preco)}</span>
-                </div>
-                <div className="flex h-3 w-full overflow-hidden rounded-full">
-                  {composicao.map((item) => {
-                    const pct = Math.max(0, (item.valor / totalAtivo) * 100);
-                    if (pct <= 0) return null;
-                    return (
-                      <div
-                        key={item.rotulo}
-                        className={item.cor}
-                        style={{ width: `${pct}%` }}
-                        title={`${item.rotulo}: ${formatBRL(item.valor)}`}
-                      />
-                    );
-                  })}
-                  <div
-                    className={simulacaoAtiva.lucroLiquido >= 0 ? "bg-profit" : "bg-loss"}
-                    style={{
-                      width: `${Math.max(0, (Math.abs(simulacaoAtiva.lucroLiquido) / totalAtivo) * 100)}%`,
-                    }}
-                    title={`Lucro líquido: ${formatBRL(simulacaoAtiva.lucroLiquido)}`}
-                  />
-                </div>
-                <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 text-[10px]">
-                  {composicao.map((item) => (
-                    <div key={item.rotulo} className="flex items-center gap-1.5">
-                      <span className={cn("size-2 shrink-0 rounded-full", item.cor)} />
-                      <span className="text-muted-foreground">
-                        {item.rotulo} · {formatBRL(item.valor)}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className={cn(
-                        "size-2 shrink-0 rounded-full",
-                        simulacaoAtiva.lucroLiquido >= 0 ? "bg-profit" : "bg-loss",
-                      )}
-                    />
-                    <span className="text-muted-foreground">
-                      Lucro líquido · {formatBRL(simulacaoAtiva.lucroLiquido)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </Painel>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <CardKpi
-                titulo="Custo total"
-                valor={formatBRL(simulacaoAtiva.custoTotal)}
-                detalhe="Todos os custos por venda"
-              />
-              <CardKpi
-                titulo="Lucro líquido"
-                valor={formatBRL(simulacaoAtiva.lucroLiquido)}
-                detalhe={`Margem de ${formatPercentual(simulacaoAtiva.margem)}`}
-                destaque={simulacaoAtiva.lucroLiquido >= 0}
-              />
-              <CardKpi
-                titulo="Preço sugerido"
-                valor={formatBRL(simulacaoAtiva.precoSugerido)}
-                detalhe={`Alvo: ${formatPercentual(paraNumero(dadosAtivos.margemDesejada) / 100)}`}
-              />
-            </div>
-          </div>
-        </div>
+      {abaAgente === "analista" && (
+        <PainelAnalista
+          insights={insights}
+          carregando={carregandoInsights}
+          aoDispensar={dispensarInsight}
+        />
       )}
 
-      {detalheAberto && (
-        <DialogDetalheCanal
-          canal={detalheAberto}
-          dados={dados[detalheAberto]}
-          simulacao={simulacoes[detalheAberto]}
-          aoFechar={() => setDetalheAberto(null)}
+      {abaAgente === "precificacao" && (
+        <Painel
+          titulo="Agentes"
+          descricao="Cada decisão vem com o motivo, o antes e o depois. Nada é aplicado sem você aprovar"
+        >
+        {/* Indicadores */}
+        <div className="grid gap-3 border-b p-4 sm:grid-cols-3">
+          <div className="rounded-lg bg-muted px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Esperando sua aprovação
+            </p>
+            <p
+              className={cn(
+                "num text-lg font-bold",
+                pendentes.length > 0 && "text-warning",
+              )}
+            >
+              {formatNumero(pendentes.length)}
+            </p>
+          </div>
+          <div className="rounded-lg bg-muted px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Aprovadas nesta sessão
+            </p>
+            <p className="num text-lg font-bold text-profit">{formatNumero(aprovadas)}</p>
+          </div>
+          <div className="rounded-lg bg-muted px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Regra ativa
+            </p>
+            <p className="text-xs font-semibold leading-tight">
+              Parado há {DIAS_PARADO_PADRAO}+ dias → corta{" "}
+              {formatPercentual(DEGRAU_DESCONTO_PADRAO, 0)}
+            </p>
+          </div>
+        </div>
+
+        {/* Quem está trabalhando */}
+        <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+            <Bot className="size-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold">{NOME_AGENTE}</p>
+            <p className="text-[10px] text-muted-foreground">
+              Procura produto encalhado e propõe corte sem furar a sua margem mínima
+            </p>
+          </div>
+          <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-profit-soft px-2.5 py-1 text-[10px] font-semibold text-profit">
+            <span className="size-1.5 rounded-full bg-profit" />
+            Ativo
+          </span>
+        </div>
+
+        {/* Abas */}
+        <div className="flex gap-1 border-b px-4 pt-3">
+          {(
+            [
+              ["operacao", `Operação (${pendentes.length})`],
+              ["historico", `Histórico (${decididos.length})`],
+            ] as const
+          ).map(([id, rotulo]) => (
+            <button
+              key={id}
+              onClick={() => setAba(id)}
+              className={cn(
+                "rounded-t-md px-3 py-2 text-xs font-semibold transition-colors",
+                aba === id
+                  ? "border-b-2 border-brand text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {rotulo}
+            </button>
+          ))}
+        </div>
+
+        {/* Feed */}
+        <div className="divide-y">
+          {carregando && (
+            <div className="flex items-center justify-center gap-2 px-4 py-14 text-xs text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" />
+              Verificando seus produtos...
+            </div>
+          )}
+
+          {!carregando && lista.map((e) => (
+            <CardDecisao key={e.id} evento={e} aoDecidir={decidir} />
+          ))}
+
+          {!carregando && lista.length === 0 && (
+            <div className="px-4 py-14 text-center">
+              <p className="text-xs text-muted-foreground">
+                {aba === "operacao"
+                  ? "Nada parado além do limite. O agente não tem o que propor agora."
+                  : "Nenhuma decisão registrada ainda."}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
+          Sem API conectada, o agente sugere mas não executa: depois de aprovar, o preço
+          precisa ser alterado no marketplace. A margem mínima de cada canal vem das metas
+          em Configurações.
+        </div>
+      </Painel>
+      )}
+
+      {abaAgente === "sac" && (
+        <PainelSac
+          tickets={tickets}
+          carregando={carregandoTickets}
+          gerandoId={gerandoId}
+          rascunhos={rascunhos}
+          aoMudarRascunho={(id, texto) => setRascunhos((atual) => ({ ...atual, [id]: texto }))}
+          aoGerar={gerarRespostaSac}
+          aoDecidir={decidirTicket}
         />
       )}
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Tela "Todos" — somente leitura, reflete o que foi preenchido em     */
-/* cada canal. Nenhum valor é somado ou dividido entre marketplaces:   */
-/* cada coluna é a análise individual daquele canal.                   */
-/* ------------------------------------------------------------------ */
-
-function TelaTodos({
-  dados,
-  simulacoes,
-  aoAbrirDetalhe,
+/**
+ * O painel de SAC: uma pergunta de cliente por card. Diferente dos
+ * outros dois agentes, tem um passo intermediário — "Gerar resposta" —
+ * porque é o único ponto do sistema que gasta token de verdade, então
+ * fica sempre atrás de um clique explícito, nunca automático.
+ */
+function PainelSac({
+  tickets,
+  carregando,
+  gerandoId,
+  rascunhos,
+  aoMudarRascunho,
+  aoGerar,
+  aoDecidir,
 }: {
-  dados: Record<CanalId, CamposCanal>;
-  simulacoes: Record<CanalId, SimulacaoCanal>;
-  aoAbrirDetalhe: (id: CanalId) => void;
+  tickets: TicketSac[];
+  carregando: boolean;
+  gerandoId: string | null;
+  rascunhos: Record<string, string>;
+  aoMudarRascunho: (id: string, texto: string) => void;
+  aoGerar: (t: TicketSac) => void;
+  aoDecidir: (t: TicketSac, status: Extract<StatusSugestao, "aprovada" | "recusada">) => void;
 }) {
-  const melhorMargemId = CANAIS_INFO.reduce((melhor, c) =>
-    simulacoes[c.id].margem > simulacoes[melhor.id].margem ? c : melhor,
-  ).id;
+  const [aba, setAba] = useState<Aba>("operacao");
+  const pendentes = tickets.filter((t) => t.status === "pendente");
+  const decididos = tickets.filter((t) => t.status !== "pendente");
+  const lista = aba === "operacao" ? pendentes : decididos;
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border bg-muted/30 p-4 text-xs text-muted-foreground">
-        Esta tela só mostra o que foi configurado em cada marketplace — nenhum valor aqui é somado ou
-        dividido entre canais. Para editar, selecione um marketplace específico na barra acima.
+    <Painel
+      titulo="SAC"
+      descricao="Perguntas de cliente esperando resposta — a IA sugere, você decide"
+    >
+      <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <MessageCircle className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold">{NOME_SAC}</p>
+          <p className="text-[10px] text-muted-foreground">
+            Sugere a resposta; enviar ainda é manual até a API de mensagens conectar
+          </p>
+        </div>
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-profit-soft px-2.5 py-1 text-[10px] font-semibold text-profit">
+          <span className="size-1.5 rounded-full bg-profit" />
+          Ativo
+        </span>
       </div>
 
-      <div className="card-glow overflow-x-auto">
-        <table className="w-full text-[10px]">
-          <thead className="bg-muted/40 text-[8px] uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th className="px-2 py-1.5 text-left font-semibold">Canal</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Preço</th>
-              <th className="px-2 py-1.5 text-right font-semibold">CMV</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Comissão</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Taxa fixa</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Frete</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Imposto</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Embalagem</th>
-              <th className="px-2 py-1.5 text-right font-semibold">ADS</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Custo total</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Lucro líquido</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Margem</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Preço sugerido</th>
-            </tr>
-          </thead>
-          <tbody>
-            {CANAIS_INFO.map((c) => {
-              const d = dados[c.id];
-              const s = simulacoes[c.id];
-              return (
-                <tr
-                  key={c.id}
-                  onClick={() => aoAbrirDetalhe(c.id)}
-                  className="cursor-pointer border-t transition-colors hover:bg-muted/40"
-                >
-                  <td className="px-2 py-1.5 font-medium">
-                    <div className="flex items-center gap-1.5">
-                      <SeloMarketplace id={c.id as MarketplaceId} />
-                      {c.id === melhorMargemId && (
-                        <span className="rounded-full bg-profit-soft px-1 py-0.5 text-[8px] font-semibold text-profit">
-                          Melhor margem
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.preco)}</td>
-                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.custoProduto)}</td>
-                  <td className="num px-2 py-1.5 text-right">
-                    {formatBRL(s.comissaoValor)}{" "}
-                    <span className="text-muted-foreground">({d.comissao}%)</span>
-                  </td>
-                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.taxaFixa)}</td>
-                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.valorFrete)}</td>
-                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.impostos)}</td>
-                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.valorEmbalagem)}</td>
-                  <td className="num px-2 py-1.5 text-right">{formatBRL(s.adsValor)}</td>
-                  <td className="num px-2 py-1.5 text-right font-medium">
-                    {formatBRL(s.custoTotal)}
-                  </td>
-                  <td
-                    className={cn(
-                      "num px-2 py-1.5 text-right font-semibold",
-                      s.lucroLiquido >= 0 ? "text-profit" : "text-loss",
-                    )}
-                  >
-                    {formatBRL(s.lucroLiquido)}
-                  </td>
-                  <td
-                    className={cn(
-                      "num px-2 py-1.5 text-right font-semibold",
-                      s.margem >= 0 ? "text-profit" : "text-loss",
-                    )}
-                  >
-                    {formatPercentual(s.margem)}
-                  </td>
-                  <td className="num px-2 py-1.5 text-right text-brand">
-                    {formatBRL(s.precoSugerido)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      {/* Abas */}
+      <div className="flex gap-1 border-b px-4 pt-3">
+        {(
+          [
+            ["operacao", `Operação (${pendentes.length})`],
+            ["historico", `Histórico (${decididos.length})`],
+          ] as const
+        ).map(([id, rotulo]) => (
+          <button
+            key={id}
+            onClick={() => setAba(id)}
+            className={cn(
+              "rounded-t-md px-3 py-2 text-xs font-semibold transition-colors",
+              aba === id
+                ? "border-b-2 border-brand text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {rotulo}
+          </button>
+        ))}
       </div>
-      <p className="text-[10px] text-muted-foreground">
-        Clique em uma linha para ver o detalhamento completo daquele canal.
-      </p>
+
+      <div className="divide-y">
+        {carregando && (
+          <div className="flex items-center justify-center gap-2 px-4 py-10 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            Carregando perguntas...
+          </div>
+        )}
+
+        {!carregando &&
+          lista.map((t) => (
+            <CardTicketSac
+              key={t.id}
+              ticket={t}
+              gerando={gerandoId === t.id}
+              rascunho={rascunhos[t.id] ?? t.resposta ?? ""}
+              aoMudarRascunho={(texto) => aoMudarRascunho(t.id, texto)}
+              aoGerar={() => aoGerar(t)}
+              aoDecidir={(status) => aoDecidir(t, status)}
+            />
+          ))}
+
+        {!carregando && lista.length === 0 && (
+          <div className="px-4 py-10 text-center">
+            <p className="text-xs text-muted-foreground">
+              {aba === "operacao"
+                ? "Nenhuma pergunta pendente agora."
+                : "Nenhuma decisão registrada ainda."}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
+        A pergunta do cliente ainda é de exemplo — não há API de mensagens conectada. A
+        resposta, essa é gerada de verdade por IA quando você pede.
+      </div>
+    </Painel>
+  );
+}
+
+function CardTicketSac({
+  ticket,
+  gerando,
+  rascunho,
+  aoMudarRascunho,
+  aoGerar,
+  aoDecidir,
+}: {
+  ticket: TicketSac;
+  gerando: boolean;
+  rascunho: string;
+  aoMudarRascunho: (texto: string) => void;
+  aoGerar: () => void;
+  aoDecidir: (status: Extract<StatusSugestao, "aprovada" | "recusada">) => void;
+}) {
+  const temResposta = ticket.resposta !== null;
+  const decidido = ticket.status !== "pendente";
+
+  return (
+    <div className="px-4 py-4">
+      <div className="flex gap-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <MessageCircle className="size-3.5" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <SeloMarketplace id={ticket.marketplaceId} />
+            <span className="truncate text-xs font-medium">{ticket.produto}</span>
+            <span className="num text-[10px] text-muted-foreground">{ticket.sku}</span>
+            {decidido && (
+              <span
+                className={cn(
+                  "rounded px-2 py-0.5 text-[10px] font-semibold",
+                  ticket.status === "aprovada"
+                    ? "bg-profit-soft text-profit"
+                    : "bg-muted text-muted-foreground",
+                )}
+              >
+                {ticket.status === "aprovada" ? "aprovada" : "descartada"}
+              </span>
+            )}
+            {decidido && ticket.decididoEm && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                <Clock className="size-3" />
+                {new Date(ticket.decididoEm).toLocaleString("pt-BR", {
+                  day: "2-digit",
+                  month: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            )}
+          </div>
+
+          <div className="mt-2 rounded-lg bg-muted/50 px-3 py-2">
+            <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+              Pergunta do cliente
+            </p>
+            <p className="mt-0.5 text-xs">{ticket.pergunta}</p>
+          </div>
+
+          {decidido ? (
+            // Histórico: só leitura — o que foi decidido já foi decidido.
+            ticket.resposta && (
+              <div className="mt-2 rounded-lg bg-muted/30 px-3 py-2">
+                <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  {ticket.status === "aprovada" ? "Resposta enviada" : "Resposta descartada"}
+                </p>
+                <p className="mt-0.5 text-xs">{ticket.resposta}</p>
+              </div>
+            )
+          ) : !temResposta ? (
+            <div className="mt-3">
+              <Button size="sm" variant="outline" onClick={aoGerar} disabled={gerando}>
+                {gerando ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="size-3.5" />
+                )}
+                {gerando ? "Gerando..." : "Gerar resposta com IA"}
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2">
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                Resposta sugerida — pode editar antes de aprovar
+              </p>
+              <Textarea
+                value={rascunho}
+                onChange={(e) => aoMudarRascunho(e.target.value)}
+                className="min-h-20 text-xs"
+              />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => aoDecidir("aprovada")}>
+                  <Check className="size-3.5" />
+                  Aprovar
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => aoDecidir("recusada")}>
+                  <X className="size-3.5" />
+                  Descartar
+                </Button>
+                <Button size="sm" variant="ghost" onClick={aoGerar} disabled={gerando}>
+                  {gerando ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-3.5" />
+                  )}
+                  Gerar de novo
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
-function DialogDetalheCanal({
-  canal,
-  dados,
-  simulacao,
-  aoFechar,
-}: {
-  canal: CanalId;
-  dados: CamposCanal;
-  simulacao: SimulacaoCanal;
-  aoFechar: () => void;
-}) {
-  const nome = CANAIS_INFO.find((c) => c.id === canal)?.nome ?? canal;
+const ICONE_INSIGHT: Record<TipoInsightAnalista, typeof AlertTriangle> = {
+  queda_margem: TrendingDown,
+  curva_abc: BarChart3,
+  dado_faltando: AlertTriangle,
+  saude_conta: ShieldAlert,
+  resumo_diario: Sparkles,
+};
 
-  const linhas = [
-    { rotulo: "CMV (custo do produto)", valor: simulacao.custoProduto },
-    { rotulo: `Comissão do marketplace (${dados.comissao}%)`, valor: simulacao.comissaoValor },
-    { rotulo: "Taxa fixa", valor: simulacao.taxaFixa },
-    { rotulo: "Frete", valor: simulacao.valorFrete },
-    { rotulo: "Embalagem / operacional", valor: simulacao.valorEmbalagem },
-    { rotulo: `Impostos (${dados.imposto}%)`, valor: simulacao.impostos },
-    { rotulo: `ADS (${dados.ads}%)`, valor: simulacao.adsValor },
-  ];
+const TITULO_INSIGHT: Record<TipoInsightAnalista, string> = {
+  queda_margem: "Margem em queda",
+  curva_abc: "Curva ABC",
+  dado_faltando: "Dado faltando",
+  saude_conta: "Saúde da conta",
+  resumo_diario: "Resumo do dia",
+};
+
+/**
+ * O painel do Analista: cinco frentes, um card por aviso ativo. Diferente
+ * do Precificação, aqui não tem aprovar/recusar — é "marcar como visto",
+ * porque não é uma decisão de preço, é uma observação.
+ */
+function PainelAnalista({
+  insights,
+  carregando,
+  aoDispensar,
+}: {
+  insights: InsightAnalista[];
+  carregando: boolean;
+  aoDispensar: (i: InsightAnalista) => void;
+}) {
+  const pendentes = insights.filter((i) => i.status === "pendente");
 
   return (
-    <Dialog open onOpenChange={aoFechar}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <div className="flex items-center gap-2">
-            <SeloMarketplace id={canal as MarketplaceId} />
-            <DialogTitle>Detalhamento — {nome}</DialogTitle>
-          </div>
-          <DialogDescription>
-            Simulação individual deste canal, com os valores configurados na aba {nome}.
-          </DialogDescription>
-        </DialogHeader>
+    <Painel
+      titulo="Analista"
+      descricao="Cinco frentes, sempre olhando: margem, curva ABC, dado faltando, saúde da conta e o resumo do dia"
+    >
+      <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <Bot className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold">{NOME_ANALISTA}</p>
+          <p className="text-[10px] text-muted-foreground">
+            Lê os números do negócio e avisa o que merece atenção
+          </p>
+        </div>
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-profit-soft px-2.5 py-1 text-[10px] font-semibold text-profit">
+          <span className="size-1.5 rounded-full bg-profit" />
+          Ativo
+        </span>
+      </div>
 
-        <div className="space-y-4">
-          <div className="rounded-xl border">
-            <div className="flex items-center justify-between border-b px-4 py-3">
-              <span className="text-xs font-semibold">Preço de venda</span>
-              <span className="num text-sm font-bold">{formatBRL(simulacao.preco)}</span>
-            </div>
-            <div className="divide-y">
-              {linhas.map((l) => (
-                <div key={l.rotulo} className="flex items-center justify-between px-4 py-2.5">
-                  <span className="text-[11px] text-muted-foreground">− {l.rotulo}</span>
-                  <span className="num text-[11px] text-loss">{formatBRL(l.valor)}</span>
-                </div>
-              ))}
-            </div>
-            <div
-              className={cn(
-                "flex items-center justify-between border-t px-4 py-3",
-                simulacao.lucroLiquido >= 0 ? "bg-profit-soft" : "bg-loss/10",
-              )}
-            >
-              <span
-                className={cn(
-                  "text-xs font-bold",
-                  simulacao.lucroLiquido >= 0 ? "text-profit" : "text-loss",
-                )}
-              >
-                Lucro líquido
-              </span>
-              <span
-                className={cn(
-                  "num text-sm font-bold",
-                  simulacao.lucroLiquido >= 0 ? "text-profit" : "text-loss",
-                )}
-              >
-                {formatBRL(simulacao.lucroLiquido)}
-              </span>
-            </div>
+      <div className="divide-y">
+        {carregando && (
+          <div className="flex items-center justify-center gap-2 px-4 py-10 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            Analisando seus números...
+          </div>
+        )}
+
+        {!carregando &&
+          pendentes.map((i) => (
+            <CardInsight key={i.id} insight={i} aoDispensar={aoDispensar} />
+          ))}
+
+        {!carregando && pendentes.length === 0 && (
+          <div className="px-4 py-10 text-center">
+            <p className="text-xs text-muted-foreground">
+              Nada fora do esperado agora. Quando algo merecer atenção, aparece aqui.
+            </p>
+          </div>
+        )}
+      </div>
+    </Painel>
+  );
+}
+
+function CardInsight({
+  insight,
+  aoDispensar,
+}: {
+  insight: InsightAnalista;
+  aoDispensar: (i: InsightAnalista) => void;
+}) {
+  const Icone = ICONE_INSIGHT[insight.tipo];
+  const sem = ESTILO_SEMAFORO[insight.semaforo];
+  const d = insight.dados;
+
+  return (
+    <div className="px-4 py-4">
+      <div className="flex gap-3">
+        <div
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-full",
+            insight.semaforo === "vermelho"
+              ? "bg-loss-soft text-loss"
+              : insight.semaforo === "amarelo"
+                ? "bg-warning-soft text-warning"
+                : "bg-profit-soft text-profit",
+          )}
+        >
+          <Icone className="size-3.5" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold">{TITULO_INSIGHT[insight.tipo]}</span>
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+              <Clock className="size-3" />
+              {new Date(insight.data).toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
           </div>
 
-          <div className="flex items-center justify-between rounded-xl bg-muted px-4 py-3">
-            <span className="text-xs font-medium">Margem líquida</span>
+          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+            {insight.motivo}
+          </p>
+
+          {/* Resumo diário ganha três números em destaque — os outros
+              tipos já contam tudo que precisam no `motivo`. */}
+          {insight.tipo === "resumo_diario" && (
+            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 rounded-lg bg-muted/50 px-3 py-2.5">
+              <div>
+                <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  Faturamento hoje
+                </p>
+                <p className="num text-sm font-semibold">
+                  {formatBRL(d.faturamento as number)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  Margem
+                </p>
+                <p className={cn("num text-sm font-semibold", sem.texto)}>
+                  {formatPercentual(d.margem as number)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  Pedidos
+                </p>
+                <p className="num text-sm font-semibold">{formatNumero(d.pedidos as number)}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-3">
+            <Button size="sm" variant="outline" onClick={() => aoDispensar(insight)}>
+              <Check className="size-3.5" />
+              Marcar como visto
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const ESTILO_SEMAFORO: Record<SemaforoDecisao, { ponto: string; texto: string; rotulo: string }> =
+  {
+    verde: {
+      ponto: "bg-profit",
+      texto: "text-profit",
+      rotulo: "Dentro da sua margem mínima",
+    },
+    amarelo: {
+      ponto: "bg-warning",
+      texto: "text-warning",
+      rotulo: "Abaixo da margem mínima",
+    },
+    vermelho: { ponto: "bg-loss", texto: "text-loss", rotulo: "Venda com prejuízo" },
+  };
+
+function CardDecisao({
+  evento,
+  aoDecidir,
+}: {
+  evento: EventoAgente;
+  aoDecidir: (e: EventoAgente, status: StatusSugestao) => void;
+}) {
+  const conta = contasService.buscar(evento.contaId);
+  const sem = ESTILO_SEMAFORO[evento.semaforo];
+  const queda = evento.precoAtual - evento.precoSugerido;
+  const pendente = evento.status === "pendente";
+
+  return (
+    <div className={cn("px-4 py-4", !pendente && "opacity-70")}>
+      <div className="flex gap-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <Bot className="size-3.5" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          {/* Assinatura */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold">{NOME_AGENTE}</span>
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+              <Clock className="size-3" />
+              {new Date(evento.data).toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+            {evento.status === "aprovada" && (
+              <span className="rounded bg-profit-soft px-2 py-0.5 text-[10px] font-semibold text-profit">
+                aprovada
+              </span>
+            )}
+            {evento.status === "recusada" && (
+              <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                recusada
+              </span>
+            )}
+          </div>
+
+          {/* Produto */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <SeloMarketplace id={evento.marketplaceId} />
+            <span className="truncate text-xs font-medium">{evento.produto}</span>
+            <span className="num text-[10px] text-muted-foreground">
+              {evento.sku} · {conta?.nome ?? "—"}
+            </span>
+          </div>
+
+          {/* Motivo */}
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            {evento.motivo}
+          </p>
+
+          {/* Antes → depois */}
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg bg-muted/50 px-3 py-2.5">
+            <div>
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                Preço hoje
+              </p>
+              <p className="num text-sm font-semibold">{formatBRL(evento.precoAtual)}</p>
+              <p className="num text-[10px] text-muted-foreground">
+                margem {formatPercentual(evento.margemAtual)}
+              </p>
+            </div>
+
+            <TrendingDown className="size-4 shrink-0 text-muted-foreground" />
+
+            <div>
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                Sugerido
+              </p>
+              <p className={cn("num text-sm font-bold", sem.texto)}>
+                {formatBRL(evento.precoSugerido)}
+              </p>
+              <p className="num text-[10px] text-muted-foreground">
+                margem {formatPercentual(evento.margemSugerida)}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                Queda
+              </p>
+              <p className="num text-sm font-semibold">−{formatBRL(queda)}</p>
+            </div>
+
+            <div>
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                Piso deste canal
+              </p>
+              <p className="num text-sm font-semibold">{formatBRL(evento.precoMinimo)}</p>
+            </div>
+
             <span
               className={cn(
-                "num text-sm font-bold",
-                simulacao.margem >= 0 ? "text-profit" : "text-loss",
+                "ml-auto inline-flex items-center gap-1.5 text-[10px] font-semibold",
+                sem.texto,
               )}
             >
-              {formatPercentual(simulacao.margem)}
+              <span className={cn("size-1.5 rounded-full", sem.ponto)} />
+              {sem.rotulo}
             </span>
           </div>
 
-          <div className="flex items-center justify-between rounded-xl border bg-muted/40 px-4 py-3">
-            <span className="text-xs font-medium">
-              Preço sugerido <span className="text-muted-foreground">(margem alvo {dados.margemDesejada}%)</span>
-            </span>
-            <span className="num text-sm font-bold text-brand">{formatBRL(simulacao.precoSugerido)}</span>
-          </div>
+          {evento.travadoNoPiso && (
+            <p className="mt-1.5 text-[10px] text-muted-foreground">
+              Travado no piso: o corte cheio passaria da sua margem mínima.
+            </p>
+          )}
+
+          {/* Ações */}
+          {pendente && (
+            <div className="mt-3 flex gap-2">
+              <Button size="sm" onClick={() => aoDecidir(evento, "aprovada")}>
+                <Check className="size-3.5" />
+                Aprovar
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => aoDecidir(evento, "recusada")}
+              >
+                <X className="size-3.5" />
+                Recusar
+              </Button>
+            </div>
+          )}
         </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function Campo({
-  rotulo,
-  valor,
-  aoAlterar,
-  prefixo,
-  exemplo,
-  span,
-}: {
-  rotulo: string;
-  valor: string;
-  aoAlterar: (v: string) => void;
-  prefixo: string;
-  exemplo: string;
-  span?: boolean;
-}) {
-  return (
-    <div className={cn("min-w-0 space-y-1.5", span && "sm:col-span-2")}>
-      <Label className="text-xs font-medium">
-        {rotulo} <span className="text-muted-foreground">({prefixo})</span>
-      </Label>
-      <div className="relative">
-        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-          {prefixo}
-        </span>
-        <Input
-          inputMode="decimal"
-          value={valor}
-          onChange={(e) => aoAlterar(e.target.value)}
-          placeholder={exemplo}
-          className={cn("pl-8", prefixo === "%" && "pl-7")}
-        />
       </div>
-    </div>
-  );
-}
-
-function LinhaDre({ rotulo, valor }: { rotulo: string; valor: number }) {
-  return (
-    <div className="flex items-center justify-between py-1 text-xs">
-      <span className="text-muted-foreground">{rotulo}</span>
-      <span className="num font-medium text-loss">{formatBRL(valor)}</span>
     </div>
   );
 }
