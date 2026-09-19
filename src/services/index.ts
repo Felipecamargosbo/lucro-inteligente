@@ -730,7 +730,21 @@ export const sacService = {
       body: { pergunta, produto },
     });
     if (error) {
-      return { resposta: null, erro: error.message ?? "Não consegui falar com a IA." };
+      // Quando a function responde com erro (4xx/5xx), o supabase-js não
+      // entrega o corpo da resposta automaticamente — só um aviso
+      // genérico. O motivo de verdade, que a nossa function escreve em
+      // `{ erro: "..." }`, está escondido em error.context.
+      let motivo = error.message ?? "Não consegui falar com a IA.";
+      const contexto = (error as { context?: Response }).context;
+      if (contexto && typeof contexto.json === "function") {
+        try {
+          const corpo = await contexto.json();
+          if (corpo?.erro) motivo = corpo.erro;
+        } catch {
+          // Corpo não era JSON — fica com a mensagem genérica mesmo.
+        }
+      }
+      return { resposta: null, erro: motivo };
     }
     if (data?.erro) {
       return { resposta: null, erro: data.erro as string };
