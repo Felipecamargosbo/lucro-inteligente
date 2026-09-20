@@ -1381,14 +1381,17 @@ export function sugerirAnunciosParaAds(
 
 export interface ItemAnaliseAds extends ItemAdsPorSku {
   unidadesPorDia: number;
-  margem: number;
+  /** Margem se o Ads não existisse — pra comparar lado a lado */
+  margemSemAds: number;
+  /** Margem de verdade, com o Ads já descontado */
+  margemComAds: number;
 }
 
 /**
  * Os produtos que já estão em Ads, com o veredito pronto. Não recalcula
  * nada — só pega `agruparPorSkuComAds` (a mesma conta que o Dashboard já
- * mostra) e acrescenta o que falta pro card: vendas por dia e margem em
- * percentual, pra não obrigar quem lê a fazer conta de cabeça.
+ * mostra) e acrescenta o que falta pro card: vendas por dia e as duas
+ * margens lado a lado, pra não obrigar quem lê a fazer conta de cabeça.
  */
 export function analisarAnunciosEmAds(pedidos: Pedido[], periodo: Periodo): ItemAnaliseAds[] {
   const doPeriodo = filtrarPorPeriodo(pedidos, periodo);
@@ -1398,7 +1401,8 @@ export function analisarAnunciosEmAds(pedidos: Pedido[], periodo: Periodo): Item
     .map((item) => ({
       ...item,
       unidadesPorDia: item.quantidade / dias,
-      margem: item.faturamento > 0 ? item.lucroPosAds / item.faturamento : 0,
+      margemSemAds: item.faturamento > 0 ? item.lucroAntesAds / item.faturamento : 0,
+      margemComAds: item.faturamento > 0 ? item.lucroPosAds / item.faturamento : 0,
     }))
     .sort((a, b) => a.lucroPosAds - b.lucroPosAds);
 }
