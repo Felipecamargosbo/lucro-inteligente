@@ -1133,7 +1133,7 @@ function CardSugestaoCriativo({
                   <Textarea
                     value={rascunho.descricao}
                     onChange={(e) => aoMudarRascunho("descricao", e.target.value)}
-                    className="mt-1 min-h-16 text-xs"
+                    className="mt-1 min-h-36 text-xs"
                   />
                 )}
               </div>
@@ -1151,7 +1151,7 @@ function CardSugestaoCriativo({
                     <Textarea
                       value={rascunho.palavrasChave}
                       onChange={(e) => aoMudarRascunho("palavrasChave", e.target.value)}
-                      className="mt-1 min-h-12 text-xs"
+                      className="mt-1 min-h-28 text-xs"
                     />
                   )}
                 </div>
@@ -1165,7 +1165,7 @@ function CardSugestaoCriativo({
                     <Textarea
                       value={rascunho.bulletPoints}
                       onChange={(e) => aoMudarRascunho("bulletPoints", e.target.value)}
-                      className="mt-1 min-h-12 text-xs"
+                      className="mt-1 min-h-28 text-xs"
                     />
                   )}
                 </div>
