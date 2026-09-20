@@ -766,7 +766,7 @@ function Agentes() {
 
       {abaAgente === "ads" && (
         <PainelAds
-          avaliacoes={avaliacoesAds}
+          eventos={avaliacoesAds}
           carregando={carregandoAds}
           aoDispensar={dispensarAvaliacaoAds}
         />
