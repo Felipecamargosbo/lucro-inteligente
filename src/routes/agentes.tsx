@@ -388,7 +388,8 @@ function Agentes() {
         faturamento: s.faturamento,
         investimento: 0,
         lucroLiquido: s.lucroLiquido,
-        margem: s.margem,
+        margemSemAds: s.margem,
+        margemComAds: s.margem,
         valeAPena: null,
       });
       if (erro) console.error("Não consegui gravar a sugestão de Ads:", erro);
@@ -406,7 +407,8 @@ function Agentes() {
         faturamento: item.faturamento,
         investimento: item.custoMidia,
         lucroLiquido: item.lucroPosAds,
-        margem: item.margem,
+        margemSemAds: item.margemSemAds,
+        margemComAds: item.margemComAds,
         valeAPena: !item.semRetorno,
       });
       if (erro) console.error("Não consegui gravar a análise de Ads:", erro);
@@ -1291,6 +1293,10 @@ function PainelAds({
 
 /** "Vale a pena" = sobrou lucro líquido positivo depois do Ads. Simples
  * assim de propósito: é a pergunta que o seller realmente faz. */
+/** "Vale a pena" = sobrou lucro líquido positivo depois do Ads. Simples
+ * assim de propósito: é a pergunta que o seller realmente faz. Mostra as
+ * duas margens lado a lado — sem Ads e com Ads — pra ficar claro quanto
+ * o investimento tirou do resultado, não só o número final. */
 function TabelaAnaliseAds({
   itens,
   aoDispensar,
@@ -1308,14 +1314,16 @@ function TabelaAnaliseAds({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[720px] text-left">
+      <table className="w-full min-w-[920px] text-left">
         <thead>
           <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
             <th className="px-4 py-3 font-bold">Produto / SKU</th>
             <th className="px-4 py-3 text-right font-bold">Vendas/dia</th>
+            <th className="px-4 py-3 text-right font-bold">Faturamento</th>
             <th className="px-4 py-3 text-right font-bold">Investimento</th>
+            <th className="px-4 py-3 text-right font-bold">Margem sem Ads</th>
+            <th className="px-4 py-3 text-right font-bold">Margem com Ads</th>
             <th className="px-4 py-3 text-right font-bold">Lucro líquido</th>
-            <th className="px-4 py-3 text-right font-bold">Margem</th>
             <th className="px-4 py-3 font-bold">Situação</th>
             <th className="px-4 py-3 text-right font-bold">Ação</th>
           </tr>
@@ -1323,14 +1331,26 @@ function TabelaAnaliseAds({
         <tbody className="divide-y">
           {itens.map((e) => (
             <tr key={e.id} className="transition-colors hover:bg-muted/40">
-              <td className="max-w-[220px] px-4 py-3">
+              <td className="max-w-[200px] px-4 py-3">
                 <p className="truncate text-xs font-medium">{e.produto}</p>
                 <p className="num text-[10px] text-muted-foreground">{e.sku}</p>
               </td>
               <td className="num px-4 py-3 text-right text-xs">
-                {e.unidadesPorDia.toFixed(1)}
+                {Math.round(e.unidadesPorDia)} un.
               </td>
+              <td className="num px-4 py-3 text-right text-xs">{formatBRL(e.faturamento)}</td>
               <td className="num px-4 py-3 text-right text-xs">{formatBRL(e.investimento)}</td>
+              <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                {formatPercentual(e.margemSemAds)}
+              </td>
+              <td
+                className={cn(
+                  "num px-4 py-3 text-right text-xs font-semibold",
+                  e.valeAPena ? "text-profit" : "text-loss",
+                )}
+              >
+                {formatPercentual(e.margemComAds)}
+              </td>
               <td
                 className={cn(
                   "num px-4 py-3 text-right text-xs font-bold",
@@ -1339,7 +1359,6 @@ function TabelaAnaliseAds({
               >
                 {formatBRL(e.lucroLiquido)}
               </td>
-              <td className="num px-4 py-3 text-right text-xs">{formatPercentual(e.margem)}</td>
               <td className="px-4 py-3">
                 <span
                   className={cn(
@@ -1387,12 +1406,13 @@ function TabelaSugestaoAds({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[620px] text-left">
+      <table className="w-full min-w-[680px] text-left">
         <thead>
           <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
             <th className="px-4 py-3 font-bold">Produto / SKU</th>
             <th className="px-4 py-3 text-right font-bold">Vendas/dia</th>
             <th className="px-4 py-3 text-right font-bold">Total vendido</th>
+            <th className="px-4 py-3 text-right font-bold">Faturamento</th>
             <th className="px-4 py-3 text-right font-bold">Margem atual</th>
             <th className="px-4 py-3 text-right font-bold">Ação</th>
           </tr>
@@ -1405,10 +1425,13 @@ function TabelaSugestaoAds({
                 <p className="num text-[10px] text-muted-foreground">{e.sku}</p>
               </td>
               <td className="num px-4 py-3 text-right text-xs font-semibold text-brand">
-                {e.unidadesPorDia.toFixed(1)}
+                {Math.round(e.unidadesPorDia)} un.
               </td>
               <td className="num px-4 py-3 text-right text-xs">{formatNumero(e.quantidade)} un.</td>
-              <td className="num px-4 py-3 text-right text-xs">{formatPercentual(e.margem)}</td>
+              <td className="num px-4 py-3 text-right text-xs">{formatBRL(e.faturamento)}</td>
+              <td className="num px-4 py-3 text-right text-xs">
+                {formatPercentual(e.margemSemAds)}
+              </td>
               <td className="px-4 py-3 text-right">
                 <Button size="sm" variant="outline" onClick={() => aoDispensar(e)}>
                   <Check className="size-3.5" />
