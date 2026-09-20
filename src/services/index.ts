@@ -37,6 +37,7 @@ import type {
   Produto,
   SemaforoDecisao,
   StatusSugestao,
+  SugestaoCriativo,
   TicketSac,
   TipoEventoAds,
   TipoInsightAnalista,
@@ -965,6 +966,144 @@ export const adsService = {
         valeAPena: evento.valeAPena,
       },
     });
+    return error?.message ?? null;
+  },
+};
+/** Como uma linha de `eventos_agente` vira uma SugestaoCriativo. */
+function linhaParaSugestaoCriativo(l: {
+  id: string;
+  conta_id: string | null;
+  criado_em: string;
+  status: string;
+  decidido_em: string | null;
+  dados: Record<string, unknown>;
+}): SugestaoCriativo {
+  const d = l.dados ?? {};
+  return {
+    id: l.id,
+    data: l.criado_em,
+    contaId: l.conta_id,
+    anuncioId: (d.anuncioId as string) ?? null,
+    sku: (d.sku as string) ?? "",
+    produto: (d.produto as string) ?? "",
+    marketplaceId: d.marketplaceId as MarketplaceId,
+    tituloSugerido: (d.tituloSugerido as string) ?? null,
+    descricaoSugerida: (d.descricaoSugerida as string) ?? null,
+    palavrasChave: (d.palavrasChave as string) ?? null,
+    bulletPoints: (d.bulletPoints as string) ?? null,
+    status: l.status as StatusSugestao,
+    decididoEm: l.decidido_em,
+  };
+}
+
+/**
+ * O Agente Criativo. Título, descrição, palavras-chave e bullet points
+ * nascem juntos, numa única chamada à IA — só quando o seller pede.
+ */
+export const criativoService = {
+  listar: async (perfilId: string): Promise<SugestaoCriativo[]> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "criativo")
+      .order("criado_em", { ascending: false });
+    if (error) {
+      console.error("criativoService.listar:", error.message);
+      return [];
+    }
+    return (data ?? []).map(linhaParaSugestaoCriativo);
+  },
+
+  criarSugestao: async (
+    perfilId: string,
+    s: {
+      contaId: string | null;
+      anuncioId: string | null;
+      produto: string;
+      sku: string;
+      marketplaceId: MarketplaceId;
+    },
+  ): Promise<string | null> => {
+    const { error } = await supabase.from("eventos_agente").insert({
+      perfil_id: perfilId,
+      agente_id: "criativo",
+      conta_id: s.contaId,
+      sku: s.sku,
+      tipo: "conteudo_anuncio",
+      motivo: `Título, descrição, palavras-chave e bullet points para "${s.produto}".`,
+      semaforo: "amarelo",
+      status: "pendente",
+      dados: {
+        anuncioId: s.anuncioId,
+        produto: s.produto,
+        sku: s.sku,
+        marketplaceId: s.marketplaceId,
+      },
+    });
+    return error?.message ?? null;
+  },
+
+  /** Chama a Edge Function — os quatro campos vêm juntos, na mesma
+   * chamada, porque gerar um ou quatro custa praticamente o mesmo. */
+  gerarConteudo: async (
+    produto: string,
+  ): Promise<{
+    conteudo: {
+      titulo: string;
+      descricao: string;
+      palavrasChave: string;
+      bulletPoints: string;
+    } | null;
+    erro: string | null;
+  }> => {
+    const { data, error } = await supabase.functions.invoke("gerar-criativo", {
+      body: { produto },
+    });
+    if (error) {
+      let motivo = error.message ?? "Não consegui falar com a IA.";
+      const contexto = (error as { context?: Response }).context;
+      if (contexto && typeof contexto.json === "function") {
+        try {
+          const corpo = await contexto.json();
+          if (corpo?.erro) motivo = corpo.erro;
+        } catch {
+          // Corpo não era JSON — fica com a mensagem genérica mesmo.
+        }
+      }
+      return { conteudo: null, erro: motivo };
+    }
+    if (data?.erro) {
+      return { conteudo: null, erro: data.erro as string };
+    }
+    return { conteudo: data?.conteudo ?? null, erro: null };
+  },
+
+  /** Grava o conteúdo gerado (ou editado pelo seller), sem mudar o
+   * status — aprovar é um passo separado, deliberado. */
+  salvarConteudo: async (
+    sugestaoId: string,
+    conteudo: { titulo: string; descricao: string; palavrasChave: string; bulletPoints: string },
+  ): Promise<string | null> => {
+    const { data: atual, error: erroLeitura } = await supabase
+      .from("eventos_agente")
+      .select("dados")
+      .eq("id", sugestaoId)
+      .single();
+    if (erroLeitura) return erroLeitura.message;
+
+    const { error } = await supabase
+      .from("eventos_agente")
+      .update({
+        dados: {
+          ...(atual?.dados ?? {}),
+          tituloSugerido: conteudo.titulo,
+          descricaoSugerida: conteudo.descricao,
+          palavrasChave: conteudo.palavrasChave,
+          bulletPoints: conteudo.bulletPoints,
+        },
+      })
+      .eq("id", sugestaoId);
     return error?.message ?? null;
   },
 };
