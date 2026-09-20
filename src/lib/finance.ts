@@ -6,6 +6,7 @@ import type {
   Anuncio,
   ContaMarketplace,
   FaixaSaudeMargem,
+  ItemEstoqueDetalhado,
   Lancamento,
   MarketplaceId,
   MetasMargem,
@@ -1231,4 +1232,81 @@ export function montarResumoDiario(
     contasEmAlerta: saude.length,
     destaqueAbc: abc && abc.topA.length > 0 ? abc.topA[0]!.anuncio.produto : null,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente de Estoque                                                   */
+/* ------------------------------------------------------------------ */
+
+/** Dias restantes iguais ou abaixo disso viram alerta. */
+export const DIAS_ALERTA_RUPTURA = 7;
+/** Quantos dias de cobertura a reposição sugerida deve garantir. */
+export const DIAS_ALVO_COBERTURA = 30;
+
+export interface DiagnosticoEstoque {
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  estoqueAtual: number;
+  vendidoUltimos7Dias: number;
+  mediaDiaria: number;
+  diasRestantes: number;
+  quantidadeSugerida: number;
+  diasAlvoCobertura: number;
+}
+
+/**
+ * Projeta ruptura a partir de venda REAL dos últimos 7 dias (soma os
+ * `Pedido` do SKU, ignorando cancelado) — não usa uma média fixa do
+ * cadastro, que pode estar desatualizada. "Esgotado" (quantidade 0) não
+ * entra aqui: é um estado diferente, já visível direto na tela de
+ * Estoque; isto é sobre o que ainda dá tempo de evitar.
+ */
+export function diagnosticarRuptura(
+  itens: ItemEstoqueDetalhado[],
+  pedidos: Pedido[],
+  referencia = new Date(),
+  diasAlerta = DIAS_ALERTA_RUPTURA,
+  diasAlvo = DIAS_ALVO_COBERTURA,
+): DiagnosticoEstoque[] {
+  const inicioJanela = somarDias(inicioDoDia(referencia), -6);
+  const alertas: DiagnosticoEstoque[] = [];
+
+  for (const item of itens) {
+    if (item.quantidade <= 0) continue;
+
+    const vendidoUltimos7Dias = pedidos
+      .filter(
+        (p) =>
+          p.sku === item.sku &&
+          p.status !== "cancelado" &&
+          dentroDoPeriodo(p.data, { inicio: inicioJanela, fim: referencia, rotulo: "" }),
+      )
+      .reduce((soma, p) => soma + p.quantidade, 0);
+
+    const mediaDiaria = vendidoUltimos7Dias / 7;
+    // Não vendeu nada na janela — não dá pra projetar ruptura por giro
+    // (pode ser produto parado, que já é o gatilho de um agente diferente).
+    if (mediaDiaria <= 0) continue;
+
+    const diasRestantes = Math.floor(item.quantidade / mediaDiaria);
+    if (diasRestantes > diasAlerta) continue;
+
+    const quantidadeSugerida = Math.max(1, Math.ceil(mediaDiaria * diasAlvo) - item.quantidade);
+
+    alertas.push({
+      sku: item.sku,
+      produto: item.produto,
+      marketplaceId: item.marketplaceId,
+      estoqueAtual: item.quantidade,
+      vendidoUltimos7Dias,
+      mediaDiaria,
+      diasRestantes,
+      quantidadeSugerida,
+      diasAlvoCobertura: diasAlvo,
+    });
+  }
+
+  // O que vai acabar primeiro é o que mais precisa de atenção.
+  return alertas.sort((a, b) => a.diasRestantes - b.diasRestantes);
 }
