@@ -555,7 +555,7 @@ export interface ItemEstoqueDetalhado {
 /* Agentes                                                            */
 /* ------------------------------------------------------------------ */
 
-export type AgenteId = "precificacao" | "analista" | "sac";
+export type AgenteId = "precificacao" | "analista" | "sac" | "estoque";
 
 /**
  * Situação de uma sugestão. Enquanto não há API com permissão de escrita,
@@ -656,6 +656,32 @@ export interface TicketSac {
   pergunta: string;
   /** null até o seller pedir a IA gerar */
   resposta: string | null;
+  status: StatusSugestao;
+  decididoEm: string | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente de Estoque                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Um alerta de ruptura projetada — não é "já esgotou", é "no ritmo atual,
+ * vai esgotar em breve". Vem sempre com a conta: quanto vendeu, a que
+ * ritmo, e quanto repor pra não correr risco.
+ */
+export interface AlertaEstoque {
+  id: string;
+  data: string;
+  contaId: string | null;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  estoqueAtual: number;
+  vendidoUltimos7Dias: number;
+  mediaDiaria: number;
+  diasRestantes: number;
+  quantidadeSugerida: number;
+  diasAlvoCobertura: number;
   status: StatusSugestao;
   decididoEm: string | null;
 }
