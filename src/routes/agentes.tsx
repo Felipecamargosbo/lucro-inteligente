@@ -10,6 +10,8 @@ import {
   Clock,
   Loader2,
   MessageCircle,
+  MessageSquareText,
+  Send,
   ShieldAlert,
   Sparkles,
   Target,
@@ -18,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  analistaChatService,
   anunciosService,
   adsService,
   contasService,
@@ -28,6 +31,7 @@ import {
   sacService,
   vendasService,
 } from "@/services";
+import type { MensagemChat } from "@/services";
 import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
@@ -1893,6 +1897,7 @@ function PainelAnalista({
   aoDispensar: (i: InsightAnalista) => void;
 }) {
   const pendentes = insights.filter((i) => i.status === "pendente");
+  const [visao, setVisao] = useState<"feed" | "conversa">("feed");
 
   return (
     <Painel
@@ -1915,28 +1920,148 @@ function PainelAnalista({
         </span>
       </div>
 
-      <div className="divide-y">
-        {carregando && (
-          <div className="flex items-center justify-center gap-2 px-4 py-10 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" />
-            Analisando seus números...
+      <div className="flex gap-1 border-b px-4 pt-3">
+        {(
+          [
+            ["feed", "Feed", `(${pendentes.length})`],
+            ["conversa", "Conversar", ""],
+          ] as const
+        ).map(([id, rotulo, sufixo]) => (
+          <button
+            key={id}
+            onClick={() => setVisao(id)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-t-md px-3 py-2 text-xs font-semibold transition-colors",
+              visao === id
+                ? "border-b-2 border-brand text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {id === "conversa" && <MessageSquareText className="size-3.5" />}
+            {rotulo} {sufixo}
+          </button>
+        ))}
+      </div>
+
+      {visao === "feed" ? (
+        <div className="divide-y">
+          {carregando && (
+            <div className="flex items-center justify-center gap-2 px-4 py-10 text-xs text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" />
+              Analisando seus números...
+            </div>
+          )}
+
+          {!carregando &&
+            pendentes.map((i) => (
+              <CardInsight key={i.id} insight={i} aoDispensar={aoDispensar} />
+            ))}
+
+          {!carregando && pendentes.length === 0 && (
+            <div className="px-4 py-10 text-center">
+              <p className="text-xs text-muted-foreground">
+                Nada fora do esperado agora. Quando algo merecer atenção, aparece aqui.
+              </p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <ChatAnalista insights={insights} />
+      )}
+    </Painel>
+  );
+}
+
+/**
+ * A conversa de verdade — Fase 1 do plano visual. O contexto (os avisos
+ * reais do Analista) vai junto em toda mensagem; a conversa em si não
+ * é salva ainda, some se você sair da tela — isso vem numa fase depois.
+ */
+function ChatAnalista({ insights }: { insights: InsightAnalista[] }) {
+  const [mensagens, setMensagens] = useState<MensagemChat[]>([]);
+  const [texto, setTexto] = useState("");
+  const [enviando, setEnviando] = useState(false);
+
+  const contexto = insights
+    .filter((i) => i.status === "pendente")
+    .map((i) => `- ${i.motivo}`)
+    .join("\n");
+
+  const enviar = async () => {
+    const conteudo = texto.trim();
+    if (!conteudo || enviando) return;
+
+    const historico = [...mensagens, { papel: "user" as const, conteudo }];
+    setMensagens(historico);
+    setTexto("");
+    setEnviando(true);
+
+    const { resposta, erro } = await analistaChatService.conversar(historico, contexto);
+    setEnviando(false);
+
+    if (erro) {
+      toast.error(`Não consegui responder: ${erro}`);
+      return;
+    }
+    if (resposta) {
+      setMensagens((atual) => [...atual, { papel: "assistente", conteudo: resposta }]);
+    }
+  };
+
+  return (
+    <div className="flex h-[480px] flex-col">
+      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        {mensagens.length === 0 && (
+          <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+            Pergunta o que quiser sobre margem, curva ABC, saúde da conta ou o resumo do dia — o
+            Analista responde com o que ele já descobriu hoje.
           </div>
         )}
 
-        {!carregando &&
-          pendentes.map((i) => (
-            <CardInsight key={i.id} insight={i} aoDispensar={aoDispensar} />
-          ))}
+        {mensagens.map((m, i) => (
+          <div key={i} className={cn("flex", m.papel === "user" ? "justify-end" : "justify-start")}>
+            <div
+              className={cn(
+                "max-w-[80%] rounded-lg px-3 py-2 text-xs leading-relaxed",
+                m.papel === "user"
+                  ? "bg-brand text-white"
+                  : "bg-muted text-foreground",
+              )}
+            >
+              {m.conteudo}
+            </div>
+          </div>
+        ))}
 
-        {!carregando && pendentes.length === 0 && (
-          <div className="px-4 py-10 text-center">
-            <p className="text-xs text-muted-foreground">
-              Nada fora do esperado agora. Quando algo merecer atenção, aparece aqui.
-            </p>
+        {enviando && (
+          <div className="flex justify-start">
+            <div className="rounded-lg bg-muted px-3 py-2">
+              <Loader2 className="size-3.5 animate-spin" />
+            </div>
           </div>
         )}
       </div>
-    </Painel>
+
+      <div className="flex gap-2 border-t px-4 py-3">
+        <input
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              enviar();
+            }
+          }}
+          placeholder="Pergunta pro Analista..."
+          disabled={enviando}
+          className="flex-1 rounded-md border bg-background px-3 py-2 text-xs"
+        />
+        <Button size="sm" onClick={enviar} disabled={enviando || !texto.trim()}>
+          <Send className="size-3.5" />
+          Enviar
+        </Button>
+      </div>
+    </div>
   );
 }
 
