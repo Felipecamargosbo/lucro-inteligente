@@ -28,8 +28,8 @@ import type {
   AgenteId,
   AlertaEstoque,
   Anuncio,
-  AvaliacaoAds,
   ContaMarketplace,
+  EventoAds,
   EventoAgente,
   InsightAnalista,
   MarketplaceId,
@@ -38,6 +38,7 @@ import type {
   SemaforoDecisao,
   StatusSugestao,
   TicketSac,
+  TipoEventoAds,
   TipoInsightAnalista,
 } from "@/types";
 import { supabase } from "@/lib/supabase";
@@ -860,45 +861,45 @@ export const sacService = {
   },
 };
 
-/** Como uma linha de `eventos_agente` vira uma AvaliacaoAds. */
-function linhaParaAvaliacaoAds(l: {
+/** Como uma linha de `eventos_agente` vira um EventoAds. */
+function linhaParaEventoAds(l: {
   id: string;
+  tipo: string;
   conta_id: string | null;
   criado_em: string;
   status: string;
   decidido_em: string | null;
   dados: Record<string, unknown>;
-}): AvaliacaoAds {
+}): EventoAds {
   const d = l.dados ?? {};
   return {
     id: l.id,
+    tipo: l.tipo as TipoEventoAds,
     data: l.criado_em,
     contaId: l.conta_id,
     sku: (d.sku as string) ?? "",
     produto: (d.produto as string) ?? "",
-    marketplaceId: d.marketplaceId as MarketplaceId,
+    quantidade: (d.quantidade as number) ?? 0,
+    unidadesPorDia: (d.unidadesPorDia as number) ?? 0,
+    faturamento: (d.faturamento as number) ?? 0,
     investimento: (d.investimento as number) ?? 0,
-    vendasAtribuidas: (d.vendasAtribuidas as number) ?? 0,
-    roas: (d.roas as number) ?? 0,
-    acos: (d.acos as number) ?? 0,
-    ctr: (d.ctr as number) ?? 0,
-    cpc: (d.cpc as number) ?? 0,
-    margemSemAds: (d.margemSemAds as number) ?? 0,
-    margemComAds: (d.margemComAds as number) ?? 0,
-    margemMinima: (d.margemMinima as number) ?? 0,
-    valeAPena: (d.valeAPena as boolean) ?? false,
+    lucroLiquido: (d.lucroLiquido as number) ?? 0,
+    margem: (d.margem as number) ?? 0,
+    valeAPena: d.valeAPena === null || d.valeAPena === undefined ? null : Boolean(d.valeAPena),
     status: l.status as StatusSugestao,
     decididoEm: l.decidido_em,
   };
 }
 
 /**
- * O Agente de Ads. Nunca julga pelo ROAS sozinho — o veredito
- * ("vale a pena") vem da margem de verdade, com o Ads já descontado,
- * comparada com o piso que o seller configurou.
+ * O Agente de Ads, em duas janelas: "sugestão" (produto vendendo bem sem
+ * nenhum investimento em Ads — candidato a entrar) e "análise" (produto
+ * que já está em Ads — vale a pena continuar ou não). As duas reusam o
+ * `custoMidia` real de cada pedido — a mesma conta que a tela de Ads do
+ * Dashboard já mostra, nunca um número calculado à parte.
  */
 export const adsService = {
-  listar: async (perfilId: string): Promise<AvaliacaoAds[]> => {
+  listar: async (perfilId: string): Promise<EventoAds[]> => {
     const { data, error } = await supabase
       .from("eventos_agente")
       .select("*")
@@ -909,15 +910,18 @@ export const adsService = {
       console.error("adsService.listar:", error.message);
       return [];
     }
-    return (data ?? []).map(linhaParaAvaliacaoAds);
+    return (data ?? []).map(linhaParaEventoAds);
   },
 
-  skusPendentes: async (perfilId: string): Promise<Set<string>> => {
+  /** SKUs que já têm um evento pendente, por janela — pra não recriar o
+   * mesmo item toda vez que a tela abre. */
+  skusPendentes: async (perfilId: string, tipo: TipoEventoAds): Promise<Set<string>> => {
     const { data, error } = await supabase
       .from("eventos_agente")
       .select("sku")
       .eq("perfil_id", perfilId)
       .eq("agente_id", "ads")
+      .eq("tipo", tipo)
       .eq("status", "pendente");
     if (error) {
       console.error("adsService.skusPendentes:", error.message);
@@ -926,37 +930,36 @@ export const adsService = {
     return new Set((data ?? []).map((r) => r.sku).filter((s): s is string => Boolean(s)));
   },
 
-  criarAvaliacao: async (
+  criarEvento: async (
     perfilId: string,
-    av: Omit<AvaliacaoAds, "id" | "status" | "decididoEm" | "data">,
+    evento: Omit<EventoAds, "id" | "status" | "decididoEm" | "data">,
   ): Promise<string | null> => {
-    const motivo = av.valeAPena
-      ? `Investiu ${av.investimento.toFixed(2)}, vendeu ${av.vendasAtribuidas} un. (ROAS ${av.roas.toFixed(1)}x). Margem com Ads: ${(av.margemComAds * 100).toFixed(1)}% — ainda dentro da sua margem mínima.`
-      : `Investiu ${av.investimento.toFixed(2)}, vendeu ${av.vendasAtribuidas} un. (ROAS ${av.roas.toFixed(1)}x). Margem com Ads: ${(av.margemComAds * 100).toFixed(1)}% — abaixo da sua margem mínima, o Ads está corroendo o resultado.`;
+    const motivo =
+      evento.tipo === "sugestao"
+        ? `Vendeu ${evento.quantidade} un. (${evento.unidadesPorDia.toFixed(1)}/dia) sem nenhum investimento em Ads. Pode valer a pena testar.`
+        : evento.valeAPena
+          ? `Investiu ${evento.investimento.toFixed(2)}, vendeu ${evento.quantidade} un. (${evento.unidadesPorDia.toFixed(1)}/dia). Sobrou ${evento.lucroLiquido.toFixed(2)} de lucro líquido — vale a pena continuar.`
+          : `Investiu ${evento.investimento.toFixed(2)}, vendeu ${evento.quantidade} un. (${evento.unidadesPorDia.toFixed(1)}/dia). O Ads gastou mais do que o produto trouxe de lucro.`;
 
     const { error } = await supabase.from("eventos_agente").insert({
       perfil_id: perfilId,
       agente_id: "ads",
-      conta_id: av.contaId,
-      sku: av.sku,
-      tipo: "avaliacao_ads",
+      conta_id: evento.contaId,
+      sku: evento.sku,
+      tipo: evento.tipo,
       motivo,
-      semaforo: av.valeAPena ? "verde" : "vermelho",
+      semaforo: evento.tipo === "sugestao" ? "amarelo" : evento.valeAPena ? "verde" : "vermelho",
       status: "pendente",
       dados: {
-        sku: av.sku,
-        produto: av.produto,
-        marketplaceId: av.marketplaceId,
-        investimento: av.investimento,
-        vendasAtribuidas: av.vendasAtribuidas,
-        roas: av.roas,
-        acos: av.acos,
-        ctr: av.ctr,
-        cpc: av.cpc,
-        margemSemAds: av.margemSemAds,
-        margemComAds: av.margemComAds,
-        margemMinima: av.margemMinima,
-        valeAPena: av.valeAPena,
+        sku: evento.sku,
+        produto: evento.produto,
+        quantidade: evento.quantidade,
+        unidadesPorDia: evento.unidadesPorDia,
+        faturamento: evento.faturamento,
+        investimento: evento.investimento,
+        lucroLiquido: evento.lucroLiquido,
+        margem: evento.margem,
+        valeAPena: evento.valeAPena,
       },
     });
     return error?.message ?? null;
