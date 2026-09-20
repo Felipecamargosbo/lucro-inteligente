@@ -246,6 +246,17 @@ export interface Produto {
   cmv: number;
 }
 
+/** Números brutos de Ads de um anúncio — o resto (ROAS, ACOS, CTR, CPC) é
+ * sempre calculado na hora a partir destes quatro, nunca guardado pronto,
+ * pra nunca ficar um número velho junto de um investimento novo. */
+export interface DadosAds {
+  investimento: number;
+  impressoes: number;
+  cliques: number;
+  /** Vendas que o próprio marketplace atribui a este investimento em Ads */
+  vendasAtribuidas: number;
+}
+
 export interface Anuncio {
   id: string;
   marketplaceId: MarketplaceId;
@@ -272,6 +283,13 @@ export interface Anuncio {
   freteUnitario: number;
   /** ADS / anúncios patrocinados atribuídos a este anúncio, por unidade */
   custoMidiaUnitario: number;
+  /**
+   * Dados brutos de Ads deste anúncio — null quando o seller não ativou
+   * Ads nele. Quando existe, `custoMidiaUnitario` acima já reflete
+   * `investimento / vendasAtribuidas`, então a conta de margem normal já
+   * desconta o Ads sozinha, sem precisar de fórmula separada.
+   */
+  ads: DadosAds | null;
   /** Comissão de afiliado/criador (TAP, lives), por unidade */
   custoAfiliadoUnitario: number;
   /** Se as taxas acima são projeção ou já foram liquidadas pelo canal */
@@ -555,7 +573,7 @@ export interface ItemEstoqueDetalhado {
 /* Agentes                                                            */
 /* ------------------------------------------------------------------ */
 
-export type AgenteId = "precificacao" | "analista" | "sac" | "estoque";
+export type AgenteId = "precificacao" | "analista" | "sac" | "estoque" | "ads";
 
 /**
  * Situação de uma sugestão. Enquanto não há API com permissão de escrita,
@@ -682,6 +700,37 @@ export interface AlertaEstoque {
   diasRestantes: number;
   quantidadeSugerida: number;
   diasAlvoCobertura: number;
+  status: StatusSugestao;
+  decididoEm: string | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente de Ads                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * O veredito do agente sobre um anúncio que está em Ads: não é só ROAS —
+ * é a margem de verdade, com o Ads já descontado, comparada com o piso
+ * que o seller configurou. Um ROAS alto ainda pode ser prejuízo se a
+ * margem antes do Ads já era apertada.
+ */
+export interface AvaliacaoAds {
+  id: string;
+  data: string;
+  contaId: string | null;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  investimento: number;
+  vendasAtribuidas: number;
+  roas: number;
+  acos: number;
+  ctr: number;
+  cpc: number;
+  margemSemAds: number;
+  margemComAds: number;
+  margemMinima: number;
+  valeAPena: boolean;
   status: StatusSugestao;
   decididoEm: string | null;
 }
