@@ -736,7 +736,11 @@ export interface EventoAds {
    * "sobrou dinheiro ou não". Na sugestão, é o lucro sem Ads mesmo
    * (ainda não investe nele). */
   lucroLiquido: number;
-  margem: number;
+  /** Margem se não tivesse Ads nenhum */
+  margemSemAds: number;
+  /** Margem de verdade, com o Ads descontado — igual à margemSemAds na
+   * sugestão, já que ainda não tem Ads pra descontar */
+  margemComAds: number;
   /** null na sugestão (não se aplica ainda); true/false na análise */
   valeAPena: boolean | null;
   status: StatusSugestao;
