@@ -28,6 +28,7 @@ import type {
   AgenteId,
   AlertaEstoque,
   Anuncio,
+  AvaliacaoAds,
   ContaMarketplace,
   EventoAgente,
   InsightAnalista,
@@ -114,6 +115,7 @@ export const anunciosService = {
       taxaFixa: conta.taxaFixa,
       freteUnitario: 0,
       custoMidiaUnitario: 0,
+      ads: null,
       custoAfiliadoUnitario: 0,
       origemTaxas: "estimado",
       produtoId: produtoBase ? produtoBase.id : null,
@@ -165,6 +167,7 @@ export const anunciosService = {
       taxaFixa: conta.taxaFixa,
       freteUnitario: 0,
       custoMidiaUnitario: 0,
+      ads: null,
       custoAfiliadoUnitario: 0,
       origemTaxas: "estimado",
       produtoId: null,
@@ -853,6 +856,109 @@ export const sacService = {
       .from("eventos_agente")
       .update({ dados: { ...(atual?.dados ?? {}), resposta } })
       .eq("id", ticketId);
+    return error?.message ?? null;
+  },
+};
+
+/** Como uma linha de `eventos_agente` vira uma AvaliacaoAds. */
+function linhaParaAvaliacaoAds(l: {
+  id: string;
+  conta_id: string | null;
+  criado_em: string;
+  status: string;
+  decidido_em: string | null;
+  dados: Record<string, unknown>;
+}): AvaliacaoAds {
+  const d = l.dados ?? {};
+  return {
+    id: l.id,
+    data: l.criado_em,
+    contaId: l.conta_id,
+    sku: (d.sku as string) ?? "",
+    produto: (d.produto as string) ?? "",
+    marketplaceId: d.marketplaceId as MarketplaceId,
+    investimento: (d.investimento as number) ?? 0,
+    vendasAtribuidas: (d.vendasAtribuidas as number) ?? 0,
+    roas: (d.roas as number) ?? 0,
+    acos: (d.acos as number) ?? 0,
+    ctr: (d.ctr as number) ?? 0,
+    cpc: (d.cpc as number) ?? 0,
+    margemSemAds: (d.margemSemAds as number) ?? 0,
+    margemComAds: (d.margemComAds as number) ?? 0,
+    margemMinima: (d.margemMinima as number) ?? 0,
+    valeAPena: (d.valeAPena as boolean) ?? false,
+    status: l.status as StatusSugestao,
+    decididoEm: l.decidido_em,
+  };
+}
+
+/**
+ * O Agente de Ads. Nunca julga pelo ROAS sozinho — o veredito
+ * ("vale a pena") vem da margem de verdade, com o Ads já descontado,
+ * comparada com o piso que o seller configurou.
+ */
+export const adsService = {
+  listar: async (perfilId: string): Promise<AvaliacaoAds[]> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "ads")
+      .order("criado_em", { ascending: false });
+    if (error) {
+      console.error("adsService.listar:", error.message);
+      return [];
+    }
+    return (data ?? []).map(linhaParaAvaliacaoAds);
+  },
+
+  skusPendentes: async (perfilId: string): Promise<Set<string>> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("sku")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "ads")
+      .eq("status", "pendente");
+    if (error) {
+      console.error("adsService.skusPendentes:", error.message);
+      return new Set();
+    }
+    return new Set((data ?? []).map((r) => r.sku).filter((s): s is string => Boolean(s)));
+  },
+
+  criarAvaliacao: async (
+    perfilId: string,
+    av: Omit<AvaliacaoAds, "id" | "status" | "decididoEm" | "data">,
+  ): Promise<string | null> => {
+    const motivo = av.valeAPena
+      ? `Investiu ${av.investimento.toFixed(2)}, vendeu ${av.vendasAtribuidas} un. (ROAS ${av.roas.toFixed(1)}x). Margem com Ads: ${(av.margemComAds * 100).toFixed(1)}% — ainda dentro da sua margem mínima.`
+      : `Investiu ${av.investimento.toFixed(2)}, vendeu ${av.vendasAtribuidas} un. (ROAS ${av.roas.toFixed(1)}x). Margem com Ads: ${(av.margemComAds * 100).toFixed(1)}% — abaixo da sua margem mínima, o Ads está corroendo o resultado.`;
+
+    const { error } = await supabase.from("eventos_agente").insert({
+      perfil_id: perfilId,
+      agente_id: "ads",
+      conta_id: av.contaId,
+      sku: av.sku,
+      tipo: "avaliacao_ads",
+      motivo,
+      semaforo: av.valeAPena ? "verde" : "vermelho",
+      status: "pendente",
+      dados: {
+        sku: av.sku,
+        produto: av.produto,
+        marketplaceId: av.marketplaceId,
+        investimento: av.investimento,
+        vendasAtribuidas: av.vendasAtribuidas,
+        roas: av.roas,
+        acos: av.acos,
+        ctr: av.ctr,
+        cpc: av.cpc,
+        margemSemAds: av.margemSemAds,
+        margemComAds: av.margemComAds,
+        margemMinima: av.margemMinima,
+        valeAPena: av.valeAPena,
+      },
+    });
     return error?.message ?? null;
   },
 };
