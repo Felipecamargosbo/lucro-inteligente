@@ -1314,65 +1314,91 @@ export function diagnosticarRuptura(
 /* ------------------------------------------------------------------ */
 /* Agente de Ads                                                       */
 /* ------------------------------------------------------------------ */
+// As duas janelas do agente. As duas reaproveitam o pedido real (o mesmo
+// `custoMidia` que a tela de Ads do Dashboard já usa) — nenhuma inventa
+// uma segunda fonte de investimento/venda separada da que já existe.
 
-export interface DiagnosticoAds {
-  anuncio: Anuncio;
-  investimento: number;
-  vendasAtribuidas: number;
-  roas: number;
-  acos: number;
-  ctr: number;
-  cpc: number;
-  margemSemAds: number;
-  margemComAds: number;
-  margemMinima: number;
-  valeAPena: boolean;
+export interface ItemSugestaoAds {
+  sku: string;
+  produto: string;
+  quantidade: number;
+  unidadesPorDia: number;
+  faturamento: number;
+  lucroLiquido: number;
+  margem: number;
 }
 
 /**
- * O veredito não é o ROAS — é a margem de verdade. Um ROAS de 8x ainda
- * pode ser prejuízo se a margem do produto, antes de qualquer Ads, já
- * era apertada; e um ROAS de 2x pode valer a pena se sobra bastante
- * margem pra absorver. Por isso a conta sempre passa pelo mesmo motor
- * de margem que o resto do sistema usa — nunca julga o Ads sozinho.
+ * Produtos que vendem bem sozinhos e não têm nenhum gasto de Ads no
+ * período — candidatos a começar a investir. `limiarVendas` é o corte
+ * mínimo de unidades pra entrar na lista.
  */
-export function diagnosticarAds(
-  anuncios: Anuncio[],
-  margemMinima: number,
-  opcoes: OpcoesLimites = {},
-): DiagnosticoAds[] {
-  const avaliacoes: DiagnosticoAds[] = [];
+export function sugerirAnunciosParaAds(
+  pedidos: Pedido[],
+  periodo: Periodo,
+  limiarVendas = 5,
+): ItemSugestaoAds[] {
+  const doPeriodo = filtrarPorPeriodo(pedidos, periodo).filter((p) => p.status !== "cancelado");
+  const dias = Math.max(1, listarDias(periodo).length);
 
-  for (const a of anuncios) {
-    if (a.status !== "ativo" || !a.ads || a.ads.investimento <= 0) continue;
+  const mapa = new Map<
+    string,
+    { produto: string; quantidade: number; faturamento: number; lucro: number; custoMidia: number }
+  >();
+  for (const p of doPeriodo) {
+    const atual = mapa.get(p.sku) ?? {
+      produto: p.produto,
+      quantidade: 0,
+      faturamento: 0,
+      lucro: 0,
+      custoMidia: 0,
+    };
+    atual.quantidade += p.quantidade;
+    atual.faturamento += p.faturamento;
+    atual.lucro += p.lucroLiquido;
+    atual.custoMidia += p.custoMidia;
+    mapa.set(p.sku, atual);
+  }
 
-    const { investimento, impressoes, cliques, vendasAtribuidas } = a.ads;
-    const receitaAtribuida = vendasAtribuidas * a.precoAtual;
-
-    const margemComAds = margemNoPreco(a, a.precoAtual, opcoes);
-    // Mesmo anúncio, mesmo preço, só tirando o Ads da conta — pra isolar
-    // exatamente o que ele está custando de margem.
-    const margemSemAds = margemNoPreco(
-      { ...a, custoMidiaUnitario: 0 },
-      a.precoAtual,
-      opcoes,
-    );
-
-    avaliacoes.push({
-      anuncio: a,
-      investimento,
-      vendasAtribuidas,
-      roas: investimento > 0 ? receitaAtribuida / investimento : 0,
-      acos: receitaAtribuida > 0 ? investimento / receitaAtribuida : 1,
-      ctr: impressoes > 0 ? cliques / impressoes : 0,
-      cpc: cliques > 0 ? investimento / cliques : 0,
-      margemSemAds,
-      margemComAds,
-      margemMinima,
-      valeAPena: margemComAds >= margemMinima,
+  const sugestoes: ItemSugestaoAds[] = [];
+  for (const [sku, item] of mapa) {
+    if (item.custoMidia > 0) continue; // já investe — isso é pauta da Análise, não da Sugestão
+    if (item.quantidade < limiarVendas) continue;
+    sugestoes.push({
+      sku,
+      produto: item.produto,
+      quantidade: item.quantidade,
+      unidadesPorDia: item.quantidade / dias,
+      faturamento: item.faturamento,
+      lucroLiquido: item.lucro,
+      margem: item.faturamento > 0 ? item.lucro / item.faturamento : 0,
     });
   }
 
-  // Quem está corroendo mais margem primeiro — é onde a atenção rende mais.
-  return avaliacoes.sort((x, y) => x.margemComAds - y.margemComAds);
+  // Quem mais vende primeiro — é o candidato mais forte.
+  return sugestoes.sort((a, b) => b.quantidade - a.quantidade);
+}
+
+export interface ItemAnaliseAds extends ItemAdsPorSku {
+  unidadesPorDia: number;
+  margem: number;
+}
+
+/**
+ * Os produtos que já estão em Ads, com o veredito pronto. Não recalcula
+ * nada — só pega `agruparPorSkuComAds` (a mesma conta que o Dashboard já
+ * mostra) e acrescenta o que falta pro card: vendas por dia e margem em
+ * percentual, pra não obrigar quem lê a fazer conta de cabeça.
+ */
+export function analisarAnunciosEmAds(pedidos: Pedido[], periodo: Periodo): ItemAnaliseAds[] {
+  const doPeriodo = filtrarPorPeriodo(pedidos, periodo);
+  const dias = Math.max(1, listarDias(periodo).length);
+
+  return agruparPorSkuComAds(doPeriodo)
+    .map((item) => ({
+      ...item,
+      unidadesPorDia: item.quantidade / dias,
+      margem: item.faturamento > 0 ? item.lucroPosAds / item.faturamento : 0,
+    }))
+    .sort((a, b) => a.lucroPosAds - b.lucroPosAds);
 }
