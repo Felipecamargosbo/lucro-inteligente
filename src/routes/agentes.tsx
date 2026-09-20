@@ -12,11 +12,13 @@ import {
   MessageCircle,
   ShieldAlert,
   Sparkles,
+  Target,
   TrendingDown,
   X,
 } from "lucide-react";
 import {
   anunciosService,
+  adsService,
   contasService,
   estoqueService,
   eventosAgenteService,
@@ -31,6 +33,7 @@ import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import {
   DEGRAU_DESCONTO_PADRAO,
   DIAS_PARADO_PADRAO,
+  diagnosticarAds,
   diagnosticarCurvaAbc,
   diagnosticarDadoFaltando,
   diagnosticarQuedaMargem,
@@ -46,6 +49,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type {
   AlertaEstoque,
+  AvaliacaoAds,
   EventoAgente,
   InsightAnalista,
   SemaforoDecisao,
@@ -92,13 +96,15 @@ function Agentes() {
   const { sessao, recursos } = useAuth();
   const [aba, setAba] = useState<Aba>("operacao");
   const [abaAgente, setAbaAgente] = useState<
-    "analista" | "precificacao" | "sac" | "estoque"
+    "analista" | "precificacao" | "sac" | "estoque" | "ads"
   >("analista");
   const [eventos, setEventos] = useState<EventoAgente[]>([]);
   const [insights, setInsights] = useState<InsightAnalista[]>([]);
   const [tickets, setTickets] = useState<TicketSac[]>([]);
   const [alertasEstoque, setAlertasEstoque] = useState<AlertaEstoque[]>([]);
   const [carregandoEstoque, setCarregandoEstoque] = useState(true);
+  const [avaliacoesAds, setAvaliacoesAds] = useState<AvaliacaoAds[]>([]);
+  const [carregandoAds, setCarregandoAds] = useState(true);
   const [carregandoTickets, setCarregandoTickets] = useState(true);
   /** Ticket com resposta em andamento de gerar (mostra o spinner só nele) */
   const [gerandoId, setGerandoId] = useState<string | null>(null);
@@ -347,12 +353,66 @@ function Agentes() {
     setCarregandoEstoque(false);
   }, [sessao, recursos.agentes]);
 
+  /**
+   * Avalia cada anúncio que tem Ads ativo: a margem real, com o Ads já
+   * descontado, comparada com a margem mínima do canal. Nunca julga só
+   * pelo ROAS.
+   */
+  const carregarAvaliacoesAds = useCallback(async () => {
+    if (!sessao || !recursos.agentes) return;
+    const perfilId = sessao.user.id;
+
+    const anuncios = anunciosService.listar();
+    const opcoesCusto = {
+      aliquotaImposto: fiscal.aliquota,
+      custosOperacionais: custoOperacionalTotal,
+    };
+
+    const jaPendentes = await adsService.skusPendentes(perfilId);
+    for (const a of anuncios) {
+      if (jaPendentes.has(a.sku)) continue;
+      const metas = metasPorConta[a.contaId] ?? null;
+      const margemMinima = metas?.margemMinima ?? FAIXAS_MARGEM_PADRAO.margemMinima;
+      const [diagnostico] = diagnosticarAds([a], margemMinima, opcoesCusto);
+      if (!diagnostico) continue;
+
+      const erro = await adsService.criarAvaliacao(perfilId, {
+        contaId: a.contaId,
+        sku: a.sku,
+        produto: a.produto,
+        marketplaceId: a.marketplaceId,
+        investimento: diagnostico.investimento,
+        vendasAtribuidas: diagnostico.vendasAtribuidas,
+        roas: diagnostico.roas,
+        acos: diagnostico.acos,
+        ctr: diagnostico.ctr,
+        cpc: diagnostico.cpc,
+        margemSemAds: diagnostico.margemSemAds,
+        margemComAds: diagnostico.margemComAds,
+        margemMinima: diagnostico.margemMinima,
+        valeAPena: diagnostico.valeAPena,
+      });
+      if (erro) console.error("Não consegui gravar a avaliação de Ads:", erro);
+    }
+
+    const lista = await adsService.listar(perfilId);
+    setAvaliacoesAds(lista);
+    setCarregandoAds(false);
+  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
+
   useEffect(() => {
     carregarEventos();
     carregarInsights();
     carregarTickets();
     carregarAlertasEstoque();
-  }, [carregarEventos, carregarInsights, carregarTickets, carregarAlertasEstoque]);
+    carregarAvaliacoesAds();
+  }, [
+    carregarEventos,
+    carregarInsights,
+    carregarTickets,
+    carregarAlertasEstoque,
+    carregarAvaliacoesAds,
+  ]);
 
   // O filtro de canal ("Todas as contas") só recorta o que aparece — não
   // muda o que o agente já gravou. Assim trocar o filtro não refaz a
@@ -411,6 +471,19 @@ function Agentes() {
     if (erro) {
       toast.error(`Não consegui salvar: ${erro}`);
       await carregarAlertasEstoque();
+    }
+  };
+
+  const dispensarAvaliacaoAds = async (av: AvaliacaoAds) => {
+    setAvaliacoesAds((atual) =>
+      atual.map((a) =>
+        a.id === av.id ? { ...a, status: "aprovada", decididoEm: new Date().toISOString() } : a,
+      ),
+    );
+    const erro = await eventosAgenteService.decidir(av.id, "aprovada");
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      await carregarAvaliacoesAds();
     }
   };
 
@@ -475,6 +548,7 @@ function Agentes() {
   const insightsPendentes = insights.filter((i) => i.status === "pendente").length;
   const ticketsPendentes = tickets.filter((t) => t.status === "pendente").length;
   const alertasEstoquePendentes = alertasEstoque.filter((a) => a.status === "pendente").length;
+  const avaliacoesAdsPendentes = avaliacoesAds.filter((a) => a.status === "pendente").length;
 
   if (!recursos.agentes) {
     return (
@@ -507,6 +581,7 @@ function Agentes() {
             ["precificacao", "Precificação", TrendingDown, pendentes.length] as const,
             ["sac", "SAC", MessageCircle, ticketsPendentes] as const,
             ["estoque", "Estoque", Boxes, alertasEstoquePendentes] as const,
+            ["ads", "Ads", Target, avaliacoesAdsPendentes] as const,
           ] as const
         ).map(([id, nome, Icone, contagem]) => (
           <button
@@ -669,6 +744,14 @@ function Agentes() {
           alertas={alertasEstoque}
           carregando={carregandoEstoque}
           aoDispensar={dispensarAlertaEstoque}
+        />
+      )}
+
+      {abaAgente === "ads" && (
+        <PainelAds
+          avaliacoes={avaliacoesAds}
+          carregando={carregandoAds}
+          aoDispensar={dispensarAvaliacaoAds}
         />
       )}
     </div>
@@ -1076,6 +1159,192 @@ function CardAlertaEstoque({
           </div>
 
           {alerta.status === "pendente" && (
+            <div className="mt-3">
+              <Button size="sm" variant="outline" onClick={aoDispensar}>
+                <Check className="size-3.5" />
+                Marcar como visto
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * O painel de Ads: cada card mostra o veredito (vale ou não vale a pena)
+ * em cima da margem de verdade, não só do ROAS — junto com as métricas
+ * cruas (ROAS, ACOS, CTR, CPC) pra quem quiser conferir a conta.
+ */
+function PainelAds({
+  avaliacoes,
+  carregando,
+  aoDispensar,
+}: {
+  avaliacoes: AvaliacaoAds[];
+  carregando: boolean;
+  aoDispensar: (a: AvaliacaoAds) => void;
+}) {
+  const [aba, setAba] = useState<Aba>("operacao");
+  const pendentes = avaliacoes.filter((a) => a.status === "pendente");
+  const decididos = avaliacoes.filter((a) => a.status !== "pendente");
+  const lista = aba === "operacao" ? pendentes : decididos;
+
+  return (
+    <Painel
+      titulo="Ads"
+      descricao="Se o investimento em anúncio patrocinado ainda vale a pena, pela margem real"
+    >
+      <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <Target className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold">Agente de Ads</p>
+          <p className="text-[10px] text-muted-foreground">
+            Julga pela margem com o Ads já descontado, nunca só pelo ROAS
+          </p>
+        </div>
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-profit-soft px-2.5 py-1 text-[10px] font-semibold text-profit">
+          <span className="size-1.5 rounded-full bg-profit" />
+          Ativo
+        </span>
+      </div>
+
+      <div className="flex gap-1 border-b px-4 pt-3">
+        {(
+          [
+            ["operacao", `Operação (${pendentes.length})`],
+            ["historico", `Histórico (${decididos.length})`],
+          ] as const
+        ).map(([id, rotulo]) => (
+          <button
+            key={id}
+            onClick={() => setAba(id)}
+            className={cn(
+              "rounded-t-md px-3 py-2 text-xs font-semibold transition-colors",
+              aba === id
+                ? "border-b-2 border-brand text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {rotulo}
+          </button>
+        ))}
+      </div>
+
+      <div className="divide-y">
+        {carregando && (
+          <div className="flex items-center justify-center gap-2 px-4 py-10 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            Avaliando investimento em Ads...
+          </div>
+        )}
+
+        {!carregando &&
+          lista.map((a) => (
+            <CardAvaliacaoAds key={a.id} avaliacao={a} aoDispensar={() => aoDispensar(a)} />
+          ))}
+
+        {!carregando && lista.length === 0 && (
+          <div className="px-4 py-10 text-center">
+            <p className="text-xs text-muted-foreground">
+              {aba === "operacao"
+                ? "Nenhum anúncio com Ads ativo pra avaliar agora."
+                : "Nenhuma avaliação vista ainda."}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
+        Investimento e vendas atribuídas ainda são de exemplo — sem API de Ads
+        conectada. A fórmula (margem com Ads vs. sua margem mínima) já é a de verdade.
+      </div>
+    </Painel>
+  );
+}
+
+function CardAvaliacaoAds({
+  avaliacao,
+  aoDispensar,
+}: {
+  avaliacao: AvaliacaoAds;
+  aoDispensar: () => void;
+}) {
+  return (
+    <div className="px-4 py-4">
+      <div className="flex gap-3">
+        <div
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-full",
+            avaliacao.valeAPena ? "bg-profit-soft text-profit" : "bg-loss-soft text-loss",
+          )}
+        >
+          <Target className="size-3.5" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <SeloMarketplace id={avaliacao.marketplaceId} />
+            <span className="truncate text-xs font-medium">{avaliacao.produto}</span>
+            <span className="num text-[10px] text-muted-foreground">{avaliacao.sku}</span>
+            <span
+              className={cn(
+                "rounded px-2 py-0.5 text-[10px] font-semibold",
+                avaliacao.valeAPena ? "bg-profit-soft text-profit" : "bg-loss-soft text-loss",
+              )}
+            >
+              {avaliacao.valeAPena ? "vale a pena" : "está corroendo a margem"}
+            </span>
+            {avaliacao.status !== "pendente" && (
+              <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                visto
+              </span>
+            )}
+          </div>
+
+          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+            Investiu <strong className="text-foreground">{formatBRL(avaliacao.investimento)}</strong>,
+            vendeu {formatNumero(avaliacao.vendasAtribuidas)} un. (ROAS{" "}
+            <strong className="text-foreground">{avaliacao.roas.toFixed(1)}x</strong>, ACOS{" "}
+            {formatPercentual(avaliacao.acos)}).
+          </p>
+
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 rounded-lg bg-muted/50 px-3 py-2.5">
+            <div>
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                Margem sem Ads
+              </p>
+              <p className="num text-sm font-semibold">
+                {formatPercentual(avaliacao.margemSemAds)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                Margem com Ads
+              </p>
+              <p
+                className={cn(
+                  "num text-sm font-bold",
+                  avaliacao.valeAPena ? "text-profit" : "text-loss",
+                )}
+              >
+                {formatPercentual(avaliacao.margemComAds)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">CTR</p>
+              <p className="num text-sm font-semibold">{formatPercentual(avaliacao.ctr)}</p>
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">CPC</p>
+              <p className="num text-sm font-semibold">{formatBRL(avaliacao.cpc)}</p>
+            </div>
+          </div>
+
+          {avaliacao.status === "pendente" && (
             <div className="mt-3">
               <Button size="sm" variant="outline" onClick={aoDispensar}>
                 <Check className="size-3.5" />
