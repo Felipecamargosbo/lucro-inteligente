@@ -14,12 +14,14 @@ import {
   Sparkles,
   Target,
   TrendingDown,
+  Wand2,
   X,
 } from "lucide-react";
 import {
   anunciosService,
   adsService,
   contasService,
+  criativoService,
   estoqueService,
   eventosAgenteService,
   produtosService,
@@ -55,6 +57,7 @@ import type {
   InsightAnalista,
   SemaforoDecisao,
   StatusSugestao,
+  SugestaoCriativo,
   TicketSac,
   TipoInsightAnalista,
 } from "@/types";
@@ -97,7 +100,7 @@ function Agentes() {
   const { sessao, recursos } = useAuth();
   const [aba, setAba] = useState<Aba>("operacao");
   const [abaAgente, setAbaAgente] = useState<
-    "analista" | "precificacao" | "sac" | "estoque" | "ads"
+    "analista" | "precificacao" | "sac" | "estoque" | "ads" | "criativo"
   >("analista");
   const [eventos, setEventos] = useState<EventoAgente[]>([]);
   const [insights, setInsights] = useState<InsightAnalista[]>([]);
@@ -112,6 +115,12 @@ function Agentes() {
   /** Rascunho editável de cada ticket, por id — separado do que já está
    * salvo, pra o seller poder ajustar antes de aprovar. */
   const [rascunhos, setRascunhos] = useState<Record<string, string>>({});
+  const [sugestoesCriativo, setSugestoesCriativo] = useState<SugestaoCriativo[]>([]);
+  const [carregandoCriativo, setCarregandoCriativo] = useState(true);
+  const [gerandoCriativoId, setGerandoCriativoId] = useState<string | null>(null);
+  const [rascunhosCriativo, setRascunhosCriativo] = useState<
+    Record<string, { titulo: string; descricao: string; palavrasChave: string; bulletPoints: string }>
+  >({});
   const [carregando, setCarregando] = useState(true);
 
   /**
@@ -319,6 +328,33 @@ function Agentes() {
     setCarregandoTickets(false);
   }, [sessao, recursos.agentes]);
 
+  /** Semeia algumas sugestões de exemplo, uma vez só, a partir de
+   * anúncios ativos reais — igual o SAC faz com as perguntas fictícias. */
+  const carregarSugestoesCriativo = useCallback(async () => {
+    if (!sessao || !recursos.agentes) return;
+    const perfilId = sessao.user.id;
+
+    const existentes = await criativoService.listar(perfilId);
+    if (existentes.length === 0) {
+      const anunciosAtivos = anunciosService.listar().filter((a) => a.status === "ativo");
+      const amostra = anunciosAtivos.slice(0, Math.min(4, anunciosAtivos.length));
+      for (const a of amostra) {
+        const erro = await criativoService.criarSugestao(perfilId, {
+          contaId: a.contaId,
+          anuncioId: a.id,
+          produto: a.produto,
+          sku: a.sku,
+          marketplaceId: a.marketplaceId,
+        });
+        if (erro) console.error("Não consegui criar a sugestão criativa de exemplo:", erro);
+      }
+    }
+
+    const lista = await criativoService.listar(perfilId);
+    setSugestoesCriativo(lista);
+    setCarregandoCriativo(false);
+  }, [sessao, recursos.agentes]);
+
   /**
    * Projeta ruptura a partir da venda real dos últimos 7 dias de cada SKU
    * — não do número médio que já vem no cadastro de estoque.
@@ -425,12 +461,14 @@ function Agentes() {
     carregarTickets();
     carregarAlertasEstoque();
     carregarAvaliacoesAds();
+    carregarSugestoesCriativo();
   }, [
     carregarEventos,
     carregarInsights,
     carregarTickets,
     carregarAlertasEstoque,
     carregarAvaliacoesAds,
+    carregarSugestoesCriativo,
   ]);
 
   // O filtro de canal ("Todas as contas") só recorta o que aparece — não
@@ -563,11 +601,89 @@ function Agentes() {
     );
   };
 
+  /** Os quatro campos vêm juntos — só aqui sai custo de token de verdade. */
+  const gerarConteudoCriativo = async (s: SugestaoCriativo) => {
+    setGerandoCriativoId(s.id);
+    const { conteudo, erro } = await criativoService.gerarConteudo(s.produto);
+    setGerandoCriativoId(null);
+    if (erro) {
+      toast.error(`Não consegui gerar o conteúdo: ${erro}`);
+      return;
+    }
+    if (!conteudo) return;
+    const erroSalvar = await criativoService.salvarConteudo(s.id, conteudo);
+    if (erroSalvar) {
+      toast.error(`Gerei o conteúdo, mas não consegui salvar: ${erroSalvar}`);
+      return;
+    }
+    setSugestoesCriativo((atual) =>
+      atual.map((item) =>
+        item.id === s.id
+          ? {
+              ...item,
+              tituloSugerido: conteudo.titulo,
+              descricaoSugerida: conteudo.descricao,
+              palavrasChave: conteudo.palavrasChave,
+              bulletPoints: conteudo.bulletPoints,
+            }
+          : item,
+      ),
+    );
+    setRascunhosCriativo((atual) => ({ ...atual, [s.id]: conteudo }));
+  };
+
+  const decidirCriativo = async (
+    s: SugestaoCriativo,
+    status: Extract<StatusSugestao, "aprovada" | "recusada">,
+  ) => {
+    const rascunho = rascunhosCriativo[s.id];
+    if (status === "aprovada" && rascunho) {
+      const erroSalvar = await criativoService.salvarConteudo(s.id, rascunho);
+      if (erroSalvar) {
+        toast.error(`Não consegui salvar a edição: ${erroSalvar}`);
+        return;
+      }
+    }
+    setSugestoesCriativo((atual) =>
+      atual.map((item) =>
+        item.id === s.id
+          ? {
+              ...item,
+              status,
+              decididoEm: new Date().toISOString(),
+              ...(status === "aprovada" && rascunho
+                ? {
+                    tituloSugerido: rascunho.titulo,
+                    descricaoSugerida: rascunho.descricao,
+                    palavrasChave: rascunho.palavrasChave,
+                    bulletPoints: rascunho.bulletPoints,
+                  }
+                : {}),
+            }
+          : item,
+      ),
+    );
+    const erro = await eventosAgenteService.decidir(s.id, status);
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      await carregarSugestoesCriativo();
+      return;
+    }
+    toast.success(
+      status === "aprovada"
+        ? "Aprovado. Copie e cole no marketplace — publicar direto ainda depende da API de escrita."
+        : `Descartado: sugestão para "${s.produto}".`,
+    );
+  };
+
   const lista = aba === "operacao" ? pendentes : decididos;
   const insightsPendentes = insights.filter((i) => i.status === "pendente").length;
   const ticketsPendentes = tickets.filter((t) => t.status === "pendente").length;
   const alertasEstoquePendentes = alertasEstoque.filter((a) => a.status === "pendente").length;
   const avaliacoesAdsPendentes = avaliacoesAds.filter((a) => a.status === "pendente").length;
+  const sugestoesCriativoPendentes = sugestoesCriativo.filter(
+    (s) => s.status === "pendente",
+  ).length;
 
   if (!recursos.agentes) {
     return (
@@ -601,6 +717,7 @@ function Agentes() {
             ["sac", "SAC", MessageCircle, ticketsPendentes] as const,
             ["estoque", "Estoque", Boxes, alertasEstoquePendentes] as const,
             ["ads", "Ads", Target, avaliacoesAdsPendentes] as const,
+            ["criativo", "Criativo", Wand2, sugestoesCriativoPendentes] as const,
           ] as const
         ).map(([id, nome, Icone, contagem]) => (
           <button
@@ -773,6 +890,29 @@ function Agentes() {
           aoDispensar={dispensarAvaliacaoAds}
         />
       )}
+
+      {abaAgente === "criativo" && (
+        <PainelCriativo
+          sugestoes={sugestoesCriativo}
+          carregando={carregandoCriativo}
+          gerandoId={gerandoCriativoId}
+          rascunhos={rascunhosCriativo}
+          aoMudarRascunho={(id, campo, texto) =>
+            setRascunhosCriativo((atual) => ({
+              ...atual,
+              [id]: {
+                titulo: atual[id]?.titulo ?? "",
+                descricao: atual[id]?.descricao ?? "",
+                palavrasChave: atual[id]?.palavrasChave ?? "",
+                bulletPoints: atual[id]?.bulletPoints ?? "",
+                [campo]: texto,
+              },
+            }))
+          }
+          aoGerar={gerarConteudoCriativo}
+          aoDecidir={decidirCriativo}
+        />
+      )}
     </div>
   );
 }
@@ -783,6 +923,282 @@ function Agentes() {
  * porque é o único ponto do sistema que gasta token de verdade, então
  * fica sempre atrás de um clique explícito, nunca automático.
  */
+/**
+ * O painel Criativo: título, descrição, palavras-chave e bullet points
+ * — os quatro nascem juntos, na mesma chamada. Igual o SAC, tem um
+ * passo intermediário ("Gerar conteúdo") porque é aqui que sai custo de
+ * token de verdade — nunca automático.
+ */
+function PainelCriativo({
+  sugestoes,
+  carregando,
+  gerandoId,
+  rascunhos,
+  aoMudarRascunho,
+  aoGerar,
+  aoDecidir,
+}: {
+  sugestoes: SugestaoCriativo[];
+  carregando: boolean;
+  gerandoId: string | null;
+  rascunhos: Record<
+    string,
+    { titulo: string; descricao: string; palavrasChave: string; bulletPoints: string }
+  >;
+  aoMudarRascunho: (
+    id: string,
+    campo: "titulo" | "descricao" | "palavrasChave" | "bulletPoints",
+    texto: string,
+  ) => void;
+  aoGerar: (s: SugestaoCriativo) => void;
+  aoDecidir: (s: SugestaoCriativo, status: Extract<StatusSugestao, "aprovada" | "recusada">) => void;
+}) {
+  const [aba, setAba] = useState<Aba>("operacao");
+  const pendentes = sugestoes.filter((s) => s.status === "pendente");
+  const decididos = sugestoes.filter((s) => s.status !== "pendente");
+  const lista = aba === "operacao" ? pendentes : decididos;
+
+  return (
+    <Painel
+      titulo="Criativo"
+      descricao="Título, descrição, palavras-chave e bullet points — gerados quando você pedir"
+    >
+      <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <Wand2 className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold">Agente Criativo</p>
+          <p className="text-[10px] text-muted-foreground">
+            Escreve o conteúdo do anúncio; publicar ainda é manual até a API conectar
+          </p>
+        </div>
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-profit-soft px-2.5 py-1 text-[10px] font-semibold text-profit">
+          <span className="size-1.5 rounded-full bg-profit" />
+          Ativo
+        </span>
+      </div>
+
+      <div className="flex gap-1 border-b px-4 pt-3">
+        {(
+          [
+            ["operacao", `Operação (${pendentes.length})`],
+            ["historico", `Histórico (${decididos.length})`],
+          ] as const
+        ).map(([id, rotulo]) => (
+          <button
+            key={id}
+            onClick={() => setAba(id)}
+            className={cn(
+              "rounded-t-md px-3 py-2 text-xs font-semibold transition-colors",
+              aba === id
+                ? "border-b-2 border-brand text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {rotulo}
+          </button>
+        ))}
+      </div>
+
+      <div className="divide-y">
+        {carregando && (
+          <div className="flex items-center justify-center gap-2 px-4 py-10 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            Carregando sugestões...
+          </div>
+        )}
+
+        {!carregando &&
+          lista.map((s) => (
+            <CardSugestaoCriativo
+              key={s.id}
+              sugestao={s}
+              gerando={gerandoId === s.id}
+              rascunho={
+                rascunhos[s.id] ?? {
+                  titulo: s.tituloSugerido ?? "",
+                  descricao: s.descricaoSugerida ?? "",
+                  palavrasChave: s.palavrasChave ?? "",
+                  bulletPoints: s.bulletPoints ?? "",
+                }
+              }
+              aoMudarRascunho={(campo, texto) => aoMudarRascunho(s.id, campo, texto)}
+              aoGerar={() => aoGerar(s)}
+              aoDecidir={(status) => aoDecidir(s, status)}
+            />
+          ))}
+
+        {!carregando && lista.length === 0 && (
+          <div className="px-4 py-10 text-center">
+            <p className="text-xs text-muted-foreground">
+              {aba === "operacao"
+                ? "Nenhuma sugestão pendente agora."
+                : "Nenhuma decisão registrada ainda."}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
+        Publicar direto no marketplace ainda depende da API de escrita — por enquanto,
+        aprovar só marca como pronto pra você copiar e colar.
+      </div>
+    </Painel>
+  );
+}
+
+function CardSugestaoCriativo({
+  sugestao,
+  gerando,
+  rascunho,
+  aoMudarRascunho,
+  aoGerar,
+  aoDecidir,
+}: {
+  sugestao: SugestaoCriativo;
+  gerando: boolean;
+  rascunho: { titulo: string; descricao: string; palavrasChave: string; bulletPoints: string };
+  aoMudarRascunho: (
+    campo: "titulo" | "descricao" | "palavrasChave" | "bulletPoints",
+    texto: string,
+  ) => void;
+  aoGerar: () => void;
+  aoDecidir: (status: Extract<StatusSugestao, "aprovada" | "recusada">) => void;
+}) {
+  const temConteudo = sugestao.tituloSugerido !== null;
+  const decidido = sugestao.status !== "pendente";
+
+  return (
+    <div className="px-4 py-4">
+      <div className="flex gap-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <Wand2 className="size-3.5" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <SeloMarketplace id={sugestao.marketplaceId} />
+            <span className="truncate text-xs font-medium">{sugestao.produto}</span>
+            <span className="num text-[10px] text-muted-foreground">{sugestao.sku}</span>
+            {decidido && (
+              <span
+                className={cn(
+                  "rounded px-2 py-0.5 text-[10px] font-semibold",
+                  sugestao.status === "aprovada"
+                    ? "bg-profit-soft text-profit"
+                    : "bg-muted text-muted-foreground",
+                )}
+              >
+                {sugestao.status === "aprovada" ? "aprovado" : "descartado"}
+              </span>
+            )}
+          </div>
+
+          {!temConteudo ? (
+            <div className="mt-3">
+              <Button size="sm" variant="outline" onClick={aoGerar} disabled={gerando}>
+                {gerando ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="size-3.5" />
+                )}
+                {gerando ? "Gerando..." : "Gerar conteúdo com IA"}
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-3 space-y-3">
+              <div>
+                <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  Título sugerido
+                </p>
+                {decidido ? (
+                  <p className="mt-0.5 text-xs">{rascunho.titulo}</p>
+                ) : (
+                  <input
+                    value={rascunho.titulo}
+                    onChange={(e) => aoMudarRascunho("titulo", e.target.value)}
+                    className="mt-1 w-full rounded-md border bg-background px-2.5 py-1.5 text-xs"
+                  />
+                )}
+              </div>
+
+              <div>
+                <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                  Descrição
+                </p>
+                {decidido ? (
+                  <p className="mt-0.5 whitespace-pre-line text-xs">{rascunho.descricao}</p>
+                ) : (
+                  <Textarea
+                    value={rascunho.descricao}
+                    onChange={(e) => aoMudarRascunho("descricao", e.target.value)}
+                    className="mt-1 min-h-16 text-xs"
+                  />
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                    Palavras-chave
+                  </p>
+                  {decidido ? (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {rascunho.palavrasChave}
+                    </p>
+                  ) : (
+                    <Textarea
+                      value={rascunho.palavrasChave}
+                      onChange={(e) => aoMudarRascunho("palavrasChave", e.target.value)}
+                      className="mt-1 min-h-12 text-xs"
+                    />
+                  )}
+                </div>
+                <div>
+                  <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                    Bullet points
+                  </p>
+                  {decidido ? (
+                    <p className="mt-0.5 whitespace-pre-line text-xs">{rascunho.bulletPoints}</p>
+                  ) : (
+                    <Textarea
+                      value={rascunho.bulletPoints}
+                      onChange={(e) => aoMudarRascunho("bulletPoints", e.target.value)}
+                      className="mt-1 min-h-12 text-xs"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {!decidido && (
+                <div className="flex gap-2 pt-1">
+                  <Button size="sm" onClick={() => aoDecidir("aprovada")}>
+                    <Check className="size-3.5" />
+                    Aprovar
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => aoDecidir("recusada")}>
+                    <X className="size-3.5" />
+                    Descartar
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={aoGerar} disabled={gerando}>
+                    {gerando ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="size-3.5" />
+                    )}
+                    Gerar de novo
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PainelSac({
   tickets,
   carregando,
