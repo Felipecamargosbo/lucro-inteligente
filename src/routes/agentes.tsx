@@ -31,9 +31,9 @@ import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import {
+  analisarAnunciosEmAds,
   DEGRAU_DESCONTO_PADRAO,
   DIAS_PARADO_PADRAO,
-  diagnosticarAds,
   diagnosticarCurvaAbc,
   diagnosticarDadoFaltando,
   diagnosticarQuedaMargem,
@@ -41,6 +41,7 @@ import {
   diagnosticarSaudeContas,
   FAIXAS_MARGEM_PADRAO,
   montarResumoDiario,
+  sugerirAnunciosParaAds,
   sugerirPrecoPorGiro,
 } from "@/lib/finance";
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
@@ -49,7 +50,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type {
   AlertaEstoque,
-  AvaliacaoAds,
+  EventoAds,
   EventoAgente,
   InsightAnalista,
   SemaforoDecisao,
@@ -103,7 +104,7 @@ function Agentes() {
   const [tickets, setTickets] = useState<TicketSac[]>([]);
   const [alertasEstoque, setAlertasEstoque] = useState<AlertaEstoque[]>([]);
   const [carregandoEstoque, setCarregandoEstoque] = useState(true);
-  const [avaliacoesAds, setAvaliacoesAds] = useState<AvaliacaoAds[]>([]);
+  const [avaliacoesAds, setAvaliacoesAds] = useState<EventoAds[]>([]);
   const [carregandoAds, setCarregandoAds] = useState(true);
   const [carregandoTickets, setCarregandoTickets] = useState(true);
   /** Ticket com resposta em andamento de gerar (mostra o spinner só nele) */
@@ -362,43 +363,59 @@ function Agentes() {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
-    const anuncios = anunciosService.listar();
-    const opcoesCusto = {
-      aliquotaImposto: fiscal.aliquota,
-      custosOperacionais: custoOperacionalTotal,
-    };
+    const pedidos = vendasService.listar();
+    // Últimos 30 dias — a mesma janela que faz sentido pra avaliar Ads:
+    // curta o bastante pra refletir o investimento recente, longa o
+    // bastante pra não julgar um produto por 2 ou 3 dias de sorte.
+    const fim = new Date();
+    const inicio = new Date(fim.getTime() - 29 * 86400000);
+    const periodo = { inicio, fim, rotulo: "Últimos 30 dias" };
 
-    const jaPendentes = await adsService.skusPendentes(perfilId);
-    for (const a of anuncios) {
-      if (jaPendentes.has(a.sku)) continue;
-      const metas = metasPorConta[a.contaId] ?? null;
-      const margemMinima = metas?.margemMinima ?? FAIXAS_MARGEM_PADRAO.margemMinima;
-      const [diagnostico] = diagnosticarAds([a], margemMinima, opcoesCusto);
-      if (!diagnostico) continue;
+    const [jaSugeridos, jaAnalisados] = await Promise.all([
+      adsService.skusPendentes(perfilId, "sugestao"),
+      adsService.skusPendentes(perfilId, "analise"),
+    ]);
 
-      const erro = await adsService.criarAvaliacao(perfilId, {
-        contaId: a.contaId,
-        sku: a.sku,
-        produto: a.produto,
-        marketplaceId: a.marketplaceId,
-        investimento: diagnostico.investimento,
-        vendasAtribuidas: diagnostico.vendasAtribuidas,
-        roas: diagnostico.roas,
-        acos: diagnostico.acos,
-        ctr: diagnostico.ctr,
-        cpc: diagnostico.cpc,
-        margemSemAds: diagnostico.margemSemAds,
-        margemComAds: diagnostico.margemComAds,
-        margemMinima: diagnostico.margemMinima,
-        valeAPena: diagnostico.valeAPena,
+    for (const s of sugerirAnunciosParaAds(pedidos, periodo)) {
+      if (jaSugeridos.has(s.sku)) continue;
+      const erro = await adsService.criarEvento(perfilId, {
+        tipo: "sugestao",
+        contaId: null,
+        sku: s.sku,
+        produto: s.produto,
+        quantidade: s.quantidade,
+        unidadesPorDia: s.unidadesPorDia,
+        faturamento: s.faturamento,
+        investimento: 0,
+        lucroLiquido: s.lucroLiquido,
+        margem: s.margem,
+        valeAPena: null,
       });
-      if (erro) console.error("Não consegui gravar a avaliação de Ads:", erro);
+      if (erro) console.error("Não consegui gravar a sugestão de Ads:", erro);
+    }
+
+    for (const item of analisarAnunciosEmAds(pedidos, periodo)) {
+      if (jaAnalisados.has(item.sku)) continue;
+      const erro = await adsService.criarEvento(perfilId, {
+        tipo: "analise",
+        contaId: null,
+        sku: item.sku,
+        produto: item.produto,
+        quantidade: item.quantidade,
+        unidadesPorDia: item.unidadesPorDia,
+        faturamento: item.faturamento,
+        investimento: item.custoMidia,
+        lucroLiquido: item.lucroPosAds,
+        margem: item.margem,
+        valeAPena: !item.semRetorno,
+      });
+      if (erro) console.error("Não consegui gravar a análise de Ads:", erro);
     }
 
     const lista = await adsService.listar(perfilId);
     setAvaliacoesAds(lista);
     setCarregandoAds(false);
-  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
+  }, [sessao, recursos.agentes]);
 
   useEffect(() => {
     carregarEventos();
@@ -474,7 +491,7 @@ function Agentes() {
     }
   };
 
-  const dispensarAvaliacaoAds = async (av: AvaliacaoAds) => {
+  const dispensarAvaliacaoAds = async (av: EventoAds) => {
     setAvaliacoesAds((atual) =>
       atual.map((a) =>
         a.id === av.id ? { ...a, status: "aprovada", decididoEm: new Date().toISOString() } : a,
@@ -1177,24 +1194,39 @@ function CardAlertaEstoque({
  * em cima da margem de verdade, não só do ROAS — junto com as métricas
  * cruas (ROAS, ACOS, CTR, CPC) pra quem quiser conferir a conta.
  */
+/**
+ * O Agente de Ads, em duas janelas — cada uma responde uma pergunta
+ * diferente:
+ *
+ * "Análise" — dos produtos que JÁ estão em Ads, quais valem a pena?
+ * Uma tabela, tudo visível de uma vez: vendas por dia, quanto investiu,
+ * quanto sobrou de lucro líquido no final, e um veredito colorido.
+ *
+ * "Sugestão" — quais produtos vendem bem SOZINHOS, sem nenhum Ads, e
+ * são candidatos a começar a investir.
+ *
+ * De propósito, sem ROAS/ACOS/CTR/CPC aqui — essas métricas já têm
+ * casa própria no Dashboard. Aqui é só o que decide "vale ou não vale".
+ */
 function PainelAds({
-  avaliacoes,
+  eventos,
   carregando,
   aoDispensar,
 }: {
-  avaliacoes: AvaliacaoAds[];
+  eventos: EventoAds[];
   carregando: boolean;
-  aoDispensar: (a: AvaliacaoAds) => void;
+  aoDispensar: (e: EventoAds) => void;
 }) {
-  const [aba, setAba] = useState<Aba>("operacao");
-  const pendentes = avaliacoes.filter((a) => a.status === "pendente");
-  const decididos = avaliacoes.filter((a) => a.status !== "pendente");
-  const lista = aba === "operacao" ? pendentes : decididos;
+  const [janela, setJanela] = useState<"analise" | "sugestao">("analise");
+
+  const analisePendente = eventos.filter((e) => e.status === "pendente" && e.tipo === "analise");
+  const sugestaoPendente = eventos.filter((e) => e.status === "pendente" && e.tipo === "sugestao");
+  const lista = janela === "analise" ? analisePendente : sugestaoPendente;
 
   return (
     <Painel
       titulo="Ads"
-      descricao="Se o investimento em anúncio patrocinado ainda vale a pena, pela margem real"
+      descricao="Se o investimento em anúncio patrocinado está valendo a pena, pelo que sobra de lucro"
     >
       <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
         <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
@@ -1203,7 +1235,7 @@ function PainelAds({
         <div className="min-w-0">
           <p className="text-xs font-semibold">Agente de Ads</p>
           <p className="text-[10px] text-muted-foreground">
-            Julga pela margem com o Ads já descontado, nunca só pelo ROAS
+            Olha o lucro líquido depois do Ads, não só o retorno do anúncio
           </p>
         </div>
         <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-profit-soft px-2.5 py-1 text-[10px] font-semibold text-profit">
@@ -1215,16 +1247,16 @@ function PainelAds({
       <div className="flex gap-1 border-b px-4 pt-3">
         {(
           [
-            ["operacao", `Operação (${pendentes.length})`],
-            ["historico", `Histórico (${decididos.length})`],
+            ["analise", `Análise (${analisePendente.length})`],
+            ["sugestao", `Sugestão de anúncio (${sugestaoPendente.length})`],
           ] as const
         ).map(([id, rotulo]) => (
           <button
             key={id}
-            onClick={() => setAba(id)}
+            onClick={() => setJanela(id)}
             className={cn(
               "rounded-t-md px-3 py-2 text-xs font-semibold transition-colors",
-              aba === id
+              janela === id
                 ? "border-b-2 border-brand text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
@@ -1234,126 +1266,159 @@ function PainelAds({
         ))}
       </div>
 
-      <div className="divide-y">
-        {carregando && (
-          <div className="flex items-center justify-center gap-2 px-4 py-10 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" />
-            Avaliando investimento em Ads...
-          </div>
-        )}
+      {carregando && (
+        <div className="flex items-center justify-center gap-2 px-4 py-10 text-xs text-muted-foreground">
+          <Loader2 className="size-3.5 animate-spin" />
+          Avaliando os últimos 30 dias...
+        </div>
+      )}
 
-        {!carregando &&
-          lista.map((a) => (
-            <CardAvaliacaoAds key={a.id} avaliacao={a} aoDispensar={() => aoDispensar(a)} />
-          ))}
+      {!carregando && janela === "analise" && (
+        <TabelaAnaliseAds itens={analisePendente} aoDispensar={aoDispensar} />
+      )}
 
-        {!carregando && lista.length === 0 && (
-          <div className="px-4 py-10 text-center">
-            <p className="text-xs text-muted-foreground">
-              {aba === "operacao"
-                ? "Nenhum anúncio com Ads ativo pra avaliar agora."
-                : "Nenhuma avaliação vista ainda."}
-            </p>
-          </div>
-        )}
-      </div>
+      {!carregando && janela === "sugestao" && (
+        <TabelaSugestaoAds itens={sugestaoPendente} aoDispensar={aoDispensar} />
+      )}
 
       <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
-        Investimento e vendas atribuídas ainda são de exemplo — sem API de Ads
-        conectada. A fórmula (margem com Ads vs. sua margem mínima) já é a de verdade.
+        Investimento e vendas vêm do pedido real dos últimos 30 dias — o mesmo número que
+        a tela de Ads do Dashboard já mostra.
       </div>
     </Painel>
   );
 }
 
-function CardAvaliacaoAds({
-  avaliacao,
+/** "Vale a pena" = sobrou lucro líquido positivo depois do Ads. Simples
+ * assim de propósito: é a pergunta que o seller realmente faz. */
+function TabelaAnaliseAds({
+  itens,
   aoDispensar,
 }: {
-  avaliacao: AvaliacaoAds;
-  aoDispensar: () => void;
+  itens: EventoAds[];
+  aoDispensar: (e: EventoAds) => void;
 }) {
+  if (itens.length === 0) {
+    return (
+      <div className="px-4 py-10 text-center">
+        <p className="text-xs text-muted-foreground">Nenhum produto em Ads pra avaliar agora.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="px-4 py-4">
-      <div className="flex gap-3">
-        <div
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-full",
-            avaliacao.valeAPena ? "bg-profit-soft text-profit" : "bg-loss-soft text-loss",
-          )}
-        >
-          <Target className="size-3.5" />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <SeloMarketplace id={avaliacao.marketplaceId} />
-            <span className="truncate text-xs font-medium">{avaliacao.produto}</span>
-            <span className="num text-[10px] text-muted-foreground">{avaliacao.sku}</span>
-            <span
-              className={cn(
-                "rounded px-2 py-0.5 text-[10px] font-semibold",
-                avaliacao.valeAPena ? "bg-profit-soft text-profit" : "bg-loss-soft text-loss",
-              )}
-            >
-              {avaliacao.valeAPena ? "vale a pena" : "está corroendo a margem"}
-            </span>
-            {avaliacao.status !== "pendente" && (
-              <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                visto
-              </span>
-            )}
-          </div>
-
-          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-            Investiu <strong className="text-foreground">{formatBRL(avaliacao.investimento)}</strong>,
-            vendeu {formatNumero(avaliacao.vendasAtribuidas)} un. (ROAS{" "}
-            <strong className="text-foreground">{avaliacao.roas.toFixed(1)}x</strong>, ACOS{" "}
-            {formatPercentual(avaliacao.acos)}).
-          </p>
-
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 rounded-lg bg-muted/50 px-3 py-2.5">
-            <div>
-              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
-                Margem sem Ads
-              </p>
-              <p className="num text-sm font-semibold">
-                {formatPercentual(avaliacao.margemSemAds)}
-              </p>
-            </div>
-            <div>
-              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
-                Margem com Ads
-              </p>
-              <p
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[720px] text-left">
+        <thead>
+          <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+            <th className="px-4 py-3 font-bold">Produto / SKU</th>
+            <th className="px-4 py-3 text-right font-bold">Vendas/dia</th>
+            <th className="px-4 py-3 text-right font-bold">Investimento</th>
+            <th className="px-4 py-3 text-right font-bold">Lucro líquido</th>
+            <th className="px-4 py-3 text-right font-bold">Margem</th>
+            <th className="px-4 py-3 font-bold">Situação</th>
+            <th className="px-4 py-3 text-right font-bold">Ação</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {itens.map((e) => (
+            <tr key={e.id} className="transition-colors hover:bg-muted/40">
+              <td className="max-w-[220px] px-4 py-3">
+                <p className="truncate text-xs font-medium">{e.produto}</p>
+                <p className="num text-[10px] text-muted-foreground">{e.sku}</p>
+              </td>
+              <td className="num px-4 py-3 text-right text-xs">
+                {e.unidadesPorDia.toFixed(1)}
+              </td>
+              <td className="num px-4 py-3 text-right text-xs">{formatBRL(e.investimento)}</td>
+              <td
                 className={cn(
-                  "num text-sm font-bold",
-                  avaliacao.valeAPena ? "text-profit" : "text-loss",
+                  "num px-4 py-3 text-right text-xs font-bold",
+                  e.valeAPena ? "text-profit" : "text-loss",
                 )}
               >
-                {formatPercentual(avaliacao.margemComAds)}
-              </p>
-            </div>
-            <div>
-              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">CTR</p>
-              <p className="num text-sm font-semibold">{formatPercentual(avaliacao.ctr)}</p>
-            </div>
-            <div>
-              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">CPC</p>
-              <p className="num text-sm font-semibold">{formatBRL(avaliacao.cpc)}</p>
-            </div>
-          </div>
+                {formatBRL(e.lucroLiquido)}
+              </td>
+              <td className="num px-4 py-3 text-right text-xs">{formatPercentual(e.margem)}</td>
+              <td className="px-4 py-3">
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded px-2 py-1 text-[10px] font-semibold",
+                    e.valeAPena ? "bg-profit-soft text-profit" : "bg-loss-soft text-loss",
+                  )}
+                >
+                  <span
+                    className={cn("size-1.5 rounded-full", e.valeAPena ? "bg-profit" : "bg-loss")}
+                  />
+                  {e.valeAPena ? "Vale a pena" : "Está no prejuízo"}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-right">
+                <Button size="sm" variant="outline" onClick={() => aoDispensar(e)}>
+                  <Check className="size-3.5" />
+                  Visto
+                </Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-          {avaliacao.status === "pendente" && (
-            <div className="mt-3">
-              <Button size="sm" variant="outline" onClick={aoDispensar}>
-                <Check className="size-3.5" />
-                Marcar como visto
-              </Button>
-            </div>
-          )}
-        </div>
+/** Vendeu bem sozinho, sem gastar nada em Ads — candidato a testar. */
+function TabelaSugestaoAds({
+  itens,
+  aoDispensar,
+}: {
+  itens: EventoAds[];
+  aoDispensar: (e: EventoAds) => void;
+}) {
+  if (itens.length === 0) {
+    return (
+      <div className="px-4 py-10 text-center">
+        <p className="text-xs text-muted-foreground">
+          Nenhum produto vendendo bem sem Ads no momento.
+        </p>
       </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[620px] text-left">
+        <thead>
+          <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+            <th className="px-4 py-3 font-bold">Produto / SKU</th>
+            <th className="px-4 py-3 text-right font-bold">Vendas/dia</th>
+            <th className="px-4 py-3 text-right font-bold">Total vendido</th>
+            <th className="px-4 py-3 text-right font-bold">Margem atual</th>
+            <th className="px-4 py-3 text-right font-bold">Ação</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {itens.map((e) => (
+            <tr key={e.id} className="transition-colors hover:bg-muted/40">
+              <td className="max-w-[220px] px-4 py-3">
+                <p className="truncate text-xs font-medium">{e.produto}</p>
+                <p className="num text-[10px] text-muted-foreground">{e.sku}</p>
+              </td>
+              <td className="num px-4 py-3 text-right text-xs font-semibold text-brand">
+                {e.unidadesPorDia.toFixed(1)}
+              </td>
+              <td className="num px-4 py-3 text-right text-xs">{formatNumero(e.quantidade)} un.</td>
+              <td className="num px-4 py-3 text-right text-xs">{formatPercentual(e.margem)}</td>
+              <td className="px-4 py-3 text-right">
+                <Button size="sm" variant="outline" onClick={() => aoDispensar(e)}>
+                  <Check className="size-3.5" />
+                  Visto
+                </Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
