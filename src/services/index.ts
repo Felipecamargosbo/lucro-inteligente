@@ -26,6 +26,7 @@ import {
 } from "@/data/mock";
 import type {
   AgenteId,
+  AlertaEstoque,
   Anuncio,
   ContaMarketplace,
   EventoAgente,
@@ -361,6 +362,92 @@ export const estoqueService = {
   listar: () => ESTOQUE,
   listarDetalhado: () => ESTOQUE_DETALHADO,
   resumo: () => RESUMO_ESTOQUE,
+
+  /** Como uma linha de `eventos_agente` vira um AlertaEstoque. */
+  linhaParaAlerta: (l: {
+    id: string;
+    conta_id: string | null;
+    criado_em: string;
+    status: string;
+    decidido_em: string | null;
+    dados: Record<string, unknown>;
+  }): AlertaEstoque => {
+    const d = l.dados ?? {};
+    return {
+      id: l.id,
+      data: l.criado_em,
+      contaId: l.conta_id,
+      sku: (d.sku as string) ?? "",
+      produto: (d.produto as string) ?? "",
+      marketplaceId: d.marketplaceId as MarketplaceId,
+      estoqueAtual: (d.estoqueAtual as number) ?? 0,
+      vendidoUltimos7Dias: (d.vendidoUltimos7Dias as number) ?? 0,
+      mediaDiaria: (d.mediaDiaria as number) ?? 0,
+      diasRestantes: (d.diasRestantes as number) ?? 0,
+      quantidadeSugerida: (d.quantidadeSugerida as number) ?? 0,
+      diasAlvoCobertura: (d.diasAlvoCobertura as number) ?? 30,
+      status: l.status as StatusSugestao,
+      decididoEm: l.decidido_em,
+    };
+  },
+
+  listarAlertas: async (perfilId: string): Promise<AlertaEstoque[]> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "estoque")
+      .order("criado_em", { ascending: false });
+    if (error) {
+      console.error("estoqueService.listarAlertas:", error.message);
+      return [];
+    }
+    return (data ?? []).map(estoqueService.linhaParaAlerta);
+  },
+
+  /** SKUs que já têm alerta pendente — pra não recriar o mesmo aviso
+   * toda vez que a tela abre. */
+  skusPendentes: async (perfilId: string): Promise<Set<string>> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("sku")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "estoque")
+      .eq("status", "pendente");
+    if (error) {
+      console.error("estoqueService.skusPendentes:", error.message);
+      return new Set();
+    }
+    return new Set((data ?? []).map((r) => r.sku).filter((s): s is string => Boolean(s)));
+  },
+
+  criarAlerta: async (
+    perfilId: string,
+    alerta: Omit<AlertaEstoque, "id" | "status" | "decididoEm" | "data">,
+  ): Promise<string | null> => {
+    const { error } = await supabase.from("eventos_agente").insert({
+      perfil_id: perfilId,
+      agente_id: "estoque",
+      conta_id: alerta.contaId,
+      sku: alerta.sku,
+      tipo: "risco_ruptura",
+      motivo: `Vendeu ${alerta.vendidoUltimos7Dias} unidade(s) nos últimos 7 dias (média de ${alerta.mediaDiaria.toFixed(1)}/dia). No ritmo atual, o estoque acaba em ${alerta.diasRestantes} dia(s).`,
+      semaforo: alerta.diasRestantes <= 3 ? "vermelho" : "amarelo",
+      status: "pendente",
+      dados: {
+        sku: alerta.sku,
+        produto: alerta.produto,
+        marketplaceId: alerta.marketplaceId,
+        estoqueAtual: alerta.estoqueAtual,
+        vendidoUltimos7Dias: alerta.vendidoUltimos7Dias,
+        mediaDiaria: alerta.mediaDiaria,
+        diasRestantes: alerta.diasRestantes,
+        quantidadeSugerida: alerta.quantidadeSugerida,
+        diasAlvoCobertura: alerta.diasAlvoCobertura,
+      },
+    });
+    return error?.message ?? null;
+  },
 };
 
 export const fulfillmentService = {
