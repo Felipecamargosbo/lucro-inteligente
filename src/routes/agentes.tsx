@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   BarChart3,
   Bot,
+  Boxes,
   Check,
   Clock,
   Loader2,
@@ -17,6 +18,7 @@ import {
 import {
   anunciosService,
   contasService,
+  estoqueService,
   eventosAgenteService,
   produtosService,
   sacService,
@@ -32,6 +34,7 @@ import {
   diagnosticarCurvaAbc,
   diagnosticarDadoFaltando,
   diagnosticarQuedaMargem,
+  diagnosticarRuptura,
   diagnosticarSaudeContas,
   FAIXAS_MARGEM_PADRAO,
   montarResumoDiario,
@@ -42,6 +45,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type {
+  AlertaEstoque,
   EventoAgente,
   InsightAnalista,
   SemaforoDecisao,
@@ -87,10 +91,14 @@ function Agentes() {
     useSelecaoContas();
   const { sessao, recursos } = useAuth();
   const [aba, setAba] = useState<Aba>("operacao");
-  const [abaAgente, setAbaAgente] = useState<"analista" | "precificacao" | "sac">("analista");
+  const [abaAgente, setAbaAgente] = useState<
+    "analista" | "precificacao" | "sac" | "estoque"
+  >("analista");
   const [eventos, setEventos] = useState<EventoAgente[]>([]);
   const [insights, setInsights] = useState<InsightAnalista[]>([]);
   const [tickets, setTickets] = useState<TicketSac[]>([]);
+  const [alertasEstoque, setAlertasEstoque] = useState<AlertaEstoque[]>([]);
+  const [carregandoEstoque, setCarregandoEstoque] = useState(true);
   const [carregandoTickets, setCarregandoTickets] = useState(true);
   /** Ticket com resposta em andamento de gerar (mostra o spinner só nele) */
   const [gerandoId, setGerandoId] = useState<string | null>(null);
@@ -304,11 +312,47 @@ function Agentes() {
     setCarregandoTickets(false);
   }, [sessao, recursos.agentes]);
 
+  /**
+   * Projeta ruptura a partir da venda real dos últimos 7 dias de cada SKU
+   * — não do número médio que já vem no cadastro de estoque.
+   */
+  const carregarAlertasEstoque = useCallback(async () => {
+    if (!sessao || !recursos.agentes) return;
+    const perfilId = sessao.user.id;
+
+    const itens = estoqueService.listarDetalhado();
+    const pedidos = vendasService.listar();
+    const diagnosticos = diagnosticarRuptura(itens, pedidos);
+
+    const jaPendentes = await estoqueService.skusPendentes(perfilId);
+    for (const d of diagnosticos) {
+      if (jaPendentes.has(d.sku)) continue;
+      const erro = await estoqueService.criarAlerta(perfilId, {
+        contaId: null,
+        sku: d.sku,
+        produto: d.produto,
+        marketplaceId: d.marketplaceId,
+        estoqueAtual: d.estoqueAtual,
+        vendidoUltimos7Dias: d.vendidoUltimos7Dias,
+        mediaDiaria: d.mediaDiaria,
+        diasRestantes: d.diasRestantes,
+        quantidadeSugerida: d.quantidadeSugerida,
+        diasAlvoCobertura: d.diasAlvoCobertura,
+      });
+      if (erro) console.error("Não consegui gravar o alerta de estoque:", erro);
+    }
+
+    const lista = await estoqueService.listarAlertas(perfilId);
+    setAlertasEstoque(lista);
+    setCarregandoEstoque(false);
+  }, [sessao, recursos.agentes]);
+
   useEffect(() => {
     carregarEventos();
     carregarInsights();
     carregarTickets();
-  }, [carregarEventos, carregarInsights, carregarTickets]);
+    carregarAlertasEstoque();
+  }, [carregarEventos, carregarInsights, carregarTickets, carregarAlertasEstoque]);
 
   // O filtro de canal ("Todas as contas") só recorta o que aparece — não
   // muda o que o agente já gravou. Assim trocar o filtro não refaz a
@@ -354,6 +398,19 @@ function Agentes() {
     if (erro) {
       toast.error(`Não consegui salvar: ${erro}`);
       await carregarInsights();
+    }
+  };
+
+  const dispensarAlertaEstoque = async (alerta: AlertaEstoque) => {
+    setAlertasEstoque((atual) =>
+      atual.map((a) =>
+        a.id === alerta.id ? { ...a, status: "aprovada", decididoEm: new Date().toISOString() } : a,
+      ),
+    );
+    const erro = await eventosAgenteService.decidir(alerta.id, "aprovada");
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      await carregarAlertasEstoque();
     }
   };
 
@@ -417,6 +474,7 @@ function Agentes() {
   const lista = aba === "operacao" ? pendentes : decididos;
   const insightsPendentes = insights.filter((i) => i.status === "pendente").length;
   const ticketsPendentes = tickets.filter((t) => t.status === "pendente").length;
+  const alertasEstoquePendentes = alertasEstoque.filter((a) => a.status === "pendente").length;
 
   if (!recursos.agentes) {
     return (
@@ -448,6 +506,7 @@ function Agentes() {
             ["analista", "Analista", BarChart3, insightsPendentes] as const,
             ["precificacao", "Precificação", TrendingDown, pendentes.length] as const,
             ["sac", "SAC", MessageCircle, ticketsPendentes] as const,
+            ["estoque", "Estoque", Boxes, alertasEstoquePendentes] as const,
           ] as const
         ).map(([id, nome, Icone, contagem]) => (
           <button
@@ -602,6 +661,14 @@ function Agentes() {
           aoMudarRascunho={(id, texto) => setRascunhos((atual) => ({ ...atual, [id]: texto }))}
           aoGerar={gerarRespostaSac}
           aoDecidir={decidirTicket}
+        />
+      )}
+
+      {abaAgente === "estoque" && (
+        <PainelEstoque
+          alertas={alertasEstoque}
+          carregando={carregandoEstoque}
+          aoDispensar={dispensarAlertaEstoque}
         />
       )}
     </div>
@@ -833,6 +900,141 @@ function CardTicketSac({
               </div>
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * O painel de Estoque: só leitura, só alerta — nenhum campo pra editar
+ * quantidade. O número de verdade mora no ERP do seller ou no
+ * marketplace; aqui é só o aviso de que algo merece atenção antes que
+ * vire ruptura.
+ */
+function PainelEstoque({
+  alertas,
+  carregando,
+  aoDispensar,
+}: {
+  alertas: AlertaEstoque[];
+  carregando: boolean;
+  aoDispensar: (a: AlertaEstoque) => void;
+}) {
+  const pendentes = alertas.filter((a) => a.status === "pendente");
+
+  return (
+    <Painel
+      titulo="Estoque"
+      descricao="Projeção de ruptura a partir da venda real dos últimos 7 dias"
+    >
+      <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <Boxes className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold">Agente de Estoque</p>
+          <p className="text-[10px] text-muted-foreground">
+            Avisa antes de faltar — não edita nem envia quantidade pra lugar nenhum
+          </p>
+        </div>
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-profit-soft px-2.5 py-1 text-[10px] font-semibold text-profit">
+          <span className="size-1.5 rounded-full bg-profit" />
+          Ativo
+        </span>
+      </div>
+
+      <div className="divide-y">
+        {carregando && (
+          <div className="flex items-center justify-center gap-2 px-4 py-10 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            Verificando ritmo de venda...
+          </div>
+        )}
+
+        {!carregando &&
+          pendentes.map((a) => (
+            <CardAlertaEstoque key={a.id} alerta={a} aoDispensar={() => aoDispensar(a)} />
+          ))}
+
+        {!carregando && pendentes.length === 0 && (
+          <div className="px-4 py-10 text-center">
+            <p className="text-xs text-muted-foreground">
+              Nenhum produto perto de esgotar no ritmo atual de venda.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
+        A quantidade em estoque ainda é de exemplo — quando o ERP ou o marketplace
+        conectar, esse número passa a ser real, sem mudar nada nesta tela.
+      </div>
+    </Painel>
+  );
+}
+
+function CardAlertaEstoque({
+  alerta,
+  aoDispensar,
+}: {
+  alerta: AlertaEstoque;
+  aoDispensar: () => void;
+}) {
+  const urgente = alerta.diasRestantes <= 3;
+
+  return (
+    <div className="px-4 py-4">
+      <div className="flex gap-3">
+        <div
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-full",
+            urgente ? "bg-loss-soft text-loss" : "bg-warning-soft text-warning",
+          )}
+        >
+          <Boxes className="size-3.5" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <SeloMarketplace id={alerta.marketplaceId} />
+            <span className="truncate text-xs font-medium">{alerta.produto}</span>
+            <span className="num text-[10px] text-muted-foreground">{alerta.sku}</span>
+          </div>
+
+          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+            Vendeu <strong className="text-foreground">{formatNumero(alerta.vendidoUltimos7Dias)} un.</strong> nos
+            últimos 7 dias (média de {alerta.mediaDiaria.toFixed(1)}/dia). No ritmo atual, o
+            estoque acaba em{" "}
+            <strong className={cn(urgente ? "text-loss" : "text-warning")}>
+              {alerta.diasRestantes} dia{alerta.diasRestantes !== 1 ? "s" : ""}
+            </strong>
+            .
+          </p>
+
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 rounded-lg bg-muted/50 px-3 py-2.5">
+            <div>
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                Estoque atual
+              </p>
+              <p className="num text-sm font-semibold">{formatNumero(alerta.estoqueAtual)}</p>
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                Repor pra {alerta.diasAlvoCobertura} dias
+              </p>
+              <p className="num text-sm font-bold text-profit">
+                +{formatNumero(alerta.quantidadeSugerida)}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <Button size="sm" variant="outline" onClick={aoDispensar}>
+              <Check className="size-3.5" />
+              Marcar como visto
+            </Button>
+          </div>
         </div>
       </div>
     </div>
