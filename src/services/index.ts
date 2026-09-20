@@ -1107,3 +1107,42 @@ export const criativoService = {
     return error?.message ?? null;
   },
 };
+
+/** Uma mensagem na conversa com um agente — não persiste ainda (Fase 1). */
+export interface MensagemChat {
+  papel: "user" | "assistente";
+  conteudo: string;
+}
+
+/**
+ * Conversa de verdade com o Analista — várias mensagens seguidas, com o
+ * contexto real dos avisos dele injetado a cada chamada. Só gasta token
+ * quando o seller manda mensagem, igual o SAC e o Criativo.
+ */
+export const analistaChatService = {
+  conversar: async (
+    mensagens: MensagemChat[],
+    contexto: string,
+  ): Promise<{ resposta: string | null; erro: string | null }> => {
+    const { data, error } = await supabase.functions.invoke("conversar-analista", {
+      body: { mensagens, contexto },
+    });
+    if (error) {
+      let motivo = error.message ?? "Não consegui falar com a IA.";
+      const contextoErro = (error as { context?: Response }).context;
+      if (contextoErro && typeof contextoErro.json === "function") {
+        try {
+          const corpo = await contextoErro.json();
+          if (corpo?.erro) motivo = corpo.erro;
+        } catch {
+          // Corpo não era JSON — fica com a mensagem genérica mesmo.
+        }
+      }
+      return { resposta: null, erro: motivo };
+    }
+    if (data?.erro) {
+      return { resposta: null, erro: data.erro as string };
+    }
+    return { resposta: (data?.resposta as string) ?? null, erro: null };
+  },
+};
