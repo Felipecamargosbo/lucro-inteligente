@@ -1310,3 +1310,69 @@ export function diagnosticarRuptura(
   // O que vai acabar primeiro é o que mais precisa de atenção.
   return alertas.sort((a, b) => a.diasRestantes - b.diasRestantes);
 }
+
+/* ------------------------------------------------------------------ */
+/* Agente de Ads                                                       */
+/* ------------------------------------------------------------------ */
+
+export interface DiagnosticoAds {
+  anuncio: Anuncio;
+  investimento: number;
+  vendasAtribuidas: number;
+  roas: number;
+  acos: number;
+  ctr: number;
+  cpc: number;
+  margemSemAds: number;
+  margemComAds: number;
+  margemMinima: number;
+  valeAPena: boolean;
+}
+
+/**
+ * O veredito não é o ROAS — é a margem de verdade. Um ROAS de 8x ainda
+ * pode ser prejuízo se a margem do produto, antes de qualquer Ads, já
+ * era apertada; e um ROAS de 2x pode valer a pena se sobra bastante
+ * margem pra absorver. Por isso a conta sempre passa pelo mesmo motor
+ * de margem que o resto do sistema usa — nunca julga o Ads sozinho.
+ */
+export function diagnosticarAds(
+  anuncios: Anuncio[],
+  margemMinima: number,
+  opcoes: OpcoesLimites = {},
+): DiagnosticoAds[] {
+  const avaliacoes: DiagnosticoAds[] = [];
+
+  for (const a of anuncios) {
+    if (a.status !== "ativo" || !a.ads || a.ads.investimento <= 0) continue;
+
+    const { investimento, impressoes, cliques, vendasAtribuidas } = a.ads;
+    const receitaAtribuida = vendasAtribuidas * a.precoAtual;
+
+    const margemComAds = margemNoPreco(a, a.precoAtual, opcoes);
+    // Mesmo anúncio, mesmo preço, só tirando o Ads da conta — pra isolar
+    // exatamente o que ele está custando de margem.
+    const margemSemAds = margemNoPreco(
+      { ...a, custoMidiaUnitario: 0 },
+      a.precoAtual,
+      opcoes,
+    );
+
+    avaliacoes.push({
+      anuncio: a,
+      investimento,
+      vendasAtribuidas,
+      roas: investimento > 0 ? receitaAtribuida / investimento : 0,
+      acos: receitaAtribuida > 0 ? investimento / receitaAtribuida : 1,
+      ctr: impressoes > 0 ? cliques / impressoes : 0,
+      cpc: cliques > 0 ? investimento / cliques : 0,
+      margemSemAds,
+      margemComAds,
+      margemMinima,
+      valeAPena: margemComAds >= margemMinima,
+    });
+  }
+
+  // Quem está corroendo mais margem primeiro — é onde a atenção rende mais.
+  return avaliacoes.sort((x, y) => x.margemComAds - y.margemComAds);
+}
