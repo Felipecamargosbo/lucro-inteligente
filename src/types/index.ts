@@ -708,29 +708,38 @@ export interface AlertaEstoque {
 /* Agente de Ads                                                       */
 /* ------------------------------------------------------------------ */
 
+/** As duas janelas do agente: achar quem devia entrar em Ads, e avaliar
+ * quem já está. */
+export type TipoEventoAds = "sugestao" | "analise";
+
 /**
- * O veredito do agente sobre um anúncio que está em Ads: não é só ROAS —
- * é a margem de verdade, com o Ads já descontado, comparada com o piso
- * que o seller configurou. Um ROAS alto ainda pode ser prejuízo se a
- * margem antes do Ads já era apertada.
+ * Um produto, numa das duas janelas. `investimento`, `lucroLiquido` e
+ * `valeAPena` só existem de verdade na "análise" — na "sugestão" eles
+ * ficam zerados/null, porque o produto ainda não está em Ads.
+ *
+ * De propósito, só o essencial: quanto vende por dia, quanto investiu,
+ * e o que sobrou de lucro líquido no final — nada de ROAS/ACOS/CTR
+ * poluindo a tela, isso fica só no Dashboard.
  */
-export interface AvaliacaoAds {
+export interface EventoAds {
   id: string;
+  tipo: TipoEventoAds;
   data: string;
   contaId: string | null;
   sku: string;
   produto: string;
-  marketplaceId: MarketplaceId;
+  quantidade: number;
+  unidadesPorDia: number;
+  faturamento: number;
   investimento: number;
-  vendasAtribuidas: number;
-  roas: number;
-  acos: number;
-  ctr: number;
-  cpc: number;
-  margemSemAds: number;
-  margemComAds: number;
-  margemMinima: number;
-  valeAPena: boolean;
+  /** Lucro já com o Ads descontado — o número que fecha a pergunta
+   * "sobrou dinheiro ou não". Na sugestão, é o lucro sem Ads mesmo
+   * (ainda não investe nele). */
+  lucroLiquido: number;
+  margem: number;
+  /** null na sugestão (não se aplica ainda); true/false na análise */
+  valeAPena: boolean | null;
   status: StatusSugestao;
   decididoEm: string | null;
 }
+
