@@ -7,6 +7,7 @@ import type {
   Campanha,
   ContaMarketplace,
   Anuncio,
+  DadosAds,
   Empresa,
   ItemEstoque,
   ItemEstoqueDetalhado,
@@ -933,6 +934,27 @@ function gerarAnuncios(): Anuncio[] {
 
       const unidadesVendidas = Math.floor(rand() * rand() * 90);
 
+      // Ads: deriva do custoMidiaUnitario já calculado acima, pra nunca
+      // discordar da margem que o resto do sistema já mostra. Uma fração
+      // das vendas do anúncio vem do clique pago; o resto é orgânico.
+      let ads: DadosAds | null = null;
+      if (investeMidia) {
+        const vendasAtribuidas =
+          unidadesVendidas > 0
+            ? Math.max(1, Math.round(unidadesVendidas * (0.4 + rand() * 0.4)))
+            : 0;
+        const investimento =
+          vendasAtribuidas > 0
+            ? Math.round(vendasAtribuidas * custoMidiaUnitario * 100) / 100
+            : // Investiu e não vendeu nada — o pior caso, e um caso real.
+              Math.round((20 + rand() * 80) * 100) / 100;
+        const cpcAlvo = 0.4 + rand() * 1.6;
+        const ctrAlvo = 0.01 + rand() * 0.03;
+        const cliques = Math.max(1, Math.round(investimento / cpcAlvo));
+        const impressoes = Math.max(cliques, Math.round(cliques / ctrAlvo));
+        ads = { investimento, impressoes, cliques, vendasAtribuidas };
+      }
+
       // Última venda: quem gira vendeu há pouco; uma fatia do catálogo fica
       // encalhada. É esse pedaço parado que o agente de giro procura — sem
       // encalhe no mock, o agente abriria sempre sem nada para propor.
@@ -962,6 +984,7 @@ function gerarAnuncios(): Anuncio[] {
         taxaFixa: conta.taxaFixa,
         freteUnitario,
         custoMidiaUnitario,
+        ads,
         custoAfiliadoUnitario,
         // Canal recém-conectado ainda não liquidou taxas
         origemTaxas:
