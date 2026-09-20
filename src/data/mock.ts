@@ -751,7 +751,16 @@ function gerarPedidos(): Pedido[] {
       // sem retorno" com exemplo real antes de conectar a API de anúncios.
       const SKUS_ADS_SEM_RETORNO = ["CAD-ERG-PRO", "MOU-SF-2K"];
       const ehSkuProblematico = SKUS_ADS_SEM_RETORNO.includes(produto.sku);
-      const investeMidia = ehSkuProblematico ? rand() > 0.25 : rand() > 0.6;
+      // E dois SKUs são de propósito 100% orgânicos — nunca entram em Ads —
+      // pra sempre existir pelo menos um candidato na aba "Sugestão de
+      // anúncio" do Agente de Ads, mesmo com o resto do catálogo sorteado.
+      const SKUS_ORGANICOS_FORTES = ["SW-X-BLK-001", "HUB-USBC-7X1"];
+      const ehSkuOrganico = SKUS_ORGANICOS_FORTES.includes(produto.sku);
+      const investeMidia = ehSkuOrganico
+        ? false
+        : ehSkuProblematico
+          ? rand() > 0.25
+          : rand() > 0.6;
       const custoMidia = investeMidia
         ? Math.round(
             faturamento * (ehSkuProblematico ? 0.55 + rand() * 0.35 : 0.03 + rand() * 0.14) * 100,
