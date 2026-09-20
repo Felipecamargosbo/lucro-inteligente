@@ -884,7 +884,8 @@ function linhaParaEventoAds(l: {
     faturamento: (d.faturamento as number) ?? 0,
     investimento: (d.investimento as number) ?? 0,
     lucroLiquido: (d.lucroLiquido as number) ?? 0,
-    margem: (d.margem as number) ?? 0,
+    margemSemAds: (d.margemSemAds as number) ?? 0,
+    margemComAds: (d.margemComAds as number) ?? 0,
     valeAPena: d.valeAPena === null || d.valeAPena === undefined ? null : Boolean(d.valeAPena),
     status: l.status as StatusSugestao,
     decididoEm: l.decidido_em,
@@ -934,12 +935,13 @@ export const adsService = {
     perfilId: string,
     evento: Omit<EventoAds, "id" | "status" | "decididoEm" | "data">,
   ): Promise<string | null> => {
+    const unidadesDia = Math.round(evento.unidadesPorDia);
     const motivo =
       evento.tipo === "sugestao"
-        ? `Vendeu ${evento.quantidade} un. (${evento.unidadesPorDia.toFixed(1)}/dia) sem nenhum investimento em Ads. Pode valer a pena testar.`
+        ? `Vendeu ${evento.quantidade} un. (${unidadesDia}/dia) sem nenhum investimento em Ads, faturando ${evento.faturamento.toFixed(2)}. Pode valer a pena testar.`
         : evento.valeAPena
-          ? `Investiu ${evento.investimento.toFixed(2)}, vendeu ${evento.quantidade} un. (${evento.unidadesPorDia.toFixed(1)}/dia). Sobrou ${evento.lucroLiquido.toFixed(2)} de lucro líquido — vale a pena continuar.`
-          : `Investiu ${evento.investimento.toFixed(2)}, vendeu ${evento.quantidade} un. (${evento.unidadesPorDia.toFixed(1)}/dia). O Ads gastou mais do que o produto trouxe de lucro.`;
+          ? `Investiu ${evento.investimento.toFixed(2)}, faturou ${evento.faturamento.toFixed(2)} (${evento.quantidade} un., ${unidadesDia}/dia). Sobrou ${evento.lucroLiquido.toFixed(2)} de lucro líquido — vale a pena continuar.`
+          : `Investiu ${evento.investimento.toFixed(2)}, faturou ${evento.faturamento.toFixed(2)} (${evento.quantidade} un., ${unidadesDia}/dia). O Ads gastou mais do que o produto trouxe de lucro.`;
 
     const { error } = await supabase.from("eventos_agente").insert({
       perfil_id: perfilId,
@@ -958,7 +960,8 @@ export const adsService = {
         faturamento: evento.faturamento,
         investimento: evento.investimento,
         lucroLiquido: evento.lucroLiquido,
-        margem: evento.margem,
+        margemSemAds: evento.margemSemAds,
+        margemComAds: evento.margemComAds,
         valeAPena: evento.valeAPena,
       },
     });
