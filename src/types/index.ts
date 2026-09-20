@@ -573,7 +573,7 @@ export interface ItemEstoqueDetalhado {
 /* Agentes                                                            */
 /* ------------------------------------------------------------------ */
 
-export type AgenteId = "precificacao" | "analista" | "sac" | "estoque" | "ads";
+export type AgenteId = "precificacao" | "analista" | "sac" | "estoque" | "ads" | "criativo";
 
 /**
  * Situação de uma sugestão. Enquanto não há API com permissão de escrita,
@@ -747,3 +747,29 @@ export interface EventoAds {
   decididoEm: string | null;
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Agente Criativo                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Título, descrição, palavras-chave e bullet points de um anúncio —
+ * os quatro nascem juntos, na mesma chamada à IA, porque custa
+ * praticamente o mesmo gerar um ou os quatro. Todos ficam null até o
+ * seller pedir: é o único passo desse agente que gasta token de verdade.
+ */
+export interface SugestaoCriativo {
+  id: string;
+  data: string;
+  contaId: string | null;
+  anuncioId: string | null;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  tituloSugerido: string | null;
+  descricaoSugerida: string | null;
+  palavrasChave: string | null;
+  bulletPoints: string | null;
+  status: StatusSugestao;
+  decididoEm: string | null;
+}
