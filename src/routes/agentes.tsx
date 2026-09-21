@@ -2066,7 +2066,11 @@ function ChatAnalista({
     setTexto("");
     setEnviando(true);
 
-    await chatGestorService.salvarMensagem(perfilId, mensagemUser);
+    const erroSalvarUser = await chatGestorService.salvarMensagem(perfilId, mensagemUser);
+    if (erroSalvarUser) {
+      console.error("Não consegui salvar a mensagem do usuário:", erroSalvarUser);
+      toast.error(`Não consegui salvar sua mensagem: ${erroSalvarUser}`);
+    }
     const contexto = await montarContextoGestor(perfilId);
     const { resposta, erro } = await chatGestorService.conversar(historico, contexto);
     setEnviando(false);
@@ -2078,7 +2082,14 @@ function ChatAnalista({
     if (resposta) {
       const mensagemAssistente: MensagemChat = { papel: "assistente", conteudo: resposta };
       setMensagens((atual) => [...atual, mensagemAssistente]);
-      await chatGestorService.salvarMensagem(perfilId, mensagemAssistente);
+      const erroSalvarAssistente = await chatGestorService.salvarMensagem(
+        perfilId,
+        mensagemAssistente,
+      );
+      if (erroSalvarAssistente) {
+        console.error("Não consegui salvar a resposta do agente:", erroSalvarAssistente);
+        toast.error(`Não consegui salvar a resposta: ${erroSalvarAssistente}`);
+      }
     }
   };
 
