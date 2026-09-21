@@ -20,14 +20,17 @@ import {
   X,
 } from "lucide-react";
 import {
-  analistaChatService,
+  chatGestorService,
   anunciosService,
   adsService,
+  campanhasService,
   contasService,
   criativoService,
   estoqueService,
   eventosAgenteService,
+  fulfillmentService,
   produtosService,
+  recuperacaoService,
   sacService,
   vendasService,
 } from "@/services";
@@ -47,6 +50,7 @@ import {
   diagnosticarSaudeContas,
   FAIXAS_MARGEM_PADRAO,
   montarResumoDiario,
+  resumir,
   sugerirAnunciosParaAds,
   sugerirPrecoPorGiro,
 } from "@/lib/finance";
@@ -755,6 +759,7 @@ function Agentes() {
           insights={insights}
           carregando={carregandoInsights}
           aoDispensar={dispensarInsight}
+          perfilId={sessao?.user.id ?? null}
         />
       )}
 
@@ -1891,10 +1896,12 @@ function PainelAnalista({
   insights,
   carregando,
   aoDispensar,
+  perfilId,
 }: {
   insights: InsightAnalista[];
   carregando: boolean;
   aoDispensar: (i: InsightAnalista) => void;
+  perfilId: string | null;
 }) {
   const pendentes = insights.filter((i) => i.status === "pendente");
   const [visao, setVisao] = useState<"feed" | "conversa">("feed");
@@ -1966,37 +1973,102 @@ function PainelAnalista({
           )}
         </div>
       ) : (
-        <ChatAnalista insights={insights} />
+        <ChatAnalista insights={insights} perfilId={perfilId} />
       )}
     </Painel>
   );
 }
 
+/** Junta um retrato do negócio inteiro — vendas, custos, promoções,
+ * recuperação, estoque, fulfillment, contas — com o que cada um dos
+ * outros agentes já descobriu. É esse texto que vira o "conhecimento"
+ * do Gestor a cada mensagem. */
+async function montarContextoGestor(perfilId: string): Promise<string> {
+  const pedidos = vendasService.listar();
+  const resumo30dias = resumir(pedidos);
+  const produtos = produtosService.listar(perfilId);
+  const campanhas = campanhasService.listar();
+  const oportunidades = recuperacaoService.listar();
+  const estoque = estoqueService.resumo();
+  const fulfillment = fulfillmentService.resumo();
+  const contas = contasService.ativas();
+  const resumoPendentes = await eventosAgenteService.listarResumoPendentes(perfilId);
+
+  const linhasPendentes = resumoPendentes
+    .map((r) => {
+      const exemplos = r.exemplos.map((e) => `  · ${e}`).join("\n");
+      return `${r.agenteId}: ${r.total} pendente(s).\n${exemplos}`;
+    })
+    .join("\n\n");
+
+  return `=== VISÃO GERAL (todos os pedidos no sistema) ===
+Faturamento: ${resumo30dias.faturamento.toFixed(2)} | Lucro líquido: ${resumo30dias.lucroLiquido.toFixed(2)} | Margem: ${(resumo30dias.margem * 100).toFixed(1)}% | Pedidos: ${resumo30dias.pedidos}
+
+=== CUSTOS ===
+${produtos.length} produtos cadastrados no catálogo de custos.
+
+=== PROMOÇÕES ===
+${campanhas.length} campanha(s) de desconto no sistema.
+
+=== RECUPERAÇÃO DE VENDAS ===
+${oportunidades.length} oportunidade(s) em aberto.
+
+=== ESTOQUE ===
+Capital investido: ${estoque.capitalInvestido.toFixed(2)} | SKUs em risco de ruptura: ${estoque.skusRuptura} | Unidades paradas: ${estoque.unidadesParadas}
+
+=== FULFILLMENT ===
+Capital investido: ${fulfillment.capitalInvestido.toFixed(2)} | SKUs em risco de ruptura: ${fulfillment.skusRuptura} | Unidades paradas: ${fulfillment.unidadesParadas}
+
+=== CONTAS DE MARKETPLACE ===
+${contas.length} conta(s) ativa(s).
+
+=== O QUE OS OUTROS AGENTES JÁ DESCOBRIRAM (pendente da sua decisão) ===
+${linhasPendentes || "Nenhum agente com pendência agora."}`;
+}
+
 /**
- * A conversa de verdade — Fase 1 do plano visual. O contexto (os avisos
- * reais do Analista) vai junto em toda mensagem; a conversa em si não
- * é salva ainda, some se você sair da tela — isso vem numa fase depois.
+ * A conversa de verdade com o Gestor — o Analista fundido com a visão
+ * de tudo. Guarda histórico só do dia (busca "hoje" sempre, então
+ * amanhã já começa limpo sozinho). O contexto (negócio inteiro + o que
+ * os outros agentes descobriram) é remontado a cada mensagem, sempre
+ * fresco.
  */
-function ChatAnalista({ insights }: { insights: InsightAnalista[] }) {
+function ChatAnalista({
+  insights,
+  perfilId,
+}: {
+  insights: InsightAnalista[];
+  perfilId: string | null;
+}) {
   const [mensagens, setMensagens] = useState<MensagemChat[]>([]);
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [carregandoHistorico, setCarregandoHistorico] = useState(true);
 
-  const contexto = insights
-    .filter((i) => i.status === "pendente")
-    .map((i) => `- ${i.motivo}`)
-    .join("\n");
+  useEffect(() => {
+    if (!perfilId) {
+      setCarregandoHistorico(false);
+      return;
+    }
+    chatGestorService.carregarHistoricoDoDia(perfilId).then((historico) => {
+      setMensagens(historico);
+      setCarregandoHistorico(false);
+    });
+  }, [perfilId]);
 
   const enviar = async () => {
     const conteudo = texto.trim();
-    if (!conteudo || enviando) return;
+    if (!conteudo || enviando || !perfilId) return;
 
-    const historico = [...mensagens, { papel: "user" as const, conteudo }];
+    const mensagemUser: MensagemChat = { papel: "user", conteudo };
+    const historico = [...mensagens, mensagemUser];
     setMensagens(historico);
     setTexto("");
     setEnviando(true);
 
-    const { resposta, erro } = await analistaChatService.conversar(historico, contexto);
+    await chatGestorService.salvarMensagem(perfilId, mensagemUser);
+    const contexto = await montarContextoGestor(perfilId);
+    const { resposta, erro } = await chatGestorService.conversar(historico, contexto);
     setEnviando(false);
 
     if (erro) {
@@ -2004,34 +2076,45 @@ function ChatAnalista({ insights }: { insights: InsightAnalista[] }) {
       return;
     }
     if (resposta) {
-      setMensagens((atual) => [...atual, { papel: "assistente", conteudo: resposta }]);
+      const mensagemAssistente: MensagemChat = { papel: "assistente", conteudo: resposta };
+      setMensagens((atual) => [...atual, mensagemAssistente]);
+      await chatGestorService.salvarMensagem(perfilId, mensagemAssistente);
     }
   };
 
   return (
     <div className="flex h-[480px] flex-col">
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {mensagens.length === 0 && (
-          <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
-            Pergunta o que quiser sobre margem, curva ABC, saúde da conta ou o resumo do dia — o
-            Analista responde com o que ele já descobriu hoje.
+        {carregandoHistorico && (
+          <div className="flex items-center justify-center gap-2 py-10 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            Carregando conversa de hoje...
           </div>
         )}
 
-        {mensagens.map((m, i) => (
-          <div key={i} className={cn("flex", m.papel === "user" ? "justify-end" : "justify-start")}>
-            <div
-              className={cn(
-                "max-w-[80%] rounded-lg px-3 py-2 text-xs leading-relaxed",
-                m.papel === "user"
-                  ? "bg-brand text-white"
-                  : "bg-muted text-foreground",
-              )}
-            >
-              {m.conteudo}
-            </div>
+        {!carregandoHistorico && mensagens.length === 0 && (
+          <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+            Pergunta qualquer coisa sobre o negócio — vendas, estoque, fulfillment, o que os
+            outros agentes encontraram. A conversa fica salva só por hoje.
           </div>
-        ))}
+        )}
+
+        {!carregandoHistorico &&
+          mensagens.map((m, i) => (
+            <div
+              key={i}
+              className={cn("flex", m.papel === "user" ? "justify-end" : "justify-start")}
+            >
+              <div
+                className={cn(
+                  "max-w-[80%] rounded-lg px-3 py-2 text-xs leading-relaxed",
+                  m.papel === "user" ? "bg-brand text-white" : "bg-muted text-foreground",
+                )}
+              >
+                {m.conteudo}
+              </div>
+            </div>
+          ))}
 
         {enviando && (
           <div className="flex justify-start">
@@ -2052,7 +2135,7 @@ function ChatAnalista({ insights }: { insights: InsightAnalista[] }) {
               enviar();
             }
           }}
-          placeholder="Pergunta pro Analista..."
+          placeholder="Pergunta pro Gestor..."
           disabled={enviando}
           className="flex-1 rounded-md border bg-background px-3 py-2 text-xs"
         />
