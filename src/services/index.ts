@@ -596,6 +596,42 @@ function linhaParaEvento(l: LinhaEventoAgente): EventoAgente {
  * a página, fechar o navegador, voltar amanhã.
  */
 export const eventosAgenteService = {
+  /** O que TODOS os agentes têm pendente agora, agrupado — a base do
+   * contexto do Gestor. Não traz linha por linha (66 sugestões de preço
+   * virariam 66 linhas de texto); traz a contagem e só os 3 exemplos
+   * mais urgentes de cada agente. */
+  listarResumoPendentes: async (perfilId: string): Promise<ResumoPendentesAgente[]> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("agente_id, motivo, semaforo")
+      .eq("perfil_id", perfilId)
+      .eq("status", "pendente");
+    if (error) {
+      console.error("eventosAgenteService.listarResumoPendentes:", error.message);
+      return [];
+    }
+    const porAgente = new Map<string, { motivo: string; semaforo: string }[]>();
+    for (const linha of data ?? []) {
+      const agenteId = linha.agente_id as string;
+      const lista = porAgente.get(agenteId) ?? [];
+      lista.push({ motivo: linha.motivo as string, semaforo: linha.semaforo as string });
+      porAgente.set(agenteId, lista);
+    }
+    const resultado: ResumoPendentesAgente[] = [];
+    for (const [agenteId, itens] of porAgente) {
+      const ordenados = [...itens].sort((a, b) => {
+        const peso = (s: string) => (s === "vermelho" ? 0 : s === "amarelo" ? 1 : 2);
+        return peso(a.semaforo) - peso(b.semaforo);
+      });
+      resultado.push({
+        agenteId,
+        total: itens.length,
+        exemplos: ordenados.slice(0, 3).map((i) => i.motivo),
+      });
+    }
+    return resultado;
+  },
+
   listar: async (perfilId: string): Promise<EventoAgente[]> => {
     const { data, error } = await supabase
       .from("eventos_agente")
@@ -1108,18 +1144,61 @@ export const criativoService = {
   },
 };
 
-/** Uma mensagem na conversa com um agente — não persiste ainda (Fase 1). */
+/** Uma mensagem na conversa com o Gestor. */
 export interface MensagemChat {
   papel: "user" | "assistente";
   conteudo: string;
 }
 
+/** Quantos pendentes cada agente tem agora, com alguns exemplos reais —
+ * usado pra montar o contexto do Gestor sem estourar o tamanho da
+ * mensagem (66 sugestões de preço viram "66 pendentes" + 3 exemplos,
+ * não 66 linhas soltas). */
+export interface ResumoPendentesAgente {
+  agenteId: string;
+  total: number;
+  exemplos: string[];
+}
+
 /**
- * Conversa de verdade com o Analista — várias mensagens seguidas, com o
- * contexto real dos avisos dele injetado a cada chamada. Só gasta token
- * quando o seller manda mensagem, igual o SAC e o Criativo.
+ * Conversa de verdade com o Gestor — o Analista fundido com a visão de
+ * tudo: o negócio inteiro e o que os outros 5 agentes já descobriram.
+ * Guarda histórico só do dia atual; quando o dia vira, a busca por
+ * "hoje" já vem vazia sozinha, sem precisar apagar nada.
  */
-export const analistaChatService = {
+export const chatGestorService = {
+  /** Só as mensagens de hoje — é isso que dá o efeito de "resetar" a
+   * cada dia, sem nenhuma rotina de limpeza rodando por trás. */
+  carregarHistoricoDoDia: async (perfilId: string): Promise<MensagemChat[]> => {
+    const inicioHoje = new Date();
+    inicioHoje.setHours(0, 0, 0, 0);
+    const { data, error } = await supabase
+      .from("mensagens_chat")
+      .select("papel, conteudo")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "gestor")
+      .gte("criado_em", inicioHoje.toISOString())
+      .order("criado_em", { ascending: true });
+    if (error) {
+      console.error("chatGestorService.carregarHistoricoDoDia:", error.message);
+      return [];
+    }
+    return (data ?? []).map((r) => ({
+      papel: r.papel as "user" | "assistente",
+      conteudo: r.conteudo as string,
+    }));
+  },
+
+  salvarMensagem: async (perfilId: string, mensagem: MensagemChat): Promise<string | null> => {
+    const { error } = await supabase.from("mensagens_chat").insert({
+      perfil_id: perfilId,
+      agente_id: "gestor",
+      papel: mensagem.papel,
+      conteudo: mensagem.conteudo,
+    });
+    return error?.message ?? null;
+  },
+
   conversar: async (
     mensagens: MensagemChat[],
     contexto: string,
