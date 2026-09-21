@@ -78,7 +78,7 @@ function Personagem({ peleUrl }: { peleUrl: string }) {
     };
   }, [actions, idleFbx]);
 
-  return <primitive object={modelo} scale={0.011} />;
+  return <primitive object={modelo} scale={0.0045} />;
 }
 
 /** Mesa + cadeira + monitor (móveis reais, Kenney) com o personagem do
@@ -141,16 +141,52 @@ function EstacaoAgente({
 function CenaEscritorio() {
   const espacamento = 2.8;
   const inicioX = -((AGENTES_DA_SALA.length - 1) * espacamento) / 2;
+  const largura = 42;
+  const profundidade = 14;
+  const altura = 5;
+  const corParede = "#1c1f27";
 
   return (
     <>
       <ambientLight intensity={0.7} />
       <directionalLight position={[6, 9, 4]} intensity={1.2} castShadow />
 
+      {/* Chão */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[42, 14]} />
+        <planeGeometry args={[largura, profundidade]} />
         <meshStandardMaterial color="#242832" />
       </mesh>
+
+      {/* Teto */}
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, altura, 0]}>
+        <planeGeometry args={[largura, profundidade]} />
+        <meshStandardMaterial color="#15171d" />
+      </mesh>
+
+      {/* Parede de fundo (atrás das mesas) */}
+      <mesh position={[0, altura / 2, -profundidade / 2]} receiveShadow>
+        <planeGeometry args={[largura, altura]} />
+        <meshStandardMaterial color={corParede} />
+      </mesh>
+
+      {/* Parede esquerda */}
+      <mesh
+        position={[-largura / 2, altura / 2, 0]}
+        rotation={[0, Math.PI / 2, 0]}
+        receiveShadow
+      >
+        <planeGeometry args={[profundidade, altura]} />
+        <meshStandardMaterial color={corParede} />
+      </mesh>
+
+      {/* Parede direita */}
+      <mesh position={[largura / 2, altura / 2, 0]} rotation={[0, -Math.PI / 2, 0]} receiveShadow>
+        <planeGeometry args={[profundidade, altura]} />
+        <meshStandardMaterial color={corParede} />
+      </mesh>
+
+      {/* Sem parede na frente (lado da câmera) de propósito — senão
+      bloqueia a visão quando gira a câmera pra esse lado. */}
 
       {AGENTES_DA_SALA.map((nome, i) => (
         <EstacaoAgente
