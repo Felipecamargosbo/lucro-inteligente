@@ -35,10 +35,10 @@ const AGENTES_DA_SALA = [
 /** As 4 peles que vieram no pacote — com 7 agentes, algumas se repetem
  * por enquanto. Manda mais peles depois que a gente resolve isso. */
 const PELES = [
-  "/kenney/personagem/skins/criminalMaleA.png",
-  "/kenney/personagem/skins/cyborgFemaleA.png",
-  "/kenney/personagem/skins/skaterFemaleA.png",
-  "/kenney/personagem/skins/skaterMaleA.png",
+  "/kenney-assets/kenney/personagem/skins/criminalMaleA.png",
+  "/kenney-assets/kenney/personagem/skins/cyborgFemaleA.png",
+  "/kenney-assets/kenney/personagem/skins/skaterFemaleA.png",
+  "/kenney-assets/kenney/personagem/skins/skaterMaleA.png",
 ];
 
 /**
@@ -48,8 +48,8 @@ const PELES = [
  * um ajuste fino depois que você testar.
  */
 function Personagem({ peleUrl }: { peleUrl: string }) {
-  const fbx = useFBX("/kenney/personagem/characterMedium.fbx");
-  const idleFbx = useFBX("/kenney/personagem/animations/idle.fbx");
+  const fbx = useFBX("/kenney-assets/kenney/personagem/characterMedium.fbx");
+  const idleFbx = useFBX("/kenney-assets/kenney/personagem/animations/idle.fbx");
   const pele = useTexture(peleUrl);
 
   // Clona com SkeletonUtils — um clone comum não recria os ossos do
@@ -92,9 +92,9 @@ function EstacaoAgente({
   peleUrl: string;
   posicaoX: number;
 }) {
-  const { scene: mesaBase } = useGLTF("/kenney/moveis/desk.glb");
-  const { scene: cadeiraBase } = useGLTF("/kenney/moveis/chairDesk.glb");
-  const { scene: telaBase } = useGLTF("/kenney/moveis/computerScreen.glb");
+  const { scene: mesaBase } = useGLTF("/kenney-assets/kenney/moveis/desk.glb");
+  const { scene: cadeiraBase } = useGLTF("/kenney-assets/kenney/moveis/chairDesk.glb");
+  const { scene: telaBase } = useGLTF("/kenney-assets/kenney/moveis/computerScreen.glb");
 
   // Móvel estático não precisa de SkeletonUtils — um clone normal já
   // basta, porque não tem osso/animação pra preservar.
