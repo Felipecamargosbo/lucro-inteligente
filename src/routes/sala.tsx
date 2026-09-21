@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Suspense, useMemo } from "react";
+import { Suspense, useEffect, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Text, useTexture } from "@react-three/drei";
+import { OrbitControls, Text, useAnimations, useFBX, useGLTF, useTexture } from "@react-three/drei";
+import { SkeletonUtils } from "three/examples/jsm/utils/SkeletonUtils.js";
+import * as THREE from "three";
 import { Painel } from "@/components/comum/Indicadores";
-import multiavatar from "@/lib/multiavatar";
 
 export const Route = createFileRoute("/sala")({
   head: () => ({
@@ -11,7 +12,7 @@ export const Route = createFileRoute("/sala")({
       { title: "Sala 3D | Planeta97" },
       {
         name: "description",
-        content: "Os agentes de IA do NEXO, em 3D — primeira versão.",
+        content: "Os agentes de IA do NEXO, em 3D — com personagens e móveis reais (Kenney).",
       },
       { property: "og:title", content: "Sala 3D | Planeta97" },
       { property: "og:type", content: "website" },
@@ -21,10 +22,6 @@ export const Route = createFileRoute("/sala")({
   component: Sala3D,
 });
 
-/**
- * Os agentes que já existem — o nome de cada um vira, sempre, o mesmo
- * personagem (o Multiavatar gera sempre igual a partir do mesmo texto).
- */
 const AGENTES_DA_SALA = [
   "Agente de Precificação",
   "Gestor",
@@ -35,49 +32,99 @@ const AGENTES_DA_SALA = [
   "Agente Criativo",
 ];
 
-/**
- * Uma mesa (forma simples, por enquanto) com o personagem do agente em
- * pé atrás dela, e o nome flutuando em cima. Quando tivermos os móveis
- * de verdade (Kenney Furniture Kit), só essa parte muda — o personagem
- * continua igual.
- */
-function EstacaoAgente({ nome, posicaoX }: { nome: string; posicaoX: number }) {
-  // sansEnv=true tira o círculo de fundo colorido do avatar, deixando só
-  // o personagem — fica melhor sobreposto na cena 3D.
-  const svgDataUri = useMemo(() => {
-    const svgBruto = multiavatar(nome, true);
-    // O SVG do Multiavatar não declara width/height, só um viewBox — e
-    // sem tamanho fixo, o WebGL não consegue transformar a imagem em
-    // textura (dá "bad image data" e derruba o contexto 3D inteiro).
-    // Aqui a gente injeta um tamanho fixo antes de usar.
-    const svgComTamanho = svgBruto.replace(/^<svg /, '<svg width="256" height="256" ');
-    return `data:image/svg+xml;utf8,${encodeURIComponent(svgComTamanho)}`;
-  }, [nome]);
+/** As 4 peles que vieram no pacote — com 7 agentes, algumas se repetem
+ * por enquanto. Manda mais peles depois que a gente resolve isso. */
+const PELES = [
+  "/kenney/personagem/skins/criminalMaleA.png",
+  "/kenney/personagem/skins/cyborgFemaleA.png",
+  "/kenney/personagem/skins/skaterFemaleA.png",
+  "/kenney/personagem/skins/skaterMaleA.png",
+];
 
-  const textura = useTexture(svgDataUri);
+/**
+ * O personagem, parado, animado (idle). O escalonamento (0.011) e a
+ * rotação são meu melhor palpite pro tamanho/direção do modelo — como eu
+ * não consigo ver o resultado renderizado, é bem provável que precise de
+ * um ajuste fino depois que você testar.
+ */
+function Personagem({ peleUrl }: { peleUrl: string }) {
+  const fbx = useFBX("/kenney/personagem/characterMedium.fbx");
+  const idleFbx = useFBX("/kenney/personagem/animations/idle.fbx");
+  const pele = useTexture(peleUrl);
+
+  // Clona com SkeletonUtils — um clone comum não recria os ossos do
+  // esqueleto, e os 7 personagens acabariam compartilhando um só.
+  const modelo = useMemo(() => SkeletonUtils.clone(fbx) as THREE.Object3D, [fbx]);
+
+  useEffect(() => {
+    pele.colorSpace = THREE.SRGBColorSpace;
+    modelo.traverse((objeto) => {
+      const malha = objeto as THREE.Mesh;
+      if (malha.isMesh) {
+        malha.material = new THREE.MeshStandardMaterial({ map: pele });
+        malha.castShadow = true;
+      }
+    });
+  }, [modelo, pele]);
+
+  const { actions } = useAnimations(idleFbx.animations, modelo);
+
+  useEffect(() => {
+    const nomeClipe = idleFbx.animations[0]?.name;
+    const acao = nomeClipe ? actions[nomeClipe] : null;
+    acao?.reset().fadeIn(0.3).play();
+    return () => {
+      acao?.fadeOut(0.2);
+    };
+  }, [actions, idleFbx]);
+
+  return <primitive object={modelo} scale={0.011} />;
+}
+
+/** Mesa + cadeira + monitor (móveis reais, Kenney) com o personagem do
+ * agente parado ali perto, e o nome flutuando acima. */
+function EstacaoAgente({
+  nome,
+  peleUrl,
+  posicaoX,
+}: {
+  nome: string;
+  peleUrl: string;
+  posicaoX: number;
+}) {
+  const { scene: mesaBase } = useGLTF("/kenney/moveis/desk.glb");
+  const { scene: cadeiraBase } = useGLTF("/kenney/moveis/chairDesk.glb");
+  const { scene: telaBase } = useGLTF("/kenney/moveis/computerScreen.glb");
+
+  // Móvel estático não precisa de SkeletonUtils — um clone normal já
+  // basta, porque não tem osso/animação pra preservar.
+  const mesa = useMemo(() => mesaBase.clone(), [mesaBase]);
+  const cadeira = useMemo(() => cadeiraBase.clone(), [cadeiraBase]);
+  const tela = useMemo(() => telaBase.clone(), [telaBase]);
 
   return (
     <group position={[posicaoX, 0, 0]}>
-      {/* Mesa — caixa simples, provisória */}
-      <mesh position={[0, 0.4, -0.7]} castShadow receiveShadow>
-        <boxGeometry args={[1.3, 0.8, 0.6]} />
-        <meshStandardMaterial color="#8a6d4b" />
-      </mesh>
-      {/* Cadeira — cilindro simples, provisória */}
-      <mesh position={[0, 0.35, 0.2]} castShadow>
-        <cylinderGeometry args={[0.28, 0.32, 0.7, 12]} />
-        <meshStandardMaterial color="#3a3f4b" />
-      </mesh>
+      <primitive object={mesa} position={[0, 0, -0.7]} castShadow receiveShadow />
+      <primitive
+        object={tela}
+        position={[0, 0.75, -0.88]}
+        rotation={[0, Math.PI, 0]}
+        castShadow
+      />
+      <primitive
+        object={cadeira}
+        position={[0, 0, 0.4]}
+        rotation={[0, Math.PI, 0]}
+        castShadow
+        receiveShadow
+      />
 
-      {/* Personagem — avatar real, gerado a partir do nome do agente */}
-      <mesh position={[0, 1.15, -0.1]}>
-        <planeGeometry args={[1.1, 1.1]} />
-        <meshBasicMaterial map={textura} transparent />
-      </mesh>
+      <group position={[0, 0, 0.05]}>
+        <Personagem peleUrl={peleUrl} />
+      </group>
 
-      {/* Nome flutuando acima */}
       <Text
-        position={[0, 1.85, -0.1]}
+        position={[0, 2.05, 0]}
         fontSize={0.16}
         color="white"
         anchorX="center"
@@ -92,22 +139,26 @@ function EstacaoAgente({ nome, posicaoX }: { nome: string; posicaoX: number }) {
 }
 
 function CenaEscritorio() {
-  const espacamento = 2.6;
+  const espacamento = 2.8;
   const inicioX = -((AGENTES_DA_SALA.length - 1) * espacamento) / 2;
 
   return (
     <>
-      <ambientLight intensity={0.65} />
-      <directionalLight position={[6, 9, 4]} intensity={1.1} castShadow />
+      <ambientLight intensity={0.7} />
+      <directionalLight position={[6, 9, 4]} intensity={1.2} castShadow />
 
-      {/* Chão */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[40, 14]} />
+        <planeGeometry args={[42, 14]} />
         <meshStandardMaterial color="#242832" />
       </mesh>
 
       {AGENTES_DA_SALA.map((nome, i) => (
-        <EstacaoAgente key={nome} nome={nome} posicaoX={inicioX + i * espacamento} />
+        <EstacaoAgente
+          key={nome}
+          nome={nome}
+          peleUrl={PELES[i % PELES.length]!}
+          posicaoX={inicioX + i * espacamento}
+        />
       ))}
     </>
   );
@@ -118,7 +169,7 @@ function Sala3D() {
     <div className="mx-auto max-w-[1200px] space-y-4">
       <Painel
         titulo="Sala 3D"
-        descricao="Os agentes, em 3D — primeira versão. Móveis em formas simples por enquanto; os personagens já são reais."
+        descricao="Os agentes, em 3D — móveis e personagens reais (Kenney), ainda parados na mesa"
       >
         <div className="h-[600px] w-full overflow-hidden rounded-b-lg bg-[#14161b]">
           <Canvas shadows camera={{ position: [0, 4.5, 11], fov: 50 }}>
@@ -128,15 +179,15 @@ function Sala3D() {
             <OrbitControls
               enablePan
               minDistance={4}
-              maxDistance={20}
+              maxDistance={22}
               maxPolarAngle={Math.PI / 2.05}
             />
           </Canvas>
         </div>
         <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
-          Arraste pra girar, role o mouse pra aproximar. Os personagens são gerados de
-          verdade a partir do nome de cada agente — sempre o mesmo personagem pro mesmo
-          agente. Os móveis ainda são formas simples; entram os de verdade numa próxima etapa.
+          Modelos e móveis: pacotes Kenney (CC0), gratuitos e livres pra uso comercial. Cada
+          agente ainda está parado — andar, o botão de reunião e conversar dentro da cena vêm
+          na próxima etapa.
         </div>
       </Painel>
     </div>
