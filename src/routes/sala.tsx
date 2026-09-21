@@ -45,8 +45,13 @@ function EstacaoAgente({ nome, posicaoX }: { nome: string; posicaoX: number }) {
   // sansEnv=true tira o círculo de fundo colorido do avatar, deixando só
   // o personagem — fica melhor sobreposto na cena 3D.
   const svgDataUri = useMemo(() => {
-    const svg = multiavatar(nome, true);
-    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    const svgBruto = multiavatar(nome, true);
+    // O SVG do Multiavatar não declara width/height, só um viewBox — e
+    // sem tamanho fixo, o WebGL não consegue transformar a imagem em
+    // textura (dá "bad image data" e derruba o contexto 3D inteiro).
+    // Aqui a gente injeta um tamanho fixo antes de usar.
+    const svgComTamanho = svgBruto.replace(/^<svg /, '<svg width="256" height="256" ');
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svgComTamanho)}`;
   }, [nome]);
 
   const textura = useTexture(svgDataUri);
