@@ -458,6 +458,91 @@ export const estoqueService = {
 export const fulfillmentService = {
   listarDetalhado: () => FULFILLMENT_DETALHADO,
   resumo: () => RESUMO_FULFILLMENT,
+
+  /** Mesma estrutura do alerta de Estoque — reaproveita o tipo
+   * `AlertaEstoque`, só troca o `agente_id` gravado no banco. */
+  linhaParaAlerta: (l: {
+    id: string;
+    conta_id: string | null;
+    criado_em: string;
+    status: string;
+    decidido_em: string | null;
+    dados: Record<string, unknown>;
+  }): AlertaEstoque => {
+    const d = l.dados ?? {};
+    return {
+      id: l.id,
+      data: l.criado_em,
+      contaId: l.conta_id,
+      sku: (d.sku as string) ?? "",
+      produto: (d.produto as string) ?? "",
+      marketplaceId: d.marketplaceId as MarketplaceId,
+      estoqueAtual: (d.estoqueAtual as number) ?? 0,
+      vendidoUltimos7Dias: (d.vendidoUltimos7Dias as number) ?? 0,
+      mediaDiaria: (d.mediaDiaria as number) ?? 0,
+      diasRestantes: (d.diasRestantes as number) ?? 0,
+      quantidadeSugerida: (d.quantidadeSugerida as number) ?? 0,
+      diasAlvoCobertura: (d.diasAlvoCobertura as number) ?? 30,
+      status: l.status as StatusSugestao,
+      decididoEm: l.decidido_em,
+    };
+  },
+
+  listarAlertas: async (perfilId: string): Promise<AlertaEstoque[]> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "fulfillment")
+      .order("criado_em", { ascending: false });
+    if (error) {
+      console.error("fulfillmentService.listarAlertas:", error.message);
+      return [];
+    }
+    return (data ?? []).map(fulfillmentService.linhaParaAlerta);
+  },
+
+  skusPendentes: async (perfilId: string): Promise<Set<string>> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("sku")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "fulfillment")
+      .eq("status", "pendente");
+    if (error) {
+      console.error("fulfillmentService.skusPendentes:", error.message);
+      return new Set();
+    }
+    return new Set((data ?? []).map((r) => r.sku).filter((s): s is string => Boolean(s)));
+  },
+
+  criarAlerta: async (
+    perfilId: string,
+    alerta: Omit<AlertaEstoque, "id" | "status" | "decididoEm" | "data">,
+  ): Promise<string | null> => {
+    const { error } = await supabase.from("eventos_agente").insert({
+      perfil_id: perfilId,
+      agente_id: "fulfillment",
+      conta_id: alerta.contaId,
+      sku: alerta.sku,
+      tipo: "risco_ruptura",
+      motivo: `No centro de distribuição do marketplace, vendeu ${alerta.vendidoUltimos7Dias} unidade(s) nos últimos 7 dias (média de ${alerta.mediaDiaria.toFixed(1)}/dia). No ritmo atual, o estoque alocado lá acaba em ${alerta.diasRestantes} dia(s).`,
+      semaforo: alerta.diasRestantes <= 3 ? "vermelho" : "amarelo",
+      status: "pendente",
+      dados: {
+        sku: alerta.sku,
+        produto: alerta.produto,
+        marketplaceId: alerta.marketplaceId,
+        estoqueAtual: alerta.estoqueAtual,
+        vendidoUltimos7Dias: alerta.vendidoUltimos7Dias,
+        mediaDiaria: alerta.mediaDiaria,
+        diasRestantes: alerta.diasRestantes,
+        quantidadeSugerida: alerta.quantidadeSugerida,
+        diasAlvoCobertura: alerta.diasAlvoCobertura,
+      },
+    });
+    return error?.message ?? null;
+  },
 };
 
 /** Canais de venda (Mercado Livre, Shopee...) — só a identidade do canal. */
