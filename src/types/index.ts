@@ -573,7 +573,14 @@ export interface ItemEstoqueDetalhado {
 /* Agentes                                                            */
 /* ------------------------------------------------------------------ */
 
-export type AgenteId = "precificacao" | "analista" | "sac" | "estoque" | "ads" | "criativo";
+export type AgenteId =
+  | "precificacao"
+  | "analista"
+  | "sac"
+  | "estoque"
+  | "ads"
+  | "criativo"
+  | "fulfillment";
 
 /**
  * Situação de uma sugestão. Enquanto não há API com permissão de escrita,
