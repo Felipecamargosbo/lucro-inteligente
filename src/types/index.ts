@@ -815,6 +815,65 @@ export interface EventoAds {
 }
 
 
+/** As três ações que o Agente de Ads sugere em cima do ROAS mínimo. */
+export type TipoAcaoAds = "ajuste_roas" | "realocacao" | "anuncio_cansado";
+
+/** Um dos lados de uma realocação de verba (de onde sai / pra onde vai). */
+export interface LadoRealocacaoAds {
+  anuncioId: string;
+  sku: string;
+  produto: string;
+  classe: "A" | "B" | "C" | null;
+  roasAtual: number;
+  roasMinimo: number;
+  investimento: number;
+  diasSeguidosAbaixo: number;
+  coberturaEstoqueDias: number | null;
+}
+
+/** O "miolo" de cada ação — cada tipo guarda só o que ele precisa. */
+export type DetalheAcaoAds =
+  | {
+      tipo: "ajuste_roas";
+      direcao: "subir" | "baixar";
+      roasAtual: number;
+      roasMinimo: number;
+      roasObjetivoAtual: number;
+      roasObjetivoSugerido: number;
+    }
+  | {
+      tipo: "realocacao";
+      fonte: LadoRealocacaoAds;
+      destino: LadoRealocacaoAds;
+    }
+  | {
+      tipo: "anuncio_cansado";
+      cliques: number;
+      vendas: number;
+      conversao: number;
+      investimento: number;
+    };
+
+/**
+ * Uma sugestão de ação do Agente de Ads. Igual às outras sugestões:
+ * o seller aprova ou recusa, e o NEXO não mexe em nada no marketplace
+ * sozinho (sem API de escrita ainda — "aprovada" = "vou aplicar").
+ */
+export interface AcaoAds {
+  id: string;
+  data: string;
+  contaId: string | null;
+  anuncioId: string;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  motivo: string;
+  semaforo: SemaforoDecisao;
+  status: StatusSugestao;
+  decididoEm: string | null;
+  detalhe: DetalheAcaoAds;
+}
+
 /* ------------------------------------------------------------------ */
 /* Agente Criativo                                                     */
 /* ------------------------------------------------------------------ */
