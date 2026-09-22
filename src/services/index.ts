@@ -129,6 +129,8 @@ export const anunciosService = {
       // até a primeira venda acontecer.
       unidadesVendidas: 0,
       dataUltimaVenda: null,
+      // Recém-criado, sem Ads — sem objetivo de ROAS ainda.
+      roasObjetivo: null,
     };
 
     ANUNCIOS.push(novoAnuncio);
@@ -177,6 +179,8 @@ export const anunciosService = {
       elegivelPromocao: false,
       unidadesVendidas: 0,
       dataUltimaVenda: null,
+      // Recém-criado, sem Ads — sem objetivo de ROAS ainda.
+      roasObjetivo: null,
     };
 
     ANUNCIOS.push(novoAnuncio);
