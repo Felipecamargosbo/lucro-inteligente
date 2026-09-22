@@ -28,7 +28,7 @@ import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import {
-  analisarAnunciosEmAds,
+  analisarRoasAnuncios,
   DEGRAU_DESCONTO_PADRAO,
   DIAS_PARADO_PADRAO,
   diagnosticarCurvaAbc,
@@ -40,10 +40,12 @@ import {
   montarResumoDiario,
   sugerirAnunciosParaAds,
   sugerirPrecoPorGiro,
+  type AnaliseRoasAnuncio,
 } from "@/lib/finance";
 import { Painel } from "@/components/comum/Indicadores";
 import { cn } from "@/lib/utils";
 import type {
+  AcaoAds,
   AlertaEstoque,
   EventoAds,
   EventoAgente,
@@ -57,7 +59,7 @@ import { PainelAnalista } from "@/components/agentes/Gestor";
 import { PainelSac } from "@/components/agentes/Sac";
 import { PainelEstoque } from "@/components/agentes/Estoque";
 import { PainelFulfillment } from "@/components/agentes/Fulfillment";
-import { PainelAds } from "@/components/agentes/Ads";
+import { PainelAds, montarAcoesAds } from "@/components/agentes/Ads";
 import { PainelCriativo } from "@/components/agentes/Criativo";
 
 export const Route = createFileRoute("/agentes")({
@@ -103,6 +105,8 @@ function Agentes() {
   const [alertasFulfillment, setAlertasFulfillment] = useState<AlertaEstoque[]>([]);
   const [carregandoFulfillment, setCarregandoFulfillment] = useState(true);
   const [avaliacoesAds, setAvaliacoesAds] = useState<EventoAds[]>([]);
+  const [analisesAds, setAnalisesAds] = useState<AnaliseRoasAnuncio[]>([]);
+  const [acoesAds, setAcoesAds] = useState<AcaoAds[]>([]);
   const [carregandoAds, setCarregandoAds] = useState(true);
   const [carregandoTickets, setCarregandoTickets] = useState(true);
   /** Ticket com resposta em andamento de gerar (mostra o spinner só nele) */
@@ -419,27 +423,24 @@ function Agentes() {
   }, [sessao, recursos.agentes]);
 
   /**
-   * Avalia cada anúncio que tem Ads ativo: a margem real, com o Ads já
-   * descontado, comparada com a margem mínima do canal. Nunca julga só
-   * pelo ROAS.
+   * O Agente de Ads, em duas partes:
+   * 1. Candidatos: produtos que vendem bem sem nenhum Ads (a partir dos
+   *    pedidos dos últimos 30 dias).
+   * 2. ROAS: cada anúncio em Ads comparado com o ROAS mínimo que a margem
+   *    dele aguenta — daí saem as ações (ajustar objetivo, mover verba,
+   *    anúncio cansado). As ações vão pro banco pra ter aprovar/recusar e
+   *    histórico; a análise em si é recalculada toda vez, sempre fresca.
    */
   const carregarAvaliacoesAds = useCallback(async () => {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
     const pedidos = vendasService.listar();
-    // Últimos 30 dias — a mesma janela que faz sentido pra avaliar Ads:
-    // curta o bastante pra refletir o investimento recente, longa o
-    // bastante pra não julgar um produto por 2 ou 3 dias de sorte.
     const fim = new Date();
     const inicio = new Date(fim.getTime() - 29 * 86400000);
     const periodo = { inicio, fim, rotulo: "Últimos 30 dias" };
 
-    const [jaSugeridos, jaAnalisados] = await Promise.all([
-      adsService.skusPendentes(perfilId, "sugestao"),
-      adsService.skusPendentes(perfilId, "analise"),
-    ]);
-
+    const jaSugeridos = await adsService.skusPendentes(perfilId, "sugestao");
     for (const s of sugerirAnunciosParaAds(pedidos, periodo)) {
       if (jaSugeridos.has(s.sku)) continue;
       const erro = await adsService.criarEvento(perfilId, {
@@ -459,29 +460,34 @@ function Agentes() {
       if (erro) console.error("Não consegui gravar a sugestão de Ads:", erro);
     }
 
-    for (const item of analisarAnunciosEmAds(pedidos, periodo)) {
-      if (jaAnalisados.has(item.sku)) continue;
-      const erro = await adsService.criarEvento(perfilId, {
-        tipo: "analise",
-        contaId: null,
-        sku: item.sku,
-        produto: item.produto,
-        quantidade: item.quantidade,
-        unidadesPorDia: item.unidadesPorDia,
-        faturamento: item.faturamento,
-        investimento: item.custoMidia,
-        lucroLiquido: item.lucroPosAds,
-        margemSemAds: item.margemSemAds,
-        margemComAds: item.margemComAds,
-        valeAPena: !item.semRetorno,
-      });
-      if (erro) console.error("Não consegui gravar a análise de Ads:", erro);
+    // Garante o CMV dos produtos reais nos anúncios antes de calcular a
+    // margem de contribuição (mesmo cuidado do agente de Precificação).
+    const produtos = await produtosService.listar(perfilId);
+    produtosService.reconciliarComAnuncios(produtos);
+
+    const analises = analisarRoasAnuncios(
+      anunciosService.listar(),
+      adsService.historico(),
+      estoqueService.listarDetalhado(),
+      { aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal },
+    );
+    setAnalisesAds(analises);
+
+    const jaPendentes = await adsService.chavesAcoesPendentes(perfilId);
+    for (const { chave, acao } of montarAcoesAds(analises)) {
+      if (jaPendentes.has(chave)) continue;
+      const erro = await adsService.criarAcao(perfilId, acao, chave);
+      if (erro) console.error("Não consegui gravar a ação de Ads:", erro);
     }
 
-    const lista = await adsService.listar(perfilId);
+    const [lista, acoes] = await Promise.all([
+      adsService.listar(perfilId),
+      adsService.listarAcoes(perfilId),
+    ]);
     setAvaliacoesAds(lista);
+    setAcoesAds(acoes);
     setCarregandoAds(false);
-  }, [sessao, recursos.agentes]);
+  }, [sessao, recursos.agentes, fiscal, custoOperacionalTotal]);
 
   useEffect(() => {
     carregarEventos();
@@ -572,6 +578,28 @@ function Agentes() {
       toast.error(`Não consegui salvar: ${erro}`);
       await carregarAlertasFulfillment();
     }
+  };
+
+  const decidirAcaoAds = async (
+    acao: AcaoAds,
+    status: Extract<StatusSugestao, "aprovada" | "recusada">,
+  ) => {
+    setAcoesAds((atual) =>
+      atual.map((a) =>
+        a.id === acao.id ? { ...a, status, decididoEm: new Date().toISOString() } : a,
+      ),
+    );
+    const erro = await eventosAgenteService.decidir(acao.id, status);
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      await carregarAvaliacoesAds();
+      return;
+    }
+    toast.success(
+      status === "aprovada"
+        ? "Aprovado. Agora faça o ajuste no Ads do marketplace — sem API conectada, o NEXO ainda não altera sozinho."
+        : `Recusado: ${acao.produto}.`,
+    );
   };
 
   const dispensarAvaliacaoAds = async (av: EventoAds) => {
@@ -725,7 +753,16 @@ function Agentes() {
   const alertasFulfillmentPendentes = alertasFulfillment.filter(
     (a) => a.status === "pendente",
   ).length;
-  const avaliacoesAdsPendentes = avaliacoesAds.filter((a) => a.status === "pendente").length;
+  // O filtro de contas também vale pro Ads: a análise e as ações têm conta.
+  const analisesAdsNaSelecao = semRestricaoDeConta
+    ? analisesAds
+    : analisesAds.filter((x) => contasSelecionadas.has(x.anuncio.contaId));
+  const acoesAdsNaSelecao = semRestricaoDeConta
+    ? acoesAds
+    : acoesAds.filter((a) => a.contaId === null || contasSelecionadas.has(a.contaId));
+  const avaliacoesAdsPendentes =
+    avaliacoesAds.filter((a) => a.status === "pendente" && a.tipo === "sugestao").length +
+    acoesAdsNaSelecao.filter((a) => a.status === "pendente").length;
   const sugestoesCriativoPendentes = sugestoesCriativo.filter(
     (s) => s.status === "pendente",
   ).length;
@@ -841,9 +878,14 @@ function Agentes() {
 
       {abaAgente === "ads" && (
         <PainelAds
-          eventos={avaliacoesAds}
+          analises={analisesAdsNaSelecao}
+          acoes={acoesAdsNaSelecao}
+          candidatos={avaliacoesAds}
           carregando={carregandoAds}
-          aoDispensar={dispensarAvaliacaoAds}
+          opcoesCusto={{ aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal }}
+          aoDecidirAcao={decidirAcaoAds}
+          aoDispensarCandidato={dispensarAvaliacaoAds}
+          aoAbrirCriativo={() => setAbaAgente("criativo")}
         />
       )}
 
