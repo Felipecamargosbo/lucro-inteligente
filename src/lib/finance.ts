@@ -6,6 +6,7 @@ import type {
   Anuncio,
   ContaMarketplace,
   FaixaSaudeMargem,
+  HistoricoAdsDia,
   ItemEstoqueDetalhado,
   Lancamento,
   MarketplaceId,
@@ -1405,4 +1406,352 @@ export function analisarAnunciosEmAds(pedidos: Pedido[], periodo: Periodo): Item
       margemComAds: item.faturamento > 0 ? item.lucroPosAds / item.faturamento : 0,
     }))
     .sort((a, b) => a.lucroPosAds - b.lucroPosAds);
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Agente de Ads — ROAS mínimo e as regras de decisão                  */
+/* ------------------------------------------------------------------ */
+
+/** Quantos dias um anúncio precisa estar rodando em Ads antes de o agente
+ * julgar alguma coisa — duas semanas completas, pra pegar dois fins de
+ * semana e não julgar pela sorte (ou azar) de um só. */
+export const DIAS_TESTE_ADS = 14;
+
+/** Quantos dias SEGUIDOS abaixo do ROAS mínimo até o agente sugerir tirar
+ * verba de um anúncio da curva C. */
+export const DIAS_ABAIXO_MINIMO_ADS = 7;
+
+/** Folga acima do ROAS mínimo pra um anúncio ser considerado saudável e
+ * poder receber mais verba (0,3 = 30% acima do mínimo). */
+export const FOLGA_ROAS_ADS = 0.3;
+
+/** Anúncio "cansado": pelo menos isso de cliques na janela de teste... */
+export const CLIQUES_MINIMOS_CANSADO = 100;
+/** ...e conversão (vendas ÷ cliques) abaixo disso. */
+export const CONVERSAO_MAXIMA_CANSADO = 0.01;
+
+/** Gasto mínimo em Ads na janela de teste pra valer a pena sugerir mexer
+ * num anúncio — mexer em quem gasta R$ 3 só gera barulho. */
+export const GASTO_MINIMO_REALOCACAO = 50;
+
+/**
+ * A conta aberta que dá origem ao ROAS mínimo: o que sobra de cada venda
+ * ANTES de pagar o Ads. É exatamente esse valor que o Ads pode consumir
+ * sem dar prejuízo — por isso o custo de mídia fica de fora aqui.
+ */
+export interface ContribuicaoAnuncio {
+  preco: number;
+  cmv: number;
+  impostos: number;
+  comissao: number;
+  taxaFixa: number;
+  frete: number;
+  afiliados: number;
+  custosOperacionais: number;
+  /** R$ que sobram por venda antes do Ads */
+  contribuicao: number;
+  /** contribuicao ÷ preco (0-1) */
+  margemContribuicao: number;
+  /** 1 ÷ margemContribuicao. null quando o anúncio já dá prejuízo mesmo
+   * sem Ads — aí nenhum ROAS salva, o problema é preço ou custo. */
+  roasMinimo: number | null;
+}
+
+/** Calcula a margem de contribuição e o ROAS mínimo de um anúncio, num
+ * preço qualquer (o atual, ou outro — é o que o simulador usa). */
+export function contribuicaoAnuncio(
+  a: Anuncio,
+  preco = a.precoAtual,
+  opcoes: OpcoesLimites = {},
+): ContribuicaoAnuncio {
+  const aliquota = opcoes.aliquotaImposto ?? a.impostoPercentual;
+  const cmv = a.cmv ?? 0;
+  const impostos = preco * aliquota;
+  const comissao = preco * a.comissaoPercentual;
+  const custosOperacionais = (opcoes.custosOperacionais ?? (() => 0))(preco);
+  const contribuicao =
+    preco -
+    cmv -
+    impostos -
+    comissao -
+    a.taxaFixa -
+    a.freteUnitario -
+    a.custoAfiliadoUnitario -
+    custosOperacionais;
+  const margemContribuicao = preco > 0 ? contribuicao / preco : 0;
+  return {
+    preco,
+    cmv,
+    impostos,
+    comissao,
+    taxaFixa: a.taxaFixa,
+    frete: a.freteUnitario,
+    afiliados: a.custoAfiliadoUnitario,
+    custosOperacionais,
+    contribuicao,
+    margemContribuicao,
+    roasMinimo: margemContribuicao > 0 ? 1 / margemContribuicao : null,
+  };
+}
+
+/** Um ponto do gráfico de trajetória: o ROAS dos 7 dias que terminam
+ * naquele dia (média móvel), pra um dia ruim isolado não parecer queda. */
+export interface PontoRoas {
+  data: string; // yyyy-mm-dd
+  roas: number | null;
+}
+
+/** Tudo que o agente sabe de UM anúncio em Ads, já calculado. */
+export interface AnaliseRoasAnuncio {
+  anuncio: Anuncio;
+  contribuicao: ContribuicaoAnuncio;
+  /** false quando o anúncio não tem CMV cadastrado — sem custo não existe
+   * ROAS mínimo confiável, e o agente não sugere nada pra ele. */
+  calculavel: boolean;
+  classe: "A" | "B" | "C" | null;
+  /** Dias com histórico de Ads (máx. 30 no protótipo) */
+  diasRodando: number;
+  /** Números da janela de teste (últimos 14 dias) */
+  investimento: number;
+  faturamento: number;
+  cliques: number;
+  vendas: number;
+  /** vendas ÷ cliques (0-1); null sem cliques */
+  conversao: number | null;
+  /** faturamento ÷ investimento; null sem investimento */
+  roasAtual: number | null;
+  /** Lucro que o Ads deixou na janela: o que as vendas via Ads
+   * contribuíram menos o que foi gasto nele */
+  lucroAds: number;
+  /** Dias seguidos (contando de hoje pra trás) em que o ROAS dos 7 dias
+   * anteriores ficou abaixo do mínimo */
+  diasSeguidosAbaixo: number;
+  /** Vendas via Ads nos últimos 7 dias e nos 7 anteriores — é o que diz se
+   * as vendas estão crescendo ou paradas */
+  vendasSemanaAtual: number;
+  vendasSemanaAnterior: number;
+  semaforo: SemaforoDecisao;
+  /** Cobertura de estoque do SKU, em dias; null quando não há dado */
+  coberturaEstoqueDias: number | null;
+  trajetoria: PontoRoas[];
+}
+
+function roasDe(faturamento: number, investimento: number): number | null {
+  return investimento > 0 ? faturamento / investimento : null;
+}
+
+/**
+ * Monta a análise de todos os anúncios ativos com Ads. Pura: recebe os
+ * anúncios, o histórico diário e o estoque, devolve os números — as
+ * decisões (ajuste de objetivo, realocação, anúncio cansado) vêm das
+ * funções abaixo, em cima deste resultado.
+ */
+export function analisarRoasAnuncios(
+  anuncios: Anuncio[],
+  historico: HistoricoAdsDia[],
+  estoque: ItemEstoqueDetalhado[],
+  opcoes: OpcoesLimites = {},
+): AnaliseRoasAnuncio[] {
+  const classes = new Map(curvaABC(anuncios).map((i) => [i.anuncio.id, i.classe]));
+  const porAnuncio = new Map<string, HistoricoAdsDia[]>();
+  for (const h of historico) {
+    const lista = porAnuncio.get(h.anuncioId) ?? [];
+    lista.push(h);
+    porAnuncio.set(h.anuncioId, lista);
+  }
+  const cobertura = new Map(estoque.map((e) => [e.sku, e.coberturaDias]));
+
+  const resultado: AnaliseRoasAnuncio[] = [];
+  for (const a of anuncios) {
+    if (a.status !== "ativo" || !a.ads) continue;
+    const dias = (porAnuncio.get(a.id) ?? []).sort((x, y) => x.data.localeCompare(y.data));
+    if (dias.length === 0) continue;
+
+    const contribuicao = contribuicaoAnuncio(a, a.precoAtual, opcoes);
+    const calculavel = a.cmv !== null;
+
+    const janela = dias.slice(-DIAS_TESTE_ADS);
+    const investimento = janela.reduce((s, d) => s + d.investimento, 0);
+    const faturamento = janela.reduce((s, d) => s + d.faturamentoAtribuido, 0);
+    const cliques = janela.reduce((s, d) => s + d.cliques, 0);
+    const vendas = janela.reduce((s, d) => s + d.vendasAtribuidas, 0);
+    const roasAtual = roasDe(faturamento, investimento);
+
+    // Trajetória: ROAS móvel de 7 dias, a partir do 7º dia de histórico.
+    const trajetoria: PontoRoas[] = [];
+    for (let i = 6; i < dias.length; i++) {
+      const bloco = dias.slice(i - 6, i + 1);
+      trajetoria.push({
+        data: dias[i]!.data,
+        roas: roasDe(
+          bloco.reduce((s, d) => s + d.faturamentoAtribuido, 0),
+          bloco.reduce((s, d) => s + d.investimento, 0),
+        ),
+      });
+    }
+
+    let diasSeguidosAbaixo = 0;
+    const minimo = contribuicao.roasMinimo;
+    if (minimo !== null) {
+      for (let i = trajetoria.length - 1; i >= 0; i--) {
+        const r = trajetoria[i]!.roas;
+        if (r !== null && r < minimo) diasSeguidosAbaixo++;
+        else break;
+      }
+    }
+
+    const vendasSemanaAtual = dias.slice(-7).reduce((s, d) => s + d.vendasAtribuidas, 0);
+    const vendasSemanaAnterior = dias.slice(-14, -7).reduce((s, d) => s + d.vendasAtribuidas, 0);
+
+    const semaforo: SemaforoDecisao =
+      minimo === null || roasAtual === null || roasAtual < minimo
+        ? "vermelho"
+        : roasAtual < minimo * (1 + FOLGA_ROAS_ADS)
+          ? "amarelo"
+          : "verde";
+
+    resultado.push({
+      anuncio: a,
+      contribuicao,
+      calculavel,
+      classe: classes.get(a.id) ?? null,
+      diasRodando: dias.length,
+      investimento,
+      faturamento,
+      cliques,
+      vendas,
+      conversao: cliques > 0 ? vendas / cliques : null,
+      roasAtual,
+      lucroAds: faturamento * contribuicao.margemContribuicao - investimento,
+      diasSeguidosAbaixo,
+      vendasSemanaAtual,
+      vendasSemanaAnterior,
+      semaforo,
+      coberturaEstoqueDias: cobertura.get(a.sku) ?? null,
+      trajetoria,
+    });
+  }
+  return resultado;
+}
+
+/** Arredonda pra 1 casa decimal pra CIMA — ROAS objetivo sugerido nunca
+ * pode ficar abaixo do limite só por causa de arredondamento. */
+function arredondarParaCima1(n: number) {
+  return Math.ceil(n * 10) / 10;
+}
+
+export interface SugestaoRealocacaoAds {
+  fonte: AnaliseRoasAnuncio;
+  destino: AnaliseRoasAnuncio;
+}
+
+/**
+ * Tira verba de quem está no prejuízo (curva C) e aponta quem pode receber
+ * (curva A). Só junta anúncios da MESMA conta: a verba de Ads é de cada
+ * conta, não dá pra mover de um marketplace pro outro.
+ *
+ * Fonte: curva C, testado há 14+ dias, 7+ dias seguidos abaixo do mínimo,
+ * gasto relevante. Destino: curva A, testado há 14+ dias, ROAS 30%+ acima
+ * do mínimo e estoque pra pelo menos 30 dias (o mesmo alvo de cobertura
+ * do Agente de Estoque — não adianta empurrar verba pra quem vai acabar).
+ */
+export function sugerirRealocacaoAds(analises: AnaliseRoasAnuncio[]): SugestaoRealocacaoAds[] {
+  const validos = analises.filter(
+    (x) => x.calculavel && x.contribuicao.roasMinimo !== null && x.diasRodando >= DIAS_TESTE_ADS,
+  );
+  const fontes = validos
+    .filter(
+      (x) =>
+        x.classe === "C" &&
+        x.diasSeguidosAbaixo >= DIAS_ABAIXO_MINIMO_ADS &&
+        x.investimento >= GASTO_MINIMO_REALOCACAO,
+    )
+    .sort((x, y) => y.investimento - x.investimento);
+  const destinos = validos.filter(
+    (x) =>
+      x.classe === "A" &&
+      x.roasAtual !== null &&
+      x.roasAtual >= x.contribuicao.roasMinimo! * (1 + FOLGA_ROAS_ADS) &&
+      (x.coberturaEstoqueDias ?? 0) >= DIAS_ALVO_COBERTURA,
+  );
+
+  const pares: SugestaoRealocacaoAds[] = [];
+  for (const fonte of fontes) {
+    const candidatos = destinos
+      .filter((d) => d.anuncio.contaId === fonte.anuncio.contaId)
+      .sort(
+        (x, y) =>
+          y.roasAtual! / y.contribuicao.roasMinimo! - x.roasAtual! / x.contribuicao.roasMinimo!,
+      );
+    const destino = candidatos[0];
+    if (destino) pares.push({ fonte, destino });
+  }
+  return pares;
+}
+
+export interface SugestaoAjusteObjetivo {
+  analise: AnaliseRoasAnuncio;
+  direcao: "subir" | "baixar";
+  objetivoSugerido: number;
+}
+
+/** ROAS mínimo acima disso = margem de contribuição abaixo de 4%. Aí o
+ * problema é preço/custo, não Ads — o agente não sugere mexer no objetivo
+ * (quem trata isso é o Agente de Precificação). */
+export const ROAS_MINIMO_TETO_AJUSTE = 25;
+
+/**
+ * Ajuste do ROAS objetivo configurado no Ads do marketplace:
+ * - ROAS encostando no mínimo (menos de 10% de folga) e objetivo baixo
+ *   demais → SUBIR o objetivo, pra plataforma gastar com mais cuidado.
+ * - ROAS com folga grande (o dobro do mínimo ou mais) E vendas paradas
+ *   (esta semana não vendeu mais que a anterior) → dá pra BAIXAR o
+ *   objetivo e ganhar volume, mas NUNCA pra menos de 30% acima do mínimo.
+ * Quem já está numa sugestão de realocação fica de fora — a realocação
+ * já diz o que fazer com ele.
+ */
+export function sugerirAjusteObjetivo(
+  analises: AnaliseRoasAnuncio[],
+  jaEmRealocacao: Set<string>,
+): SugestaoAjusteObjetivo[] {
+  const sugestoes: SugestaoAjusteObjetivo[] = [];
+  for (const x of analises) {
+    const minimo = x.contribuicao.roasMinimo;
+    const objetivo = x.anuncio.roasObjetivo;
+    if (!x.calculavel || minimo === null || objetivo === null || x.roasAtual === null) continue;
+    if (x.diasRodando < DIAS_TESTE_ADS || jaEmRealocacao.has(x.anuncio.id)) continue;
+    if (minimo > ROAS_MINIMO_TETO_AJUSTE) continue;
+
+    const piso = arredondarParaCima1(minimo * (1 + FOLGA_ROAS_ADS));
+    if (x.roasAtual < minimo * 1.1 && objetivo < minimo * 1.2) {
+      sugestoes.push({
+        analise: x,
+        direcao: "subir",
+        objetivoSugerido: arredondarParaCima1(minimo * 1.2),
+      });
+    } else if (
+      x.roasAtual >= minimo * 2 &&
+      x.vendasSemanaAtual <= x.vendasSemanaAnterior &&
+      objetivo >= piso + 0.5
+    ) {
+      sugestoes.push({
+        analise: x,
+        direcao: "baixar",
+        objetivoSugerido: Math.max(piso, Math.round(objetivo * 0.8 * 10) / 10),
+      });
+    }
+  }
+  return sugestoes;
+}
+
+/** Muito clique, pouca compra: o anúncio atrai mas não convence. */
+export function diagnosticarAnunciosCansados(analises: AnaliseRoasAnuncio[]): AnaliseRoasAnuncio[] {
+  return analises.filter(
+    (x) =>
+      x.diasRodando >= DIAS_TESTE_ADS &&
+      x.cliques >= CLIQUES_MINIMOS_CANSADO &&
+      x.conversao !== null &&
+      x.conversao < CONVERSAO_MAXIMA_CANSADO,
+  );
 }
