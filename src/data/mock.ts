@@ -1397,30 +1397,123 @@ export const RESUMO_FULFILLMENT = {
 
 
 // ---------------------------------------------------------------------------
-// Histórico diário de Ads — alimenta o gráfico de trajetória do ROAS
-// (Agente de Ads). Fictício: distribui o total de HOJE de cada anúncio
-// numa curva de 30 dias com variação, sem inventar nenhum número que o
-// anúncio já não mostre.
+// Histórico diário de Ads — alimenta o Agente de Ads (ROAS mínimo, gráfico
+// de trajetória, ajuste de objetivo, realocação e anúncio cansado).
+//
+// Fictício, mas com "perfis" de propósito, pra tela ter todos os casos que
+// o agente sabe tratar: anúncio saudável, apertado perto do mínimo, no
+// prejuízo, e cansado (muito clique, pouca compra). O perfil segue a curva
+// ABC do anúncio — curva C tende a estar no prejuízo, curva A tende a estar
+// saudável —, que é o que faz aparecer a sugestão de mover verba de um
+// pro outro. Também define o ROAS objetivo de cada anúncio, perto do ROAS
+// que ele de fato alcança (é assim que o Ads do marketplace funciona).
 // ---------------------------------------------------------------------------
+
+type PerfilAds = "saudavel" | "apertado" | "prejuizo" | "cansado";
+
+/** ROAS mínimo aproximado do anúncio, só pra desenhar os perfis. O valor
+ * de verdade, que aparece na tela, é o do Agente de Ads (ele também
+ * considera a alíquota e os custos operacionais das Configurações). */
+function roasMinimoAproximado(a: Anuncio): number {
+  const margem =
+    (a.precoAtual -
+      (a.cmv ?? 0) -
+      a.precoAtual * (a.impostoPercentual + a.comissaoPercentual) -
+      a.taxaFixa -
+      a.freteUnitario -
+      a.custoAfiliadoUnitario) /
+    a.precoAtual;
+  return margem > 0.04 ? 1 / margem : 25;
+}
+
+function classesAbcSimples(anuncios: Anuncio[]): Map<string, "A" | "B" | "C"> {
+  const itens = anuncios
+    .map((a) => ({ id: a.id, fat: a.precoAtual * a.unidadesVendidas }))
+    .sort((x, y) => y.fat - x.fat);
+  const total = itens.reduce((s, i) => s + i.fat, 0);
+  const mapa = new Map<string, "A" | "B" | "C">();
+  let acumulado = 0;
+  for (const i of itens) {
+    acumulado += total > 0 ? i.fat / total : 1;
+    mapa.set(i.id, acumulado <= 0.8 ? "A" : acumulado <= 0.95 ? "B" : "C");
+  }
+  return mapa;
+}
 
 function gerarHistoricoAds(anuncios: Anuncio[]): HistoricoAdsDia[] {
   const rand = criarRandom(20260825);
   const historico: HistoricoAdsDia[] = [];
   const hoje = new Date();
+  const classes = classesAbcSimples(anuncios);
+
+  // Um anúncio "cansado" garantido: o de maior investimento na curva B.
+  const cansado = anuncios
+    .filter((a) => a.ads && classes.get(a.id) === "B")
+    .sort((x, y) => (y.ads?.investimento ?? 0) - (x.ads?.investimento ?? 0))[0];
 
   for (const a of anuncios) {
     if (!a.ads) continue;
+    const classe = classes.get(a.id) ?? "B";
+    const sorteio = rand();
+    const perfil: PerfilAds =
+      a.id === cansado?.id
+        ? "cansado"
+        : classe === "A"
+          ? sorteio < 0.8
+            ? "saudavel"
+            : "apertado"
+          : classe === "C"
+            ? sorteio < 0.7
+              ? "prejuizo"
+              : "apertado"
+            : sorteio < 0.5
+              ? "saudavel"
+              : sorteio < 0.8
+                ? "apertado"
+                : "prejuizo";
+
+    const minimo = roasMinimoAproximado(a);
+    const roasBase =
+      perfil === "saudavel"
+        ? minimo * (1.6 + rand() * 1.4)
+        : perfil === "apertado"
+          ? minimo * (0.95 + rand() * 0.3)
+          : minimo * (0.4 + rand() * 0.4);
+
+    // Investimento diário na mesma ordem de grandeza do que o anúncio já
+    // mostra, com dois pisos: um valor mínimo (senão anúncio barato nunca
+    // junta gasto relevante) e o bastante pra sair ao menos meia venda por
+    // dia (senão produto caro passa semanas sem nenhuma venda via Ads).
+    const investimentoDiaBase =
+      perfil === "cansado"
+        ? Math.max(15, a.ads.investimento / 30)
+        : Math.max(5, a.ads.investimento / 30, (0.5 * a.precoAtual) / roasBase);
+    const cpcCansado = 0.25 + rand() * 0.2;
+
     for (let d = 29; d >= 0; d--) {
       const data = new Date(hoje);
       data.setDate(hoje.getDate() - d);
-      const variacao = 0.6 + rand() * 0.8;
-      const investimento = Math.round((a.ads.investimento / 30) * variacao * 100) / 100;
-      const cliques = Math.max(0, Math.round((a.ads.cliques / 30) * variacao));
-      const impressoes = Math.max(cliques, Math.round((a.ads.impressoes / 30) * variacao));
-      const vendasAtribuidas = Math.max(
-        0,
-        Math.round((a.ads.vendasAtribuidas / 30) * variacao),
-      );
+      const investimento =
+        Math.round(investimentoDiaBase * (0.7 + rand() * 0.6) * 100) / 100;
+
+      let cliques: number;
+      let vendasAtribuidas: number;
+      if (perfil === "cansado") {
+        // Clique barato e muito clique, mas conversão perto de 0,5%:
+        // atrai, e quase ninguém compra.
+        cliques = Math.max(1, Math.round(investimento / cpcCansado));
+        vendasAtribuidas = Math.floor(cliques * 0.005 + rand());
+      } else {
+        // Prejuízo "piora" ao longo do mês: o ROAS cai devagar.
+        const tendencia = perfil === "prejuizo" ? 1.15 - (29 - d) * 0.01 : 1;
+        const roasDia = roasBase * tendencia * (0.7 + rand() * 0.6);
+        const vendasEsperadas = (investimento * roasDia) / a.precoAtual;
+        vendasAtribuidas = Math.floor(vendasEsperadas + rand());
+        // Conversão normal de marketplace, entre 2% e 6%.
+        cliques = Math.max(1, Math.round(vendasEsperadas / (0.02 + rand() * 0.04)));
+      }
+      const impressoes = Math.round(cliques / (0.01 + rand() * 0.03));
+
       historico.push({
         data: data.toISOString().slice(0, 10),
         anuncioId: a.id,
@@ -1431,6 +1524,14 @@ function gerarHistoricoAds(anuncios: Anuncio[]): HistoricoAdsDia[] {
         faturamentoAtribuido: Math.round(vendasAtribuidas * a.precoAtual * 100) / 100,
       });
     }
+
+    // ROAS objetivo perto do que o anúncio alcança de fato — exceto no
+    // perfil "apertado", em que o objetivo ficou baixo demais (é esse o
+    // caso da sugestão de subir o objetivo).
+    a.roasObjetivo =
+      perfil === "apertado"
+        ? Math.round(minimo * (0.8 + rand() * 0.2) * 10) / 10
+        : Math.round(roasBase * (0.9 + rand() * 0.2) * 10) / 10;
   }
   return historico;
 }
