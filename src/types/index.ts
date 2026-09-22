@@ -166,6 +166,13 @@ export interface Pedido {
    * pra não duplicar informação que pode divergir depois.
    */
   campanhaId: string | null;
+  /** Frete que deveria ter sido cobrado neste pedido, pela política do
+   * canal e o tipo de logística usado. Base de comparação do Auditor. */
+  freteEsperado: number;
+  /** Frete que o marketplace realmente cobrou neste pedido. Na maioria
+   * dos pedidos é igual a `freteEsperado`; quando diverge, é isso que o
+   * Agente Auditor aponta como cobrança divergente. */
+  freteCobrado: number;
 }
 
 /** Full = estoque no CD do marketplace; Flex = o seller entrega no mesmo dia;
@@ -310,6 +317,50 @@ export interface Anuncio {
    * agente de giro não tem gatilho nenhum para disparar.
    */
   dataUltimaVenda: string | null;
+  /**
+   * ROAS que o seller configurou como meta no Ads Manager do marketplace
+   * (quanto a plataforma tenta manter de retorno por real investido).
+   * null quando o anúncio não tem Ads ativo (`ads` também é null nesse
+   * caso) ou quando o seller ainda não configurou nenhum objetivo. Não
+   * confundir com o ROAS mínimo — este último nunca é guardado, é sempre
+   * calculado na hora a partir da margem de contribuição (Agente de Ads).
+   */
+  roasObjetivo: number | null;
+}
+
+/**
+ * Um ponto do histórico diário de Ads de um anúncio — a fonte do gráfico
+ * de trajetória do ROAS (Agente de Ads). Cada linha é o dado bruto de UM
+ * dia; ROAS, ACOS, CTR e CPC continuam sendo sempre calculados na hora a
+ * partir destes números, nunca guardados prontos — mesma regra do
+ * `DadosAds` do próprio anúncio.
+ */
+export interface HistoricoAdsDia {
+  data: string; // ISO (yyyy-mm-dd)
+  anuncioId: string;
+  investimento: number;
+  impressoes: number;
+  cliques: number;
+  vendasAtribuidas: number;
+  faturamentoAtribuido: number;
+}
+
+/**
+ * Um "antes/depois" de uma taxa do anúncio (comissão ou taxa fixa),
+ * detectado pelo Agente Auditor comparando o valor salvo aqui com o valor
+ * atual do anúncio. Cada linha vira o motivo de uma `OcorrenciaAuditor`
+ * do tipo "mudanca-taxa".
+ */
+export interface HistoricoTaxaAnuncio {
+  id: string;
+  anuncioId: string;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  campo: "comissaoPercentual" | "taxaFixa";
+  valorAnterior: number;
+  valorNovo: number;
+  detectadoEm: string; // ISO
 }
 
 export interface AlteracaoPreco {
@@ -567,6 +618,14 @@ export interface ItemEstoqueDetalhado {
   coberturaDias: number;
   custoUnitario: number;
   valorEstoque: number;
+  /** Quantos dias o fornecedor leva pra entregar uma reposição — o alerta
+   * de ruptura precisa vir com essa folga de antecedência, e não só
+   * quando o estoque já está baixo. */
+  prazoFornecedorDias: number;
+  /** Quanto o marketplace cobra por mês de armazenagem deste item no
+   * centro de distribuição dele. Sempre 0 no estoque próprio do seller —
+   * só existe cobrança de armazenagem quando o item está no Full. */
+  custoArmazenagemMensal: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -580,7 +639,8 @@ export type AgenteId =
   | "estoque"
   | "ads"
   | "criativo"
-  | "fulfillment";
+  | "fulfillment"
+  | "auditor";
 
 /**
  * Situação de uma sugestão. Enquanto não há API com permissão de escrita,
@@ -779,4 +839,106 @@ export interface SugestaoCriativo {
   bulletPoints: string | null;
   status: StatusSugestao;
   decididoEm: string | null;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Ficha do anúncio — usada pelo Criativo e pelo SAC                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Informação técnica completa de um anúncio, digitada pelo próprio
+ * seller. Sem API ainda, a IA não enxerga o anúncio publicado — esta
+ * ficha é como o Criativo (pra reescrever título/descrição) e o SAC
+ * (pra responder pergunta técnica sem inventar) "enxergam" o produto.
+ * Uma por SKU; o seller pode editar a qualquer momento.
+ */
+export interface FichaAnuncio {
+  id: string;
+  sku: string;
+  descricaoCompleta: string;
+  atualizadoEm: string; // ISO
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente SAC — modelos de mensagem e regras aprendidas                */
+/* ------------------------------------------------------------------ */
+
+/** As situações de pedido que já têm uma mensagem pronta pro seller usar
+ * como ponto de partida. Pergunta de pré-venda e reclamação continuam
+ * geradas do zero pela IA — variam demais pra caber num modelo fixo. */
+export type SituacaoSac = "pedido-despachado" | "pedido-nao-despachado";
+
+/**
+ * O texto pronto que o SAC sugere pra cada situação de pedido. Começa
+ * com um texto padrão; se o seller editar antes de aprovar e confirmar
+ * que quer guardar a edição, o texto editado vira o novo padrão daqui
+ * pra frente (o padrão anterior não é perdido, só sobrescrito).
+ */
+export interface ModeloMensagemSac {
+  id: string;
+  situacao: SituacaoSac;
+  texto: string;
+  atualizadoEm: string; // ISO
+}
+
+/**
+ * Uma regra curta que molda como o SAC responde — nascida de uma edição
+ * do seller numa resposta (o Gestor identifica o padrão e propõe a
+ * regra) ou escrita direto pelo seller nas Configurações. Fica sempre
+ * visível e editável; desativar não apaga o histórico de onde veio.
+ */
+export interface RegraSac {
+  id: string;
+  regra: string;
+  origem: "aprendida" | "manual";
+  ativa: boolean;
+  criadaEm: string; // ISO
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente Auditor                                                      */
+/* ------------------------------------------------------------------ */
+
+/** As duas frentes do Auditor: a regra do anúncio mudou (comissão ou
+ * taxa fixa), ou um pedido específico foi cobrado diferente do esperado. */
+export type TipoOcorrenciaAuditor = "mudanca-taxa" | "cobranca-divergente";
+
+/** Acompanha um processo, não só uma decisão — por isso tem mais estados
+ * que `StatusSugestao`: o seller reclama com o marketplace e o resultado
+ * demora a vir, então o Auditor precisa lembrar em que pé isso ficou. */
+export type StatusOcorrenciaAuditor =
+  | "aberto"
+  | "reclamacao-aberta"
+  | "reembolsado"
+  | "ignorado";
+
+/**
+ * Um item de conferência do Auditor. `campo`/`valorAnterior`/`valorNovo`
+ * só existem no tipo "mudanca-taxa"; `itemDivergente`/`valorEsperado`/
+ * `valorCobrado`/`diferenca` só existem no tipo "cobranca-divergente" —
+ * cada ocorrência preenche só o par que faz sentido pro seu tipo.
+ */
+export interface OcorrenciaAuditor {
+  id: string;
+  tipo: TipoOcorrenciaAuditor;
+  data: string; // ISO
+  anuncioId: string | null;
+  pedidoId: string | null;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  contaId: string;
+  /** Por que o Auditor agiu, em português, pra aparecer na lista */
+  motivo: string;
+  campo: "comissaoPercentual" | "taxaFixa" | null;
+  valorAnterior: number | null;
+  valorNovo: number | null;
+  itemDivergente: "frete" | "comissao" | "taxaFixa" | null;
+  valorEsperado: number | null;
+  valorCobrado: number | null;
+  diferenca: number | null;
+  status: StatusOcorrenciaAuditor;
+  /** Quando o seller mudou o status pela última vez; null enquanto "aberto" */
+  atualizadoEm: string | null;
 }
