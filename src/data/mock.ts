@@ -21,6 +21,12 @@ import type {
   Promocao,
   RepasseParcela,
   OrigemCampanha,
+  HistoricoAdsDia,
+  HistoricoTaxaAnuncio,
+  FichaAnuncio,
+  ModeloMensagemSac,
+  RegraSac,
+  OcorrenciaAuditor,
   StatusOportunidadeRecuperacao,
   StatusPedido,
   TipoCampanha,
@@ -782,6 +788,16 @@ function gerarPedidos(): Pedido[] {
         if (rand() < PROB_FULL[conta.marketplaceId]) return "full";
         return rand() < PROB_FLEX_SE_NAO_FULL ? "flex" : "padrao";
       })();
+      // Frete: Full não cobra frete do seller por pedido (o custo dele é a
+      // armazenagem, tratada à parte no estoque). Flex/Padrão têm um frete
+      // esperado típico. Uma pequena fatia dos pedidos sai cobrada diferente
+      // do esperado — é esse desvio que o Agente Auditor aponta depois.
+      const freteEsperado =
+        tipoLogistica === "full" ? 0 : Math.round((6 + rand() * 6) * 100) / 100;
+      const freteCobrado =
+        rand() > 0.96
+          ? Math.round((freteEsperado + (4 + rand() * 10)) * 100) / 100
+          : freteEsperado;
       const estado = escolherEstado(rand);
 
       const parcelas = escolherParcelas(rand);
@@ -831,6 +847,8 @@ function gerarPedidos(): Pedido[] {
         dataDevolucao,
         motivoDevolucao,
         campanhaId: campanha?.id ?? null,
+        freteEsperado,
+        freteCobrado,
       };
   };
 
@@ -1005,6 +1023,9 @@ function gerarAnuncios(): Anuncio[] {
         elegivelPromocao: rand() > 0.55,
         unidadesVendidas,
         dataUltimaVenda,
+        // Faixa comum de ROAS objetivo praticada nos marketplaces (8 a 25);
+        // só existe pra quem tem Ads ativo.
+        roasObjetivo: ads ? Math.round((8 + rand() * 17) * 10) / 10 : null,
       });
     }
   }
@@ -1285,6 +1306,9 @@ export const OPORTUNIDADES_RECUPERACAO: OportunidadeRecuperacao[] =
 
 const ESTOQUE_QTD = [8, 320, 145, 0, 45, 18, 210, 95, 0, 410, 78, 640];
 const ESTOQUE_VENDAS_DIA = [2.4, 4.1, 9.8, 1.2, 6.5, 0.4, 7.2, 2.1, 1.8, 3.4, 0.9, 12.5];
+/** Prazo de entrega do fornecedor, por SKU — varia por tipo de produto
+ * (item simples chega rápido; cadeira/monitor importado demora mais). */
+const PRAZO_FORNECEDOR_DIAS = [12, 18, 10, 15, 7, 25, 14, 22, 16, 20, 11, 9];
 
 export const ESTOQUE_DETALHADO: ItemEstoqueDetalhado[] = PRODUTOS.map((produto, i) => {
   const quantidade = ESTOQUE_QTD[i] ?? 100;
@@ -1299,6 +1323,9 @@ export const ESTOQUE_DETALHADO: ItemEstoqueDetalhado[] = PRODUTOS.map((produto, 
     coberturaDias: cobertura,
     custoUnitario: produto.cmv,
     valorEstoque: Math.round(quantidade * produto.cmv * 100) / 100,
+    prazoFornecedorDias: PRAZO_FORNECEDOR_DIAS[i] ?? 15,
+    // Estoque próprio do seller não tem cobrança de armazenagem do canal.
+    custoArmazenagemMensal: 0,
   };
 });
 
@@ -1329,6 +1356,15 @@ export const FULFILLMENT_DETALHADO: ItemEstoqueDetalhado[] = PRODUTOS.map((produ
   const quantidade = FULL_QTD[i] ?? 40;
   const vendasDia = FULL_VENDAS_DIA[i] ?? 1.5;
   const cobertura = vendasDia > 0 ? Math.round(quantidade / vendasDia) : 0;
+  const valorEstoque = Math.round(quantidade * produto.cmv * 100) / 100;
+  // Armazenagem no Full: uma taxa mensal por volume parado, que sobe
+  // quando a cobertura passa de 60 dias — mesma regra que os marketplaces
+  // costumam usar pra cobrar mais caro de quem "ocupa espaço" há muito
+  // tempo sem girar.
+  const custoArmazenagemMensal =
+    quantidade > 0
+      ? Math.round(valorEstoque * (cobertura > 60 ? 0.02 : 0.008) * 100) / 100
+      : 0;
   return {
     sku: produto.sku,
     produto: produto.nome,
@@ -1337,7 +1373,9 @@ export const FULFILLMENT_DETALHADO: ItemEstoqueDetalhado[] = PRODUTOS.map((produ
     vendasDia,
     coberturaDias: cobertura,
     custoUnitario: produto.cmv,
-    valorEstoque: Math.round(quantidade * produto.cmv * 100) / 100,
+    valorEstoque,
+    prazoFornecedorDias: PRAZO_FORNECEDOR_DIAS[i] ?? 15,
+    custoArmazenagemMensal,
   };
 });
 
@@ -1356,3 +1394,180 @@ export const RESUMO_FULFILLMENT = {
       0,
     ) || 320,
 };
+
+
+// ---------------------------------------------------------------------------
+// Histórico diário de Ads — alimenta o gráfico de trajetória do ROAS
+// (Agente de Ads). Fictício: distribui o total de HOJE de cada anúncio
+// numa curva de 30 dias com variação, sem inventar nenhum número que o
+// anúncio já não mostre.
+// ---------------------------------------------------------------------------
+
+function gerarHistoricoAds(anuncios: Anuncio[]): HistoricoAdsDia[] {
+  const rand = criarRandom(20260825);
+  const historico: HistoricoAdsDia[] = [];
+  const hoje = new Date();
+
+  for (const a of anuncios) {
+    if (!a.ads) continue;
+    for (let d = 29; d >= 0; d--) {
+      const data = new Date(hoje);
+      data.setDate(hoje.getDate() - d);
+      const variacao = 0.6 + rand() * 0.8;
+      const investimento = Math.round((a.ads.investimento / 30) * variacao * 100) / 100;
+      const cliques = Math.max(0, Math.round((a.ads.cliques / 30) * variacao));
+      const impressoes = Math.max(cliques, Math.round((a.ads.impressoes / 30) * variacao));
+      const vendasAtribuidas = Math.max(
+        0,
+        Math.round((a.ads.vendasAtribuidas / 30) * variacao),
+      );
+      historico.push({
+        data: data.toISOString().slice(0, 10),
+        anuncioId: a.id,
+        investimento,
+        impressoes,
+        cliques,
+        vendasAtribuidas,
+        faturamentoAtribuido: Math.round(vendasAtribuidas * a.precoAtual * 100) / 100,
+      });
+    }
+  }
+  return historico;
+}
+
+export const HISTORICO_ADS: HistoricoAdsDia[] = gerarHistoricoAds(ANUNCIOS);
+
+// ---------------------------------------------------------------------------
+// Histórico de taxas — mudanças de comissão/taxa fixa que o Agente Auditor
+// já teria detectado. Fictício até a API expor o histórico real de taxas
+// de cada canal.
+// ---------------------------------------------------------------------------
+
+export const HISTORICO_TAXAS: HistoricoTaxaAnuncio[] = (() => {
+  const alvo = ANUNCIOS.filter((a) => a.status === "ativo").slice(0, 2);
+  return alvo.map((a, i) => ({
+    id: `taxa-${a.id}`,
+    anuncioId: a.id,
+    sku: a.sku,
+    produto: a.produto,
+    marketplaceId: a.marketplaceId,
+    campo: "comissaoPercentual" as const,
+    valorAnterior: Math.round((a.comissaoPercentual - 0.01) * 1000) / 1000,
+    valorNovo: a.comissaoPercentual,
+    detectadoEm: new Date(Date.now() - (i + 1) * 2 * 86400000).toISOString(),
+  }));
+})();
+
+// ---------------------------------------------------------------------------
+// Ficha do anúncio — usada pelo Criativo e pelo SAC. Fictícia: só alguns
+// SKUs já têm ficha preenchida, pra demonstrar tanto o caso "completo"
+// quanto o caso "ainda falta preencher".
+// ---------------------------------------------------------------------------
+
+export const FICHAS_ANUNCIO: FichaAnuncio[] = ANUNCIOS.filter((a) => a.ean === null)
+  .slice(0, 4)
+  .map((a, i) => ({
+    id: `ficha-${a.sku}`,
+    sku: a.sku,
+    descricaoCompleta: `${a.produto}. Garantia de 12 meses direto com a loja. Envio em até 1 dia útil após a confirmação do pagamento.`,
+    atualizadoEm: new Date(Date.now() - (i + 1) * 5 * 86400000).toISOString(),
+  }));
+
+// ---------------------------------------------------------------------------
+// SAC — modelos de mensagem por situação e regras aprendidas
+// ---------------------------------------------------------------------------
+
+export const MODELOS_SAC: ModeloMensagemSac[] = [
+  {
+    id: "modelo-despachado",
+    situacao: "pedido-despachado",
+    texto:
+      "Olá, tudo bem? Seu pedido já foi enviado. Você pode acompanhar pelo rastreio na sua conta. Se tiver qualquer atraso, abra um chamado com a gente que verificamos com a transportadora.",
+    atualizadoEm: new Date(Date.now() - 20 * 86400000).toISOString(),
+  },
+  {
+    id: "modelo-nao-despachado",
+    situacao: "pedido-nao-despachado",
+    texto:
+      "Olá, tudo bem? Estamos verificando com nossa equipe de logística o motivo do atraso no envio. Assim que tivermos retorno, ou assim que o pedido for despachado, te avisamos por aqui.",
+    atualizadoEm: new Date(Date.now() - 20 * 86400000).toISOString(),
+  },
+];
+
+export const REGRAS_SAC: RegraSac[] = [
+  {
+    id: "regra-1",
+    regra: "Sempre informar o prazo de troca de 7 dias quando o cliente perguntar sobre devolução.",
+    origem: "manual",
+    ativa: true,
+    criadaEm: new Date(Date.now() - 12 * 86400000).toISOString(),
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Agente Auditor — ocorrências fictícias, uma de cada tipo, a partir do
+// histórico de taxas acima e de um pedido com frete cobrado divergente.
+// ---------------------------------------------------------------------------
+
+function gerarOcorrenciasAuditor(): OcorrenciaAuditor[] {
+  const ocorrencias: OcorrenciaAuditor[] = [];
+
+  for (const h of HISTORICO_TAXAS) {
+    const anuncio = ANUNCIOS.find((a) => a.id === h.anuncioId);
+    if (!anuncio) continue;
+    const nomeCampo = h.campo === "comissaoPercentual" ? "Comissão" : "Taxa fixa";
+    ocorrencias.push({
+      id: `auditor-${h.id}`,
+      tipo: "mudanca-taxa",
+      data: h.detectadoEm,
+      anuncioId: h.anuncioId,
+      pedidoId: null,
+      sku: h.sku,
+      produto: h.produto,
+      marketplaceId: h.marketplaceId,
+      contaId: anuncio.contaId,
+      motivo: `${nomeCampo} mudou de ${(h.valorAnterior * 100).toFixed(1)}% para ${(h.valorNovo * 100).toFixed(1)}%.`,
+      campo: h.campo,
+      valorAnterior: h.valorAnterior,
+      valorNovo: h.valorNovo,
+      itemDivergente: null,
+      valorEsperado: null,
+      valorCobrado: null,
+      diferenca: null,
+      status: "aberto",
+      atualizadoEm: null,
+    });
+  }
+
+  const pedidosDivergentes = PEDIDOS.filter(
+    (p) => Math.round((p.freteCobrado - p.freteEsperado) * 100) !== 0,
+  ).slice(0, 3);
+  for (const p of pedidosDivergentes) {
+    const diferenca = Math.round((p.freteCobrado - p.freteEsperado) * 100) / 100;
+    ocorrencias.push({
+      id: `auditor-${p.id}`,
+      tipo: "cobranca-divergente",
+      data: p.data,
+      anuncioId: null,
+      pedidoId: p.id,
+      sku: p.sku,
+      produto: p.produto,
+      marketplaceId: p.marketplaceId,
+      contaId: p.contaId,
+      motivo: `Frete cobrado ${diferenca > 0 ? "a mais" : "a menos"} no pedido ${p.id}.`,
+      campo: null,
+      valorAnterior: null,
+      valorNovo: null,
+      itemDivergente: "frete",
+      valorEsperado: p.freteEsperado,
+      valorCobrado: p.freteCobrado,
+      diferenca,
+      status: "aberto",
+      atualizadoEm: null,
+    });
+  }
+
+  return ocorrencias;
+}
+
+export const OCORRENCIAS_AUDITOR: OcorrenciaAuditor[] = gerarOcorrenciasAuditor();
