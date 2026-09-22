@@ -11,6 +11,7 @@ import {
   FULFILLMENT_DETALHADO,
   RESUMO_FULFILLMENT,
   HISTORICO_PRECOS,
+  HISTORICO_ADS,
   LOGS,
   MARKETPLACES,
   NOTIFICACOES,
@@ -25,6 +26,7 @@ import {
   obterContasAtuais,
 } from "@/data/mock";
 import type {
+  AcaoAds,
   AgenteId,
   AlertaEstoque,
   Anuncio,
@@ -39,8 +41,10 @@ import type {
   StatusSugestao,
   SugestaoCriativo,
   TicketSac,
+  TipoAcaoAds,
   TipoEventoAds,
   TipoInsightAnalista,
+  DetalheAcaoAds,
 } from "@/types";
 import { supabase } from "@/lib/supabase";
 
@@ -1025,13 +1029,49 @@ function linhaParaEventoAds(l: {
  * `custoMidia` real de cada pedido — a mesma conta que a tela de Ads do
  * Dashboard já mostra, nunca um número calculado à parte.
  */
+/** Os tipos de linha do Agente de Ads que são "ação" (aprovar/recusar),
+ * separados das janelas antigas de sugestão/análise. */
+const TIPOS_ACAO_ADS: TipoAcaoAds[] = ["ajuste_roas", "realocacao", "anuncio_cansado"];
+
+/** Como uma linha de `eventos_agente` vira uma AcaoAds. */
+function linhaParaAcaoAds(l: {
+  id: string;
+  conta_id: string | null;
+  criado_em: string;
+  status: string;
+  decidido_em: string | null;
+  motivo: string | null;
+  semaforo: string | null;
+  dados: Record<string, unknown>;
+}): AcaoAds {
+  const d = l.dados ?? {};
+  return {
+    id: l.id,
+    data: l.criado_em,
+    contaId: l.conta_id,
+    anuncioId: (d.anuncioId as string) ?? "",
+    sku: (d.sku as string) ?? "",
+    produto: (d.produto as string) ?? "",
+    marketplaceId: d.marketplaceId as MarketplaceId,
+    motivo: l.motivo ?? "",
+    semaforo: (l.semaforo as SemaforoDecisao) ?? "amarelo",
+    status: l.status as StatusSugestao,
+    decididoEm: l.decidido_em,
+    detalhe: d.detalhe as DetalheAcaoAds,
+  };
+}
+
 export const adsService = {
+  /** Histórico diário de Ads de todos os anúncios (fictício até a API). */
+  historico: () => HISTORICO_ADS,
+
   listar: async (perfilId: string): Promise<EventoAds[]> => {
     const { data, error } = await supabase
       .from("eventos_agente")
       .select("*")
       .eq("perfil_id", perfilId)
       .eq("agente_id", "ads")
+      .in("tipo", ["sugestao", "analise"])
       .order("criado_em", { ascending: false });
     if (error) {
       console.error("adsService.listar:", error.message);
@@ -1089,6 +1129,70 @@ export const adsService = {
         margemSemAds: evento.margemSemAds,
         margemComAds: evento.margemComAds,
         valeAPena: evento.valeAPena,
+      },
+    });
+    return error?.message ?? null;
+  },
+
+  /** Todas as ações (ajuste de objetivo, realocação, anúncio cansado),
+   * pendentes e já decididas. */
+  listarAcoes: async (perfilId: string): Promise<AcaoAds[]> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "ads")
+      .in("tipo", TIPOS_ACAO_ADS)
+      .order("criado_em", { ascending: false });
+    if (error) {
+      console.error("adsService.listarAcoes:", error.message);
+      return [];
+    }
+    return (data ?? []).map(linhaParaAcaoAds);
+  },
+
+  /** Chaves das ações que já estão pendentes — pra não recriar a mesma
+   * sugestão toda vez que a tela abre. */
+  chavesAcoesPendentes: async (perfilId: string): Promise<Set<string>> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("dados")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "ads")
+      .in("tipo", TIPOS_ACAO_ADS)
+      .eq("status", "pendente");
+    if (error) {
+      console.error("adsService.chavesAcoesPendentes:", error.message);
+      return new Set();
+    }
+    return new Set(
+      (data ?? [])
+        .map((r) => (r.dados as Record<string, unknown> | null)?.chave)
+        .filter((c): c is string => typeof c === "string"),
+    );
+  },
+
+  criarAcao: async (
+    perfilId: string,
+    acao: Omit<AcaoAds, "id" | "status" | "decididoEm" | "data">,
+    chave: string,
+  ): Promise<string | null> => {
+    const { error } = await supabase.from("eventos_agente").insert({
+      perfil_id: perfilId,
+      agente_id: "ads",
+      conta_id: acao.contaId,
+      sku: acao.sku,
+      tipo: acao.detalhe.tipo,
+      motivo: acao.motivo,
+      semaforo: acao.semaforo,
+      status: "pendente",
+      dados: {
+        chave,
+        anuncioId: acao.anuncioId,
+        sku: acao.sku,
+        produto: acao.produto,
+        marketplaceId: acao.marketplaceId,
+        detalhe: acao.detalhe,
       },
     });
     return error?.message ?? null;
