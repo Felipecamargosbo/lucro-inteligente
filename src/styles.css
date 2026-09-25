@@ -6,7 +6,8 @@
 
 /*
  * Design system — "Modern fintech intelligence"
- * Todas as cores em oklch. Nunca escreva cores fixas nos componentes.
+ * Cores em hexadecimal/rgba (compatível com navegadores antigos).
+ * Modo escuro = padrão (:root). Modo claro = classe .light no <html>.
  */
 
 @theme inline {
@@ -64,57 +65,96 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --shadow-card: 0 1px 2px 0 oklch(0.208 0.042 265.755 / 0.05);
-  --shadow-float: 0 20px 40px -24px oklch(0.208 0.042 265.755 / 0.35);
+  --shadow-card: 0 1px 2px 0 rgba(15, 23, 43, 0.05);
+  --shadow-float: 0 20px 40px -24px rgba(15, 23, 43, 0.35);
 }
 
 :root {
   --radius: 0.75rem;
   --background: #181d24;
   --surface: #181d24;
-  --foreground: oklch(0.94 0.01 255);
+  --foreground: #e7ecf2;
   --card: #262e38;
-  --card-foreground: oklch(0.94 0.01 255);
+  --card-foreground: #e7ecf2;
   --popover: #262e38;
-  --popover-foreground: oklch(0.94 0.01 255);
+  --popover-foreground: #e7ecf2;
   --primary: #1b5cff;
-  --primary-foreground: oklch(0.99 0.005 277);
-  --secondary: oklch(0.27 0.02 255);
-  --secondary-foreground: oklch(0.94 0.01 255);
-  --muted: oklch(0.27 0.02 255);
-  --muted-foreground: oklch(0.6 0.02 255);
-  --accent: oklch(0.27 0.02 255);
-  --accent-foreground: oklch(0.94 0.01 255);
-  --brand: oklch(0.585 0.233 277.1);
-  --brand-foreground: oklch(0.99 0.005 277);
-  --brand-soft: oklch(0.585 0.233 277.1 / 0.08);
-  --profit: oklch(0.696 0.17 162.48);
-  --profit-soft: oklch(0.696 0.17 162.48 / 0.12);
-  --loss: oklch(0.645 0.246 16.439);
-  --loss-soft: oklch(0.645 0.246 16.439 / 0.12);
-  --warning: oklch(0.769 0.163 70.08);
-  --warning-soft: oklch(0.769 0.163 70.08 / 0.15);
-  --info: oklch(0.623 0.188 259.8);
-  --info-soft: oklch(0.623 0.188 259.8 / 0.12);
-  --destructive: oklch(0.645 0.246 16.439);
-  --destructive-foreground: oklch(0.99 0.005 247.858);
-  --border: oklch(1 0 0 / 0.12);
-  --input: oklch(1 0 0 / 0.14);
-  --ring: oklch(0.585 0.233 277.1);
-  --chart-1: oklch(0.585 0.233 277.1);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.163 70.08);
-  --chart-4: oklch(0.623 0.188 259.8);
-  --chart-5: oklch(0.645 0.246 16.439);
+  --primary-foreground: #fbfbff;
+  --secondary: #202730;
+  --secondary-foreground: #e7ecf2;
+  --muted: #202730;
+  --muted-foreground: #78818c;
+  --accent: #202730;
+  --accent-foreground: #e7ecf2;
+  --brand: #615fff;
+  --brand-foreground: #fbfbff;
+  --brand-soft: rgba(97, 95, 255, 0.08);
+  --profit: #00bc7d;
+  --profit-soft: rgba(0, 188, 125, 0.12);
+  --loss: #ff2056;
+  --loss-soft: rgba(255, 32, 86, 0.12);
+  --warning: #f59e13;
+  --warning-soft: rgba(245, 158, 19, 0.15);
+  --info: #3b82f6;
+  --info-soft: rgba(59, 130, 246, 0.12);
+  --destructive: #ff2056;
+  --destructive-foreground: #f9fcff;
+  --border: rgba(255, 255, 255, 0.12);
+  --input: rgba(255, 255, 255, 0.14);
+  --ring: #615fff;
+  --chart-1: #615fff;
+  --chart-2: #00bc7d;
+  --chart-3: #f59e13;
+  --chart-4: #3b82f6;
+  --chart-5: #ff2056;
   --sidebar: #12151b;
-  --sidebar-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-muted: oklch(0.984 0.003 247.858 / 0.55);
-  --sidebar-primary: oklch(0.585 0.233 277.1);
-  --sidebar-primary-foreground: oklch(0.99 0.005 277);
-  --sidebar-accent: oklch(0.984 0.003 247.858 / 0.1);
-  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-border: oklch(0.984 0.003 247.858 / 0.12);
-  --sidebar-ring: oklch(0.585 0.233 277.1);
+  --sidebar-foreground: #f8fafc;
+  --sidebar-muted: rgba(248, 250, 252, 0.55);
+  --sidebar-primary: #615fff;
+  --sidebar-primary-foreground: #fbfbff;
+  --sidebar-accent: rgba(248, 250, 252, 0.1);
+  --sidebar-accent-foreground: #f8fafc;
+  --sidebar-border: rgba(248, 250, 252, 0.12);
+  --sidebar-ring: #615fff;
+}
+
+/*
+ * Modo claro — ativado adicionando a classe "light" na tag <html>.
+ * O menu lateral (sidebar) continua escuro de propósito (identidade Planeta97).
+ * Só é preciso declarar aqui o que MUDA em relação ao :root acima.
+ */
+.light {
+  --background: #ffffff;
+  --surface: #ffffff;
+  --foreground: #12151b;
+  --card: #f3f5f8;
+  --card-foreground: #12151b;
+  --popover: #f3f5f8;
+  --popover-foreground: #12151b;
+  --primary: #1b5cff;
+  --primary-foreground: #ffffff;
+  --secondary: #eef1f4;
+  --secondary-foreground: #12151b;
+  --muted: #eef1f4;
+  --muted-foreground: #5b6472;
+  --accent: #eef1f4;
+  --accent-foreground: #12151b;
+  --brand: #615fff;
+  --brand-foreground: #ffffff;
+  --brand-soft: rgba(97, 95, 255, 0.1);
+  --profit: #00875f;
+  --profit-soft: rgba(0, 188, 125, 0.12);
+  --loss: #e11d48;
+  --loss-soft: rgba(255, 32, 86, 0.12);
+  --warning: #b45309;
+  --warning-soft: rgba(245, 158, 19, 0.16);
+  --info: #2563eb;
+  --info-soft: rgba(59, 130, 246, 0.12);
+  --destructive: #ff2056;
+  --destructive-foreground: #ffffff;
+  --border: #e4e7ec;
+  --input: #d8dce3;
+  --ring: #615fff;
 }
 
 @layer base {
@@ -128,6 +168,10 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+  }
+
+  .light body {
+    background: #ffffff;
   }
 
   h1,
