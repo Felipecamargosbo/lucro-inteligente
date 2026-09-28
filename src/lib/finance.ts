@@ -7,7 +7,9 @@ import type {
   ContaMarketplace,
   FaixaSaudeMargem,
   HistoricoAdsDia,
+  CobrancaFullMes,
   HistoricoTaxaAnuncio,
+  ItemCobrancaAuditor,
   ItemDivergenteAuditor,
   ItemEstoqueDetalhado,
   OcorrenciaAuditor,
@@ -22,6 +24,12 @@ import type {
   SemaforoDecisao,
 } from "@/types";
 import { dentroDoPeriodo, fimDoDia, inicioDoDia, listarDias, somarDias } from "./period";
+import {
+  ARMAZENAGEM_FULL,
+  MOTIVOS_DEVOLUCAO_CULPA_SELLER,
+  REGRAS_COBRANCA,
+  tamanhoFulfillmentDoSku,
+} from "./regrasCobranca";
 
 export interface ResultadoVenda {
   precoVenda: number;
@@ -1773,56 +1781,352 @@ export const TOLERANCIA_AUDITOR = 0.05;
 export const DIAS_AUDITORIA = 30;
 
 /** Rótulo em português de cada item conferido. */
-export const ROTULO_ITEM_AUDITOR: Record<ItemDivergenteAuditor["item"], string> = {
-  frete: "Frete",
+export const ROTULO_ITEM_AUDITOR: Record<ItemCobrancaAuditor, string> = {
   comissao: "Comissão",
   taxaFixa: "Taxa fixa",
+  frete: "Frete",
+  parcelamento: "Parcelamento sem juros",
+  taxaTransacao: "Taxa de transação",
+  taxaServico: "Taxa de programa",
+  afiliado: "Comissão de afiliado",
+  cupom: "Cupom de desconto",
+  freteDevolucao: "Frete de devolução",
+  tarifaFulfillment: "Tarifa do Full por unidade",
+  garantia: "Garantia estendida",
+  armazenagem: "Armazenagem no Full",
+  armazenagemProlongada: "Armazenagem prolongada",
+  retirada: "Retirada de estoque",
+  multaFull: "Multa de não conformidade",
 };
 
+const ROTULO_TAMANHO = { pequeno: "pequeno", medio: "médio", grande: "grande" } as const;
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+const brl = (n: number) =>
+  `R$ ${n.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d),)/g, ".")}`;
+const pct = (n: number) => {
+  const v = Math.round(n * 1000) / 10;
+  return `${Number.isInteger(v) ? v.toFixed(0) : v.toFixed(1).replace(".", ",")}%`;
+};
+
+/** Monta um item conferido e, se ele veio diferente, escreve o que chama
+ * atenção no valor cobrado. */
+function itemConferido(
+  item: ItemCobrancaAuditor,
+  esperado: number,
+  cobrado: number,
+  regra: string,
+  observar?: (cobrado: number) => string | undefined,
+): ItemDivergenteAuditor {
+  const e = r2(esperado);
+  const c = r2(cobrado);
+  const divergente = Math.abs(c - e) >= TOLERANCIA_AUDITOR;
+  const indevido = divergente && e === 0 && c > 0;
+  let observacao: string | undefined;
+  if (divergente) {
+    observacao =
+      observar?.(c) ??
+      (indevido
+        ? "Não era pra ter essa cobrança."
+        : c > e
+          ? `Cobrado ${brl(c - e)} a mais do que a regra manda.`
+          : `Cobrado ${brl(e - c)} a menos do que a regra manda.`);
+  }
+  return { item, esperado: e, cobrado: c, regra, observacao, indevido };
+}
+
+/** true quando o item veio fora da regra. */
+export function itemDivergente(i: ItemDivergenteAuditor): boolean {
+  return Math.abs(i.cobrado - i.esperado) >= TOLERANCIA_AUDITOR;
+}
+
 /**
- * Confere UM pedido contra a regra que vale pra conta dele e devolve o
- * que saiu diferente. Compara três coisas:
- * - frete: o cobrado contra o esperado que o próprio pedido já registra;
- * - comissão: contra o percentual configurado na conta;
- * - taxa fixa: contra o valor configurado na conta.
+ * Confere UM pedido contra as regras e devolve TODOS os itens conferidos,
+ * cada um com a conta que explica o esperado. Os que vieram certos também
+ * voltam — a tela mostra com ✓ — e `itemDivergente` separa os errados.
+ *
+ * Sempre conferidos: comissão, taxa fixa e frete. Os outros só entram
+ * quando fazem sentido naquele canal/pedido (ex.: afiliado só em canal
+ * que tem afiliado) ou quando o canal cobrou alguma coisa neles.
  */
+export function conferirTodasCobrancasPedido(
+  pedido: Pedido,
+  conta: ContaMarketplace,
+): ItemDivergenteAuditor[] {
+  const regras = REGRAS_COBRANCA[pedido.marketplaceId];
+  const ex = pedido.extrato;
+  const fat = pedido.faturamento;
+  const cobrado = (item: ItemCobrancaAuditor, padrao = 0) => ex?.cobrado[item] ?? padrao;
+  const foiCobrado = (item: ItemCobrancaAuditor) => (ex?.cobrado[item] ?? 0) > 0;
+  const itens: ItemDivergenteAuditor[] = [];
+
+  // Comissão — percentual da conta sobre o valor da venda.
+  const comissaoEsperada = fat * conta.comissaoPercentual;
+  itens.push(
+    itemConferido(
+      "comissao",
+      comissaoEsperada,
+      pedido.comissao,
+      `${pct(conta.comissaoPercentual)} sobre a venda de ${brl(fat)}`,
+      (c) => (fat > 0 ? `O valor cobrado equivale a ${pct(c / fat)} da venda.` : undefined),
+    ),
+  );
+
+  // Taxa fixa — valor fixo por pedido configurado na conta.
+  itens.push(
+    itemConferido(
+      "taxaFixa",
+      conta.taxaFixa,
+      pedido.taxaFixa,
+      `Taxa fixa por pedido desta conta: ${brl(conta.taxaFixa)}`,
+    ),
+  );
+
+  // Frete — depende de QUEM paga o frete deste pedido.
+  const responsavel =
+    ex?.responsavelFrete ?? (pedido.tipoLogistica === "full" ? "canal-full" : "seller");
+  const regraFrete =
+    responsavel === "canal-full"
+      ? "Pedido saiu pelo Full: o frete é por conta do canal, não seu"
+      : responsavel === "comprador"
+        ? regras.freteSellerAPartirDe === null
+          ? "Neste canal o frete não é cobrado do vendedor por pedido"
+          : `Pedido de ${brl(fat)}, abaixo de ${brl(regras.freteSellerAPartirDe)}: quem paga o frete é o comprador`
+        : regras.freteSellerAPartirDe === null
+          ? `Frete grátis por sua conta, pela tabela do canal: ${brl(pedido.freteEsperado)}`
+          : `Pedido de ${brl(fat)}, a partir de ${brl(regras.freteSellerAPartirDe)}: frete grátis por sua conta, pela tabela do canal (${brl(pedido.freteEsperado)})`;
+  itens.push(
+    itemConferido(
+      "frete",
+      responsavel === "seller" ? pedido.freteEsperado : 0,
+      pedido.freteCobrado,
+      regraFrete,
+      (c) =>
+        responsavel !== "seller" && c > 0
+          ? "Não era pra ter cobrança de frete neste pedido: o frete não é seu."
+          : undefined,
+    ),
+  );
+
+  // Parcelamento sem juros — só em canal onde o vendedor oferece.
+  if (regras.parcelamentoPorParcela !== null || foiCobrado("parcelamento")) {
+    const porParcela = regras.parcelamentoPorParcela ?? 0;
+    const extras = Math.max(0, pedido.parcelas - 1);
+    const esperado = fat * porParcela * extras;
+    const regra =
+      regras.parcelamentoPorParcela === null
+        ? "Você não oferece parcelamento sem juros neste canal"
+        : extras === 0
+          ? "Venda à vista: sem custo de parcelamento"
+          : `${pedido.parcelas}x sem juros: ${extras} parcela${extras > 1 ? "s" : ""} além da primeira × ${pct(porParcela)} sobre ${brl(fat)}`;
+    itens.push(
+      itemConferido("parcelamento", esperado, cobrado("parcelamento", esperado), regra, (c) => {
+        if (porParcela <= 0 || fat <= 0) return undefined;
+        const vezes = Math.round(c / (fat * porParcela)) + 1;
+        return vezes > 1 && Math.abs(fat * porParcela * (vezes - 1) - c) < TOLERANCIA_AUDITOR
+          ? `O valor cobrado é o de ${vezes}x sem juros, mas o cliente comprou em ${pedido.parcelas}x.`
+          : undefined;
+      }),
+    );
+  }
+
+  // Taxa de transação/pagamento.
+  if (regras.taxaTransacao !== null || foiCobrado("taxaTransacao")) {
+    const taxa = regras.taxaTransacao ?? 0;
+    const esperado = fat * taxa;
+    itens.push(
+      itemConferido(
+        "taxaTransacao",
+        esperado,
+        cobrado("taxaTransacao", esperado),
+        taxa > 0 ? `${pct(taxa)} sobre ${brl(fat)}` : "Este canal não cobra taxa de transação",
+        (c) => (fat > 0 && taxa > 0 ? `O valor cobrado equivale a ${pct(c / fat)} da venda.` : undefined),
+      ),
+    );
+  }
+
+  // Taxa de programa (frete grátis, cashback).
+  if (regras.taxaServico !== null || foiCobrado("taxaServico")) {
+    const taxa = regras.taxaServico ?? 0;
+    const esperado = fat * taxa;
+    itens.push(
+      itemConferido(
+        "taxaServico",
+        esperado,
+        cobrado("taxaServico", esperado),
+        taxa > 0
+          ? `Programa de frete grátis: ${pct(taxa)} sobre ${brl(fat)}`
+          : "Você não participa de nenhum programa neste canal",
+        (c) => (fat > 0 && taxa > 0 ? `O valor cobrado equivale a ${pct(c / fat)} da venda.` : undefined),
+      ),
+    );
+  }
+
+  // Comissão de afiliado — só quando a venda veio de afiliado.
+  if (regras.comissaoAfiliado !== null || foiCobrado("afiliado")) {
+    const taxa = regras.comissaoAfiliado ?? 0;
+    const veio = ex?.veioDeAfiliado ?? false;
+    const esperado = veio ? fat * taxa : 0;
+    itens.push(
+      itemConferido(
+        "afiliado",
+        esperado,
+        cobrado("afiliado", esperado),
+        veio
+          ? `Venda veio de afiliado: ${pct(taxa)} sobre ${brl(fat)}`
+          : "A venda não veio de afiliado: não tem comissão de afiliado",
+        (c) =>
+          !veio && c > 0
+            ? "Cobraram comissão de afiliado, mas esta venda não veio de nenhum afiliado."
+            : undefined,
+      ),
+    );
+  }
+
+  // Cupom — só o cupom criado pelo vendedor sai do bolso dele.
+  if (ex?.cupom || foiCobrado("cupom")) {
+    const cupom = ex?.cupom ?? null;
+    const esperado = cupom?.origem === "seller" ? cupom.valor : 0;
+    itens.push(
+      itemConferido(
+        "cupom",
+        esperado,
+        cobrado("cupom", esperado),
+        cupom?.origem === "seller"
+          ? `Cupom criado por você: ${brl(cupom.valor)}`
+          : cupom
+            ? `Cupom do próprio canal (${brl(cupom.valor)}): o desconto é bancado por ele, não por você`
+            : "Esta compra não usou cupom seu",
+        (c) =>
+          cupom?.origem === "canal" && c > 0
+            ? "O cupom era do canal, mas o desconto foi descontado de você."
+            : undefined,
+      ),
+    );
+  }
+
+  // Frete de devolução — só é do vendedor quando a culpa é dele.
+  if (pedido.valorDevolvido > 0 || foiCobrado("freteDevolucao")) {
+    const motivo = pedido.motivoDevolucao ?? "sem motivo informado";
+    const culpaSeller = MOTIVOS_DEVOLUCAO_CULPA_SELLER.includes(motivo);
+    const tabela = ex?.freteDevolucaoTabela ?? 0;
+    const esperado = culpaSeller ? tabela : 0;
+    itens.push(
+      itemConferido(
+        "freteDevolucao",
+        esperado,
+        cobrado("freteDevolucao", esperado),
+        culpaSeller
+          ? `Devolução por "${motivo}": o frete de volta é seu (${brl(tabela)} pela tabela)`
+          : `Devolução por "${motivo}": o frete de volta é do canal, não seu`,
+        (c) =>
+          !culpaSeller && c > 0
+            ? "O motivo da devolução não foi culpa sua, mas o frete de volta foi cobrado de você."
+            : undefined,
+      ),
+    );
+  }
+
+  // Tarifa do Full por unidade — pelo tamanho cadastrado.
+  if (
+    (pedido.tipoLogistica === "full" && regras.tarifaFulfillment !== null) ||
+    foiCobrado("tarifaFulfillment")
+  ) {
+    const tabela = regras.tarifaFulfillment;
+    const tamanho = ex?.tamanhoFulfillment ?? tamanhoFulfillmentDoSku(pedido.sku);
+    const porUnidade = tabela?.[tamanho] ?? 0;
+    const esperado = porUnidade * pedido.quantidade;
+    itens.push(
+      itemConferido(
+        "tarifaFulfillment",
+        esperado,
+        cobrado("tarifaFulfillment", esperado),
+        tabela
+          ? `Tamanho cadastrado ${ROTULO_TAMANHO[tamanho]}: ${brl(porUnidade)} × ${pedido.quantidade} un.`
+          : "Este canal não cobra tarifa por unidade do Full",
+        (c) => {
+          if (!tabela) return undefined;
+          for (const t of ["pequeno", "medio", "grande"] as const) {
+            if (t !== tamanho && Math.abs(tabela[t] * pedido.quantidade - c) < TOLERANCIA_AUDITOR) {
+              return `O valor cobrado é o do tamanho ${ROTULO_TAMANHO[t]} (${brl(tabela[t])} por unidade): o canal pode ter medido o produto diferente do cadastro.`;
+            }
+          }
+          return undefined;
+        },
+      ),
+    );
+  }
+
+  // Garantia estendida — só aparece se cobraram.
+  if (foiCobrado("garantia")) {
+    itens.push(
+      itemConferido(
+        "garantia",
+        0,
+        cobrado("garantia"),
+        regras.vendeGarantia
+          ? "Garantia estendida vendida junto"
+          : "Você não vende garantia estendida neste canal",
+      ),
+    );
+  }
+
+  return itens;
+}
+
+/** Só os itens que vieram FORA da regra (compatível com a versão antiga). */
 export function conferirCobrancaPedido(
   pedido: Pedido,
   conta: ContaMarketplace,
 ): ItemDivergenteAuditor[] {
-  const candidatos: ItemDivergenteAuditor[] = [
-    { item: "frete", esperado: pedido.freteEsperado, cobrado: pedido.freteCobrado },
-    {
-      item: "comissao",
-      esperado: Math.round(pedido.faturamento * conta.comissaoPercentual * 100) / 100,
-      cobrado: pedido.comissao,
-    },
-    { item: "taxaFixa", esperado: conta.taxaFixa, cobrado: pedido.taxaFixa },
-  ];
-  return candidatos.filter(
-    (c) => Math.abs(c.cobrado - c.esperado) >= TOLERANCIA_AUDITOR,
-  );
+  return conferirTodasCobrancasPedido(pedido, conta).filter(itemDivergente);
 }
 
+const CAUSA_PROVAVEL: Record<ItemCobrancaAuditor, string> = {
+  comissao:
+    "a comissão sai diferente quando o canal reclassifica a categoria do anúncio ou aplica uma regra de campanha",
+  taxaFixa: "a taxa fixa muda quando o canal reenquadra a faixa de preço do pedido",
+  frete:
+    "o frete costuma sair diferente quando o peso ou as medidas cadastradas no anúncio não batem com o volume real, ou quando o canal cobra frete de um pedido em que o frete não é seu",
+  parcelamento:
+    "o custo de parcelamento sai errado quando o canal considera um número de parcelas diferente do que o cliente usou",
+  taxaTransacao: "a taxa de transação sai diferente quando o canal aplica a taxa de outro meio de pagamento",
+  taxaServico:
+    "a taxa de programa sai diferente quando o canal aplica o percentual de outro programa ou não respeita a sua adesão",
+  afiliado:
+    "a comissão de afiliado aparece por engano quando o canal atribui a venda a um link de afiliado que não foi usado",
+  cupom:
+    "o cupom é descontado de você por engano quando o canal registra um cupom dele como se fosse seu",
+  freteDevolucao:
+    "o frete de devolução só é seu quando a culpa é sua (defeito, produto diferente, item incompleto)",
+  tarifaFulfillment:
+    "a tarifa do Full sai diferente quando o canal mede o produto e enquadra num tamanho maior que o cadastrado",
+  garantia: "a garantia estendida aparece por engano quando o canal vincula o serviço a um anúncio seu",
+  armazenagem:
+    "a armazenagem sai diferente quando o canal aplica a taxa de estoque parado a um produto que está girando",
+  armazenagemProlongada:
+    "a armazenagem prolongada só vale pra unidades paradas há muito tempo; ela aparece por engano quando o canal conta a idade do estoque errado",
+  retirada: "a retirada só pode ser cobrada quando você pede pra tirar estoque do Full",
+  multaFull:
+    "a multa de não conformidade só vale quando o canal registra um problema no seu envio (etiqueta, embalagem, quantidade)",
+};
+
 function causaProvavel(itens: ItemDivergenteAuditor[]): string {
-  const nomes = itens.map((i) => i.item);
-  const partes: string[] = [];
-  if (nomes.includes("frete")) {
-    partes.push(
-      "o frete costuma sair diferente quando o peso ou as medidas cadastradas no anúncio não batem com o volume real",
-    );
-  }
-  if (nomes.includes("comissao")) {
-    partes.push(
-      "a comissão sai diferente quando o canal reclassifica a categoria do anúncio ou aplica uma regra de campanha",
-    );
-  }
-  if (nomes.includes("taxaFixa")) {
-    partes.push("a taxa fixa muda quando o canal reenquadra a faixa de preço do pedido");
-  }
+  const partes = itens.map((i) => CAUSA_PROVAVEL[i.item]);
   return partes.length > 0
     ? `Possível causa: ${partes.join("; ")}.`
     : "Confira a fatura do canal pra entender a diferença.";
+}
+
+function listarNomes(itens: ItemDivergenteAuditor[]): string {
+  // Só a primeira letra em minúscula: "Full" continua com F maiúsculo.
+  const nomes = itens.map((i) => {
+    const r = ROTULO_ITEM_AUDITOR[i.item];
+    return r.charAt(0).toLowerCase() + r.slice(1);
+  });
+  return nomes.length === 1
+    ? nomes[0]!
+    : `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
 }
 
 /**
@@ -1847,18 +2151,12 @@ export function auditarCobrancas(
     const conta = porConta.get(p.contaId);
     if (!conta) continue;
 
-    const itens = conferirCobrancaPedido(p, conta);
+    const conferidos = conferirTodasCobrancasPedido(p, conta);
+    const itens = conferidos.filter(itemDivergente);
     if (itens.length === 0) continue;
 
-    const diferenca =
-      Math.round(itens.reduce((s, i) => s + (i.cobrado - i.esperado), 0) * 100) / 100;
+    const diferenca = r2(itens.reduce((s, i) => s + (i.cobrado - i.esperado), 0));
     if (Math.abs(diferenca) < TOLERANCIA_AUDITOR) continue;
-
-    const nomes = itens.map((i) => ROTULO_ITEM_AUDITOR[i.item].toLowerCase());
-    const lista =
-      nomes.length === 1
-        ? nomes[0]!
-        : `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
 
     ocorrencias.push({
       id: "",
@@ -1872,19 +2170,164 @@ export function auditarCobrancas(
       marketplaceId: p.marketplaceId,
       contaId: p.contaId,
       contaNome: conta.nome,
-      motivo: `O pedido ${p.id} foi cobrado ${diferenca > 0 ? "a mais" : "a menos"} em ${lista}: diferença de ${diferenca.toFixed(2).replace(".", ",")} reais.`,
+      motivo: `O pedido ${p.id} foi cobrado ${diferenca > 0 ? "a mais" : "a menos"} em ${listarNomes(itens)}: diferença de ${brl(Math.abs(diferenca))}.`,
       causaProvavel: causaProvavel(itens),
       campo: null,
       valorAnterior: null,
       valorNovo: null,
       pedidosAfetados: [],
       itensDivergentes: itens,
+      itensConferidos: conferidos,
+      mesReferencia: null,
       diferenca,
       status: "aberto",
       atualizadoEm: null,
     });
   }
   return ocorrencias.sort((a, b) => Math.abs(b.diferenca) - Math.abs(a.diferenca));
+}
+
+const NOME_MES = [
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
+
+/** "2026-08" → "agosto/2026" */
+export function rotuloMesReferencia(mes: string): string {
+  const [ano, m] = mes.split("-");
+  return `${NOME_MES[Number(m) - 1] ?? m}/${ano}`;
+}
+
+/**
+ * Confere a fatura mensal do Full de cada SKU: armazenagem, armazenagem
+ * prolongada, retirada de estoque e multa de não conformidade. Uma
+ * ocorrência por SKU por mês, só quando algum item veio fora da regra.
+ */
+export function auditarCobrancasFull(
+  faturas: CobrancaFullMes[],
+  estoqueFull: ItemEstoqueDetalhado[],
+  contas: ContaMarketplace[],
+): OcorrenciaAuditor[] {
+  const porSku = new Map(estoqueFull.map((i) => [`${i.marketplaceId}:${i.sku}`, i]));
+  const ocorrencias: OcorrenciaAuditor[] = [];
+
+  for (const f of faturas) {
+    const item = porSku.get(`${f.marketplaceId}:${f.sku}`);
+    if (!item) continue;
+    // O Full é da conta principal do canal (a primeira conta ativa dele).
+    const conta = contas.find((c) => c.marketplaceId === f.marketplaceId);
+    if (!conta) continue;
+
+    const parado = item.coberturaDias > ARMAZENAGEM_FULL.diasParado;
+    const taxa = parado ? ARMAZENAGEM_FULL.parado : ARMAZENAGEM_FULL.normal;
+    const esperadoArmazenagem = item.valorEstoque * taxa;
+    const prolongada = item.coberturaDias > ARMAZENAGEM_FULL.diasProlongada;
+    const esperadoProlongada = prolongada
+      ? item.quantidade * ARMAZENAGEM_FULL.prolongadaPorUnidade
+      : 0;
+    const esperadoRetirada = f.retiradasSolicitadas * ARMAZENAGEM_FULL.retiradaPorUnidade;
+
+    const conferidos: ItemDivergenteAuditor[] = [
+      itemConferido(
+        "armazenagem",
+        esperadoArmazenagem,
+        f.cobrado.armazenagem ?? esperadoArmazenagem,
+        `${pct(taxa)} ao mês sobre ${brl(item.valorEstoque)} em estoque (cobertura de ${item.coberturaDias} dias${parado ? `, acima de ${ARMAZENAGEM_FULL.diasParado}: taxa de estoque parado` : ""})`,
+        (c) =>
+          !parado &&
+          item.valorEstoque > 0 &&
+          Math.abs(item.valorEstoque * ARMAZENAGEM_FULL.parado - c) < TOLERANCIA_AUDITOR
+            ? `Cobraram a taxa de estoque parado (${pct(ARMAZENAGEM_FULL.parado)}), mas a cobertura é de ${item.coberturaDias} dias, abaixo de ${ARMAZENAGEM_FULL.diasParado}.`
+            : undefined,
+      ),
+      itemConferido(
+        "armazenagemProlongada",
+        esperadoProlongada,
+        f.cobrado.armazenagemProlongada ?? esperadoProlongada,
+        prolongada
+          ? `Cobertura de ${item.coberturaDias} dias, acima de ${ARMAZENAGEM_FULL.diasProlongada}: ${brl(ARMAZENAGEM_FULL.prolongadaPorUnidade)} × ${item.quantidade} un.`
+          : `Cobertura de ${item.coberturaDias} dias, abaixo de ${ARMAZENAGEM_FULL.diasProlongada}: não tem armazenagem prolongada`,
+        (c) =>
+          !prolongada && c > 0
+            ? "Cobraram armazenagem prolongada, mas o estoque deste SKU está girando e não tem unidade parada há mais de 120 dias."
+            : undefined,
+      ),
+      itemConferido(
+        "retirada",
+        esperadoRetirada,
+        f.cobrado.retirada ?? esperadoRetirada,
+        f.retiradasSolicitadas > 0
+          ? `${f.retiradasSolicitadas} un. retiradas a seu pedido × ${brl(ARMAZENAGEM_FULL.retiradaPorUnidade)}`
+          : "Você não pediu nenhuma retirada de estoque no mês",
+        (c) =>
+          f.retiradasSolicitadas === 0 && c > 0
+            ? "Cobraram retirada de estoque, mas você não pediu nenhuma retirada."
+            : undefined,
+      ),
+      itemConferido(
+        "multaFull",
+        0,
+        f.cobrado.multaFull ?? 0,
+        f.naoConformidades > 0
+          ? `${f.naoConformidades} não conformidade(s) registrada(s) no mês`
+          : "Nenhuma não conformidade registrada no seu envio",
+        (c) =>
+          f.naoConformidades === 0 && c > 0
+            ? "Cobraram multa, mas o canal não registrou nenhuma não conformidade no seu envio."
+            : undefined,
+      ),
+    ];
+    const itens = conferidos.filter(itemDivergente);
+    if (itens.length === 0) continue;
+    const diferenca = r2(itens.reduce((s, i) => s + (i.cobrado - i.esperado), 0));
+
+    ocorrencias.push({
+      id: "",
+      chave: `full:${f.marketplaceId}:${f.sku}:${f.mes}`,
+      tipo: "cobranca-full",
+      data: f.data,
+      anuncioId: null,
+      pedidoId: null,
+      sku: f.sku,
+      produto: f.produto,
+      marketplaceId: f.marketplaceId,
+      contaId: conta.id,
+      contaNome: conta.nome,
+      motivo: `A fatura do Full de ${rotuloMesReferencia(f.mes)} deste SKU veio ${diferenca > 0 ? "a mais" : "a menos"} em ${listarNomes(itens)}: diferença de ${brl(Math.abs(diferenca))}.`,
+      causaProvavel: causaProvavel(itens),
+      campo: null,
+      valorAnterior: null,
+      valorNovo: null,
+      pedidosAfetados: [],
+      itensDivergentes: itens,
+      itensConferidos: conferidos,
+      mesReferencia: f.mes,
+      diferenca,
+      status: "aberto",
+      atualizadoEm: null,
+    });
+  }
+  return ocorrencias.sort((a, b) => Math.abs(b.diferenca) - Math.abs(a.diferenca));
+}
+
+/**
+ * Junta o que está gravado no banco (status que o seller escolheu) com o
+ * cálculo de agora (valores e explicações atualizados). O banco é a
+ * memória do STATUS; a conta sempre vem do cálculo mais recente. Quando
+ * a ocorrência não aparece mais no cálculo (saiu da janela de 30 dias),
+ * fica a versão gravada.
+ */
+export function mesclarOcorrenciasAuditor(
+  gravadas: OcorrenciaAuditor[],
+  calculadas: OcorrenciaAuditor[],
+): OcorrenciaAuditor[] {
+  const porChave = new Map(calculadas.map((o) => [o.chave, o]));
+  return gravadas.map((g) => {
+    const atual = porChave.get(g.chave);
+    return atual
+      ? { ...atual, id: g.id, status: g.status, atualizadoEm: g.atualizadoEm }
+      : g;
+  });
 }
 
 /**
@@ -1981,7 +2424,7 @@ export function resumirAuditoria(ocorrencias: OcorrenciaAuditor[]): ResumoAudito
   let pendente = 0;
   let abertas = 0;
   for (const o of ocorrencias) {
-    if (o.tipo !== "cobranca-divergente" || o.diferenca <= 0) continue;
+    if (o.tipo === "mudanca-taxa" || o.diferenca <= 0) continue;
     cobradoAMais += o.diferenca;
     if (o.status === "reembolsado") recuperado += o.diferenca;
     else if (o.status !== "ignorado") pendente += o.diferenca;
