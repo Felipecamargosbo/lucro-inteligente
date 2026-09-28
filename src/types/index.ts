@@ -836,7 +836,49 @@ export interface AlertaEstoque {
   diasAlvoCobertura: number;
   status: StatusSugestao;
   decididoEm: string | null;
+  /* Campos do Bloco 4 — opcionais porque alertas gravados antes não têm */
+  /** "ruptura" = vai faltar; "parado" = sobrando no Full (só Fulfillment) */
+  tipoAlerta?: TipoAlertaEstoque;
+  /** Dias que o fornecedor leva pra entregar */
+  prazoFornecedorDias?: number;
+  /** Até quando dá pra fazer o pedido sem faltar: dias a partir de hoje.
+   * Zero ou negativo = já passou do ponto, vai faltar mesmo pedindo hoje. */
+  diasParaPedir?: number;
+  /** Pedindo hoje, quantos dias o produto fica sem estoque até chegar */
+  diasSemEstoque?: number;
+  custoUnitario?: number;
+  /** Quanto custa a reposição sugerida (quantidade × custo) */
+  custoReposicao?: number;
+  veredito?: VereditoReposicao;
+  /** Por que vale (ou não) repor, em português */
+  motivoVeredito?: string;
+  classeAbc?: "A" | "B" | "C" | null;
+  /** Margem líquida do SKU nos últimos 30 dias */
+  margem30d?: number | null;
+  /* Só Fulfillment */
+  /** Dias pra preparar, agendar, transportar e o Full conferir */
+  prazoEnvioFullDias?: number;
+  /** Estoque próprio disponível pra mandar pro Full */
+  estoqueProprio?: number;
+  /** Quanto mandar do estoque próprio pro Full agora */
+  quantidadeEnviar?: number;
+  /** Quanto falta comprar do fornecedor (quando o estoque próprio não dá) */
+  quantidadeComprar?: number;
+  /** Armazenagem que este SKU custa hoje por mês no Full */
+  custoArmazenagemMensal?: number;
+  /** Parado: quantas unidades vale retirar do Full */
+  quantidadeRetirar?: number;
+  /** Parado: quanto custa retirar essas unidades */
+  custoRetirada?: number;
+  /** Parado: quanto deixa de pagar de armazenagem por mês retirando */
+  economiaMensal?: number;
 }
+
+/** O que o agente acha de repor: vale, vale com cuidado (repor menos) ou
+ * não vale (resolver o preço antes). */
+export type VereditoReposicao = "repor" | "repor-com-cuidado" | "nao-repor";
+
+export type TipoAlertaEstoque = "ruptura" | "parado";
 
 /* ------------------------------------------------------------------ */
 /* Agente de Ads                                                       */
