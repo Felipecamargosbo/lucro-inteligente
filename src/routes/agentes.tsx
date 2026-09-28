@@ -19,6 +19,10 @@ import {
   contasService,
   criativoService,
   estoqueService,
+  fichasService,
+  modelosSacService,
+  regrasSacService,
+  sacConfigService,
   eventosAgenteService,
   fulfillmentService,
   mudancasPrecoService,
@@ -56,11 +60,23 @@ import {
   sugerirAnunciosParaAds,
   type AnaliseRoasAnuncio,
 } from "@/lib/finance";
+import {
+  CONFIGURACAO_SAC_PADRAO,
+  MODELOS_SAC_PADRAO,
+  classificarPergunta,
+  type PerguntaRepetida,
+} from "@/lib/sac";
 import { Painel } from "@/components/comum/Indicadores";
 import { cn } from "@/lib/utils";
 import type {
   AcaoAds,
   AlertaEstoque,
+  Anuncio,
+  ConfiguracaoSac,
+  MarketplaceId,
+  Pedido,
+  RegraSac,
+  SituacaoSac,
   OcorrenciaAuditor,
   StatusOcorrenciaAuditor,
   EventoAds,
@@ -105,6 +121,68 @@ const PERGUNTAS_FICTICIAS = [
   "Posso trocar se não servir ou não gostar?",
 ];
 
+/** Marca da leva de exemplos do Bloco 6 — cria só uma vez por seller. */
+const LOTE_EXEMPLOS_SAC = "bloco6";
+
+/**
+ * Exemplos de cada tipo de mensagem (FICTÍCIOS, até a API de mensagens
+ * conectar): dois de pós-venda (um pedido já despachado, outro não), uma
+ * reclamação e três perguntas repetidas sobre o mesmo produto.
+ */
+function montarTicketsExemploSac(anuncios: Anuncio[], pedidos: Pedido[]) {
+  const tickets: {
+    contaId: string | null;
+    anuncioId: string | null;
+    produto: string;
+    sku: string;
+    marketplaceId: MarketplaceId;
+    pergunta: string;
+    pedidoId?: string | null;
+    cliente?: string | null;
+  }[] = [];
+  const anuncioDe = (p: Pedido) =>
+    anuncios.find((a) => a.contaId === p.contaId && a.sku === p.sku) ?? null;
+  const doPedido = (p: Pedido, pergunta: string) => {
+    const a = anuncioDe(p);
+    tickets.push({
+      contaId: p.contaId,
+      anuncioId: a?.id ?? null,
+      produto: p.produto,
+      sku: p.sku,
+      marketplaceId: p.marketplaceId,
+      pergunta,
+      pedidoId: p.id,
+      cliente: p.cliente,
+    });
+  };
+  const emTransito = pedidos.find((p) => p.status === "em-transito" && anuncioDe(p));
+  const aguardando = pedidos.find((p) => p.status === "aguardando-envio" && anuncioDe(p));
+  const entregue = pedidos.find((p) => p.status === "entregue" && anuncioDe(p));
+  if (emTransito) doPedido(emTransito, "Oi, comprei faz 3 dias e ainda não chegou. Cadê meu pedido?");
+  if (aguardando) doPedido(aguardando, "Meu pedido ainda não foi enviado? Já faz dois dias que comprei.");
+  if (entregue)
+    doPedido(entregue, "O produto chegou com defeito, não liga de jeito nenhum. Quero meu dinheiro de volta!");
+
+  const pelicula = anuncios.find((a) => a.sku === "PEL-IP15-PM") ?? anuncios[0];
+  if (pelicula) {
+    for (const pergunta of [
+      "Serve no iPhone 15 normal ou só no Pro Max?",
+      "É compatível com o iPhone 14 Pro Max?",
+      "Serve no iPhone 15 Plus?",
+    ]) {
+      tickets.push({
+        contaId: pelicula.contaId,
+        anuncioId: pelicula.id,
+        produto: pelicula.produto,
+        sku: pelicula.sku,
+        marketplaceId: pelicula.marketplaceId,
+        pergunta,
+      });
+    }
+  }
+  return tickets;
+}
+
 
 function Agentes() {
   const { metasPorConta, fiscal, custoOperacionalTotal } = useConfiguracoes();
@@ -137,6 +215,12 @@ function Agentes() {
   const [carregandoTickets, setCarregandoTickets] = useState(true);
   /** Ticket com resposta em andamento de gerar (mostra o spinner só nele) */
   const [gerandoId, setGerandoId] = useState<string | null>(null);
+  /** O que deixa a resposta do SAC com a cara da loja: personalização,
+   * regras aprendidas, fichas dos produtos e mensagens prontas. */
+  const [configSac, setConfigSac] = useState<ConfiguracaoSac>(CONFIGURACAO_SAC_PADRAO);
+  const [regrasSac, setRegrasSac] = useState<RegraSac[]>([]);
+  const [fichas, setFichas] = useState<Map<string, string>>(new Map());
+  const [modelosSac, setModelosSac] = useState<Record<SituacaoSac, string>>(MODELOS_SAC_PADRAO);
   /** Rascunho editável de cada ticket, por id — separado do que já está
    * salvo, pra o seller poder ajustar antes de aprovar. */
   const [rascunhos, setRascunhos] = useState<Record<string, string>>({});
@@ -324,9 +408,22 @@ function Agentes() {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
+    // O contexto do SAC vem junto: personalização, regras, fichas e
+    // mensagens prontas. Nada disso gasta token — é só leitura do banco.
+    const [config, regras, mapaFichas, modelos] = await Promise.all([
+      sacConfigService.carregar(perfilId),
+      regrasSacService.listar(perfilId),
+      fichasService.listar(perfilId),
+      modelosSacService.listar(perfilId),
+    ]);
+    setConfigSac(config);
+    setRegrasSac(regras);
+    setFichas(mapaFichas);
+    setModelosSac(modelos);
+
+    const anunciosAtivos = anunciosService.listar().filter((a) => a.status === "ativo");
     const existentes = await sacService.listar(perfilId);
     if (existentes.length === 0) {
-      const anunciosAtivos = anunciosService.listar().filter((a) => a.status === "ativo");
       const amostra = anunciosAtivos.slice(0, Math.min(4, anunciosAtivos.length));
       for (let i = 0; i < amostra.length; i++) {
         const a = amostra[i]!;
@@ -338,6 +435,16 @@ function Agentes() {
           marketplaceId: a.marketplaceId,
           pergunta: PERGUNTAS_FICTICIAS[i % PERGUNTAS_FICTICIAS.length]!,
         });
+        if (erro) console.error("Não consegui criar o ticket de exemplo:", erro);
+      }
+    }
+
+    // Leva de exemplos do Bloco 6 (uma vez só): pós-venda, reclamação e
+    // perguntas repetidas — pra mostrar cada tipo de mensagem na tela.
+    const lotes = await sacService.lotesCriados(perfilId);
+    if (!lotes.has(LOTE_EXEMPLOS_SAC)) {
+      for (const t of montarTicketsExemploSac(anunciosAtivos, vendasService.listar())) {
+        const erro = await sacService.criarTicket(perfilId, { ...t, lote: LOTE_EXEMPLOS_SAC });
         if (erro) console.error("Não consegui criar o ticket de exemplo:", erro);
       }
     }
@@ -691,7 +798,14 @@ function Agentes() {
    * do seller, nunca automático. */
   const gerarRespostaSac = async (ticket: TicketSac) => {
     setGerandoId(ticket.id);
-    const { resposta, erro } = await sacService.gerarResposta(ticket.pergunta, ticket.produto);
+    const { resposta, erro } = await sacService.gerarResposta({
+      pergunta: ticket.pergunta,
+      produto: ticket.produto,
+      categoria: classificarPergunta(ticket.pergunta, ticket.pedidoId),
+      ficha: fichas.get(ticket.sku) ?? null,
+      config: configSac,
+      regras: regrasSac.filter((r) => r.ativa).map((r) => r.regra),
+    });
     setGerandoId(null);
     if (erro) {
       toast.error(`Não consegui gerar a resposta: ${erro}`);
@@ -707,11 +821,76 @@ function Agentes() {
     setRascunhos((atual) => ({ ...atual, [ticket.id]: resposta }));
   };
 
+  /** O seller editou a resposta da IA e pediu pra aprender: o Gestor
+   * compara as duas versões e propõe uma regra (o seller confirma antes). */
+  const aprenderComEdicaoSac = async (
+    ticket: TicketSac,
+    original: string,
+    editada: string,
+  ): Promise<string | null> => {
+    const { regra, erro } = await sacService.aprenderComEdicao({
+      pergunta: ticket.pergunta,
+      produto: ticket.produto,
+      respostaOriginal: original,
+      respostaEditada: editada,
+    });
+    if (erro) {
+      toast.error(`Não consegui analisar a edição: ${erro}`);
+      return null;
+    }
+    if (!regra) toast("A edição foi pequena demais pra virar uma regra — nada foi mudado.");
+    return regra;
+  };
+
+  const salvarRegraSac = async (regra: string, origem: RegraSac["origem"]) => {
+    if (!sessao) return;
+    const erro = await regrasSacService.criar(sessao.user.id, regra, origem);
+    if (erro) {
+      toast.error(`Não consegui salvar a regra: ${erro}`);
+      return;
+    }
+    setRegrasSac(await regrasSacService.listar(sessao.user.id));
+    toast.success("Regra salva. As próximas respostas do SAC já seguem ela.");
+  };
+
+  const salvarModeloSac = async (situacao: SituacaoSac, texto: string) => {
+    if (!sessao) return;
+    const erro = await modelosSacService.salvar(sessao.user.id, situacao, texto);
+    if (erro) {
+      toast.error(`Não consegui salvar a mensagem: ${erro}`);
+      return;
+    }
+    setModelosSac((atual) => ({ ...atual, [situacao]: texto }));
+    toast.success("Mensagem salva como padrão pras próximas.");
+  };
+
+  /** Perguntas repetidas = anúncio incompleto: manda pro Criativo. */
+  const enviarRepetidaParaCriativo = async (g: PerguntaRepetida) => {
+    if (!sessao) return;
+    const erro = await criativoService.criarSugestao(sessao.user.id, {
+      contaId: g.contaId,
+      anuncioId: g.anuncioId,
+      produto: g.produto,
+      sku: g.sku,
+      marketplaceId: g.marketplaceId,
+      motivo: `${g.quantidade} clientes perguntaram sobre ${g.assunto} de "${g.produto}". O anúncio provavelmente não explica isso — inclua essa informação na descrição, nos bullet points ou nas fotos.`,
+    });
+    if (erro) {
+      toast.error(`Não consegui mandar pro Criativo: ${erro}`);
+      return;
+    }
+    toast.success("Enviado pro Agente Criativo, com o motivo junto.");
+    await carregarSugestoesCriativo();
+  };
+
   const decidirTicket = async (
     ticket: TicketSac,
     status: Extract<StatusSugestao, "aprovada" | "recusada">,
+    /** Texto final quando não veio da IA (mensagem pronta de pós-venda
+     * ou resposta escrita pelo seller numa reclamação) */
+    textoFinal?: string,
   ) => {
-    const rascunho = rascunhos[ticket.id];
+    const rascunho = textoFinal ?? rascunhos[ticket.id];
     if (status === "aprovada" && rascunho && rascunho !== ticket.resposta) {
       const erroSalvar = await sacService.salvarResposta(ticket.id, rascunho);
       if (erroSalvar) {
@@ -960,6 +1139,15 @@ function Agentes() {
           aoMudarRascunho={(id, texto) => setRascunhos((atual) => ({ ...atual, [id]: texto }))}
           aoGerar={gerarRespostaSac}
           aoDecidir={decidirTicket}
+          config={configSac}
+          regrasAtivas={regrasSac.filter((r) => r.ativa).length}
+          fichas={fichas}
+          modelos={modelosSac}
+          buscarPedido={(id) => vendasService.buscarPorId(id)}
+          aoAprender={aprenderComEdicaoSac}
+          aoSalvarRegra={(regra) => salvarRegraSac(regra, "aprendida")}
+          aoSalvarModelo={salvarModeloSac}
+          aoEnviarParaCriativo={enviarRepetidaParaCriativo}
         />
       )}
 
