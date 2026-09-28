@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
@@ -21,7 +21,9 @@ import {
   estoqueService,
   eventosAgenteService,
   fulfillmentService,
+  mudancasPrecoService,
   produtosService,
+  promocoesService,
   sacService,
   vendasService,
 } from "@/services";
@@ -30,6 +32,12 @@ import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import {
+  avaliarCampanhas,
+  avaliarMudancaPreco,
+  chaveSugestaoPreco,
+  precosPorCanal,
+  situacaoEstoquePorSku,
+  sugerirPrecos,
   analisarFulfillment,
   analisarReposicaoEstoque,
   analisarRoasAnuncios,
@@ -39,8 +47,6 @@ import {
   auditarCobrancasFull,
   auditarMudancasTaxa,
   mesclarOcorrenciasAuditor,
-  DEGRAU_DESCONTO_PADRAO,
-  DIAS_PARADO_PADRAO,
   diagnosticarCurvaAbc,
   diagnosticarDadoFaltando,
   diagnosticarQuedaMargem,
@@ -48,7 +54,6 @@ import {
   FAIXAS_MARGEM_PADRAO,
   montarResumoDiario,
   sugerirAnunciosParaAds,
-  sugerirPrecoPorGiro,
   type AnaliseRoasAnuncio,
 } from "@/lib/finance";
 import { Painel } from "@/components/comum/Indicadores";
@@ -159,45 +164,22 @@ function Agentes() {
     const produtos = await produtosService.listar(perfilId);
     produtosService.reconciliarComAnuncios(produtos);
 
-    const candidatos: Omit<EventoAgente, "id" | "status" | "decididoEm" | "data">[] = [];
-    for (const a of anunciosService.listar()) {
-      if (a.status !== "ativo") continue;
+    // Frentes 1 e 2: subir (vende rápido e o estoque vai acabar) e baixar
+    // (parado, com corte que cresce com o tempo parado e o dinheiro preso).
+    const candidatos = sugerirPrecos(
+      anunciosService.listar(),
+      situacaoEstoquePorSku(
+        estoqueService.listarDetalhado(),
+        fulfillmentService.listarDetalhado(),
+        vendasService.listar(),
+      ),
+      (contaId) => metasPorConta[contaId] ?? FAIXAS_MARGEM_PADRAO,
+      { aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal },
+    );
 
-      const metas = metasPorConta[a.contaId] ?? null;
-      const margemMinima = metas?.margemMinima ?? FAIXAS_MARGEM_PADRAO.margemMinima;
-
-      const s = sugerirPrecoPorGiro(
-        a,
-        margemMinima,
-        { aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal },
-        { diasParado: DIAS_PARADO_PADRAO, degrau: DEGRAU_DESCONTO_PADRAO },
-      );
-      if (!s) continue;
-
-      candidatos.push({
-        agenteId: "precificacao",
-        anuncioId: a.id,
-        sku: a.sku,
-        produto: a.produto,
-        marketplaceId: a.marketplaceId,
-        contaId: a.contaId,
-        motivo: s.travadoNoPiso
-          ? `Parado há ${s.diasParado} dias. O corte de ${formatPercentual(DEGRAU_DESCONTO_PADRAO, 0)} passaria do piso, então parei no preço mínimo.`
-          : `Parado há ${s.diasParado} dias. Sugiro cortar ${formatPercentual(DEGRAU_DESCONTO_PADRAO, 0)} e ver se volta a girar.`,
-        diasParado: s.diasParado,
-        precoAtual: a.precoAtual,
-        precoSugerido: s.precoSugerido,
-        margemAtual: s.margemAtual,
-        margemSugerida: s.margemSugerida,
-        precoMinimo: s.precoMinimo,
-        semaforo: s.semaforo,
-        travadoNoPiso: s.travadoNoPiso,
-      });
-    }
-
-    const jaPendentes = await eventosAgenteService.skusPendentes(perfilId, "precificacao");
+    const jaPendentes = await eventosAgenteService.chavesPendentesPreco(perfilId);
     for (const c of candidatos) {
-      if (jaPendentes.has(c.sku)) continue;
+      if (jaPendentes.has(chaveSugestaoPreco(c))) continue;
       const erro = await eventosAgenteService.criar(perfilId, c);
       if (erro) console.error("Não consegui gravar a sugestão:", erro);
     }
@@ -206,6 +188,23 @@ function Agentes() {
     setEventos(lista);
     setCarregando(false);
   }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
+
+  /** Frentes 4 e 5 (campanhas e preço por canal): só leitura, recalculadas
+   * sempre que as metas ou os custos mudam — não vão pro banco. */
+  const analisesPreco = useMemo(() => {
+    const metasDe = (contaId: string) => metasPorConta[contaId] ?? FAIXAS_MARGEM_PADRAO;
+    const opcoes = { aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal };
+    const anuncios = anunciosService.listar();
+    const situacao = situacaoEstoquePorSku(
+      estoqueService.listarDetalhado(),
+      fulfillmentService.listarDetalhado(),
+      vendasService.listar(),
+    );
+    return {
+      campanhas: avaliarCampanhas(promocoesService.listar(), anuncios, situacao, metasDe, opcoes),
+      porCanal: precosPorCanal(anuncios, metasDe, opcoes),
+    };
+  }, [metasPorConta, fiscal, custoOperacionalTotal]);
 
   const [carregandoInsights, setCarregandoInsights] = useState(true);
 
@@ -568,6 +567,29 @@ function Agentes() {
   const decididos = eventosNaSelecao.filter((e) => e.status !== "pendente");
   const aprovadas = decididos.filter((e) => e.status === "aprovada").length;
 
+  /** Frente 3: o resultado de cada mudança de preço aprovada (e dos
+   * exemplos fictícios, enquanto não há histórico real). */
+  const resultadosPreco = useMemo(() => {
+    const pedidos = vendasService.listar();
+    const aprovadasReais = eventosNaSelecao
+      .filter((e) => e.status === "aprovada" && e.decididoEm)
+      .map((e) => ({
+        id: e.id,
+        anuncioId: e.anuncioId,
+        sku: e.sku,
+        produto: e.produto,
+        marketplaceId: e.marketplaceId,
+        contaId: e.contaId,
+        precoAntes: e.precoAtual,
+        precoDepois: e.precoSugerido,
+        data: e.decididoEm!,
+        exemplo: false,
+      }));
+    return [...aprovadasReais, ...mudancasPrecoService.exemplos()]
+      .map((m) => avaliarMudancaPreco(m, pedidos))
+      .sort((a, b) => a.diasDesde - b.diasDesde);
+  }, [eventosNaSelecao]);
+
   const decidir = async (evento: EventoAgente, status: StatusSugestao) => {
     if (status !== "aprovada" && status !== "recusada") return;
     // Otimista: a tela responde na hora.
@@ -923,6 +945,9 @@ function Agentes() {
           aprovadas={aprovadas}
           carregando={carregando}
           aoDecidir={decidir}
+          campanhas={analisesPreco.campanhas}
+          precosPorCanal={analisesPreco.porCanal}
+          resultados={resultadosPreco}
         />
       )}
 
