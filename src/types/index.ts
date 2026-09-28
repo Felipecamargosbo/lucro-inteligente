@@ -173,6 +173,73 @@ export interface Pedido {
    * dos pedidos é igual a `freteEsperado`; quando diverge, é isso que o
    * Agente Auditor aponta como cobrança divergente. */
   freteCobrado: number;
+  /** O extrato do canal para este pedido: tudo o que foi cobrado, linha
+   * por linha, mais o contexto que decide o que ERA pra ser cobrado
+   * (quem paga o frete, se veio de afiliado, de quem era o cupom...).
+   * É o formato que as APIs dos canais devolvem. Fictício por enquanto;
+   * opcional porque pedidos antigos podem não ter. */
+  extrato?: ExtratoCobrancaPedido;
+}
+
+/** De quem é o frete deste pedido. */
+export type ResponsavelFrete =
+  /** saiu pelo Full: o frete do pedido é por conta do canal */
+  | "canal-full"
+  /** o comprador pagou o frete (ou o canal não cobra frete do vendedor) */
+  | "comprador"
+  /** frete grátis pago pelo vendedor */
+  | "seller";
+
+/** Tamanho do produto cadastrado no Full/FBA — decide a tarifa por unidade. */
+export type TamanhoFulfillment = "pequeno" | "medio" | "grande";
+
+/** Tudo o que o Auditor sabe conferir, em pedidos e na fatura do Full. */
+export type ItemCobrancaAuditor =
+  | "comissao"
+  | "taxaFixa"
+  | "frete"
+  | "parcelamento"
+  | "taxaTransacao"
+  | "taxaServico"
+  | "afiliado"
+  | "cupom"
+  | "freteDevolucao"
+  | "tarifaFulfillment"
+  | "garantia"
+  | "armazenagem"
+  | "armazenagemProlongada"
+  | "retirada"
+  | "multaFull";
+
+/** O extrato de UM pedido: o que foi cobrado e o contexto da venda. */
+export interface ExtratoCobrancaPedido {
+  responsavelFrete: ResponsavelFrete;
+  /** A venda veio de um link de afiliado/criador de conteúdo */
+  veioDeAfiliado: boolean;
+  /** Cupom usado na compra; null quando não teve cupom */
+  cupom: { origem: "seller" | "canal"; valor: number } | null;
+  /** Só pedidos do Full/FBA; null nos outros */
+  tamanhoFulfillment: TamanhoFulfillment | null;
+  /** Frete de volta da devolução, pela tabela do canal; null sem devolução */
+  freteDevolucaoTabela: number | null;
+  /** O que o canal cobrou, item por item. Item ausente = não cobrou. */
+  cobrado: Partial<Record<ItemCobrancaAuditor, number>>;
+}
+
+/** A fatura mensal do Full de um SKU: o que o canal cobrou no mês. */
+export interface CobrancaFullMes {
+  marketplaceId: MarketplaceId;
+  sku: string;
+  produto: string;
+  /** Mês da fatura, "AAAA-MM" */
+  mes: string;
+  /** Quando a fatura fechou (ISO) */
+  data: string;
+  /** Retiradas de estoque que o seller pediu no mês */
+  retiradasSolicitadas: number;
+  /** Não conformidades registradas pelo canal no mês */
+  naoConformidades: number;
+  cobrado: Partial<Record<ItemCobrancaAuditor, number>>;
 }
 
 /** Full = estoque no CD do marketplace; Flex = o seller entrega no mesmo dia;
@@ -959,9 +1026,10 @@ export interface RegraSac {
 /* Agente Auditor                                                      */
 /* ------------------------------------------------------------------ */
 
-/** As duas frentes do Auditor: a regra do anúncio mudou (comissão ou
- * taxa fixa), ou um pedido específico foi cobrado diferente do esperado. */
-export type TipoOcorrenciaAuditor = "mudanca-taxa" | "cobranca-divergente";
+/** As frentes do Auditor: a regra do anúncio mudou (comissão ou taxa
+ * fixa); um pedido específico foi cobrado diferente do esperado; ou a
+ * fatura mensal do Full de um SKU veio diferente do esperado. */
+export type TipoOcorrenciaAuditor = "mudanca-taxa" | "cobranca-divergente" | "cobranca-full";
 
 /** Acompanha um processo, não só uma decisão — por isso tem mais estados
  * que `StatusSugestao`: o seller reclama com o marketplace e o resultado
@@ -972,11 +1040,19 @@ export type StatusOcorrenciaAuditor =
   | "reembolsado"
   | "ignorado";
 
-/** Um item cobrado diferente do esperado dentro de um mesmo pedido. */
+/** Um item conferido pelo Auditor: o que era pra ser cobrado, o que foi
+ * cobrado e a conta que explica o esperado. */
 export interface ItemDivergenteAuditor {
-  item: "frete" | "comissao" | "taxaFixa";
+  item: ItemCobrancaAuditor;
   esperado: number;
   cobrado: number;
+  /** Como o esperado foi calculado, em português ("16% sobre R$ 84,90") */
+  regra?: string;
+  /** O que chama atenção no cobrado ("equivale a 17,5% da venda") —
+   * só existe quando o item veio diferente */
+  observacao?: string;
+  /** Nada era pra ser cobrado (esperado 0) e veio cobrança */
+  indevido?: boolean;
 }
 
 /** Um pedido que já saiu com a taxa nova, depois de uma mudança de regra. */
@@ -1024,6 +1100,12 @@ export interface OcorrenciaAuditor {
   valorNovo: number | null;
   pedidosAfetados: PedidoAfetadoAuditor[];
   itensDivergentes: ItemDivergenteAuditor[];
+  /** TODOS os itens conferidos, inclusive os que vieram certos — pra
+   * tela mostrar a conta inteira com ✓ nos que batem. Ausente em
+   * ocorrências gravadas antes desta versão. */
+  itensConferidos?: ItemDivergenteAuditor[];
+  /** Fatura do Full: mês de referência "AAAA-MM"; null nas outras */
+  mesReferencia?: string | null;
   /** Cobrança divergente: soma de (cobrado − esperado) dos itens.
    * Mudança de taxa: quanto os pedidos afetados já custaram a mais. */
   diferenca: number;
