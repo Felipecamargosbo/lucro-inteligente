@@ -972,14 +972,39 @@ export type StatusOcorrenciaAuditor =
   | "reembolsado"
   | "ignorado";
 
+/** Um item cobrado diferente do esperado dentro de um mesmo pedido. */
+export interface ItemDivergenteAuditor {
+  item: "frete" | "comissao" | "taxaFixa";
+  esperado: number;
+  cobrado: number;
+}
+
+/** Um pedido que já saiu com a taxa nova, depois de uma mudança de regra. */
+export interface PedidoAfetadoAuditor {
+  pedidoId: string;
+  data: string; // ISO
+  faturamento: number;
+  /** Quanto este pedido pagou a mais por causa da taxa nova */
+  custoExtra: number;
+}
+
 /**
- * Um item de conferência do Auditor. `campo`/`valorAnterior`/`valorNovo`
- * só existem no tipo "mudanca-taxa"; `itemDivergente`/`valorEsperado`/
- * `valorCobrado`/`diferenca` só existem no tipo "cobranca-divergente" —
- * cada ocorrência preenche só o par que faz sentido pro seu tipo.
+ * Um item de conferência do Auditor.
+ * - "mudanca-taxa": a REGRA do anúncio mudou. Usa `campo`,
+ *   `valorAnterior`, `valorNovo` e `pedidosAfetados` (os pedidos que já
+ *   saíram com a taxa nova). Esses pedidos não estão errados — só ficaram
+ *   mais caros —, por isso ficam agrupados aqui em vez de virar um alerta
+ *   de cobrança cada um.
+ * - "cobranca-divergente": UM pedido foi cobrado diferente da regra que
+ *   vale. Usa `pedidoId` e `itensDivergentes` — um pedido com frete E
+ *   comissão errados vira uma ocorrência só, com os dois lado a lado.
  */
 export interface OcorrenciaAuditor {
+  /** id da linha em `eventos_agente`; vazio enquanto só existe no cálculo */
   id: string;
+  /** Identidade estável da ocorrência — é o que impede o Auditor de
+   * registrar a mesma coisa duas vezes a cada varredura */
+  chave: string;
   tipo: TipoOcorrenciaAuditor;
   data: string; // ISO
   anuncioId: string | null;
@@ -988,15 +1013,20 @@ export interface OcorrenciaAuditor {
   produto: string;
   marketplaceId: MarketplaceId;
   contaId: string;
+  /** Nome da conta, pra escrever a reclamação sem precisar buscar de novo */
+  contaNome: string;
   /** Por que o Auditor agiu, em português, pra aparecer na lista */
   motivo: string;
+  /** Explicação da causa provável, em português */
+  causaProvavel: string;
   campo: "comissaoPercentual" | "taxaFixa" | null;
   valorAnterior: number | null;
   valorNovo: number | null;
-  itemDivergente: "frete" | "comissao" | "taxaFixa" | null;
-  valorEsperado: number | null;
-  valorCobrado: number | null;
-  diferenca: number | null;
+  pedidosAfetados: PedidoAfetadoAuditor[];
+  itensDivergentes: ItemDivergenteAuditor[];
+  /** Cobrança divergente: soma de (cobrado − esperado) dos itens.
+   * Mudança de taxa: quanto os pedidos afetados já custaram a mais. */
+  diferenca: number;
   status: StatusOcorrenciaAuditor;
   /** Quando o seller mudou o status pela última vez; null enquanto "aberto" */
   atualizadoEm: string | null;
