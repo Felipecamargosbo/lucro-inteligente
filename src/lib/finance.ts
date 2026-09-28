@@ -3,6 +3,7 @@
 // igual com dados reais vindos das APIs.
 
 import type {
+  AlertaEstoque,
   Anuncio,
   ContaMarketplace,
   FaixaSaudeMargem,
@@ -22,6 +23,7 @@ import type {
   Periodo,
   Promocao,
   SemaforoDecisao,
+  VereditoReposicao,
 } from "@/types";
 import { dentroDoPeriodo, fimDoDia, inicioDoDia, listarDias, somarDias } from "./period";
 import {
@@ -1322,6 +1324,427 @@ export function diagnosticarRuptura(
 
   // O que vai acabar primeiro é o que mais precisa de atenção.
   return alertas.sort((a, b) => a.diasRestantes - b.diasRestantes);
+}
+
+/* ------------------------------------------------------------------ */
+/* Agentes de Estoque e Fulfillment — reposição inteligente (Bloco 4)   */
+/* ------------------------------------------------------------------ */
+
+/** Folga, em dias, somada ao prazo de entrega: o alerta vem antes do
+ * ponto exato, pra dar tempo de cotar, aprovar e pagar o pedido. */
+export const DIAS_SEGURANCA_REPOSICAO = 5;
+/** Quando vale repor "com cuidado", a compra cobre só estes dias depois
+ * que a mercadoria chega (em vez dos 30 normais). */
+export const DIAS_COBERTURA_CUIDADO = 15;
+/** Margem mínima usada quando a conta ainda não tem meta configurada. */
+export const MARGEM_MINIMA_PADRAO = 0.1;
+/** Quantos dias de venda manter no Full: o suficiente pra não faltar,
+ * sem mandar tanto que a armazenagem coma a margem. */
+export const DIAS_ALVO_FULL = 30;
+/** A partir desta cobertura, o estoque no Full é considerado parado
+ * (mesma regra da taxa de estoque parado que o Auditor confere). */
+export const DIAS_PARADO_FULL = 60;
+/** Taxas do Full usadas pra estimar a economia de retirar estoque —
+ * FICTÍCIAS, as mesmas que o Auditor usa. */
+const TAXA_ARMAZENAGEM_NORMAL = 0.008;
+const TAXA_RETIRADA_POR_UNIDADE = 2.5;
+
+/** Dias pra mandar mercadoria pro centro de distribuição de cada canal:
+ * preparar, agendar a coleta/entrega, transportar e o canal conferir.
+ * FICTÍCIO até a API do canal informar o agendamento real. */
+export const PRAZO_ENVIO_FULL_DIAS: Record<MarketplaceId, number> = {
+  "mercado-livre": 7,
+  shopee: 6,
+  amazon: 10,
+  magalu: 8,
+  "tiktok-shop": 8,
+  shein: 12,
+};
+
+/** O que o agente calcula pra cada SKU — o alerta sem os campos do banco. */
+export type AlertaEstoqueCalculado = Omit<
+  AlertaEstoque,
+  "id" | "data" | "status" | "decididoEm" | "contaId"
+>;
+
+/** Curva ABC por SKU a partir do faturamento real dos últimos `dias`:
+ * A = os que somam os primeiros 80% do faturamento, B = até 95%, C = o resto. */
+export function classificarAbcPorSku(
+  pedidos: Pedido[],
+  referencia = new Date(),
+  dias = 30,
+): Map<string, "A" | "B" | "C"> {
+  const corte = referencia.getTime() - dias * 86400000;
+  const porSku = new Map<string, number>();
+  for (const p of pedidos) {
+    if (p.status === "cancelado") continue;
+    const t = new Date(p.data).getTime();
+    if (t < corte || t > referencia.getTime()) continue;
+    porSku.set(p.sku, (porSku.get(p.sku) ?? 0) + p.faturamento);
+  }
+  const total = [...porSku.values()].reduce((a, b) => a + b, 0);
+  const classes = new Map<string, "A" | "B" | "C">();
+  if (total <= 0) return classes;
+  let acumulado = 0;
+  for (const [sku, fat] of [...porSku.entries()].sort((a, b) => b[1] - a[1])) {
+    // A classe é decidida pelo acumulado ANTES deste SKU: o SKU que
+    // "cruza" a linha dos 80% ainda é A.
+    const antes = acumulado;
+    acumulado += fat / total;
+    classes.set(sku, antes < 0.8 ? "A" : antes < 0.95 ? "B" : "C");
+  }
+  return classes;
+}
+
+/** Margem de um SKU nos últimos `dias` DEPOIS do Ads (lucro líquido
+ * menos o que foi gasto em mídia, sobre o faturamento); null sem venda.
+ * É a margem que diz se vale a pena comprar mais: produto que só vende
+ * bancando Ads caro não paga a reposição. */
+export function margemDoSku(
+  pedidos: Pedido[],
+  sku: string,
+  referencia = new Date(),
+  dias = 30,
+): number | null {
+  const corte = referencia.getTime() - dias * 86400000;
+  const doSku = pedidos.filter((p) => {
+    const t = new Date(p.data).getTime();
+    return p.sku === sku && t >= corte && t <= referencia.getTime();
+  });
+  const r = resumir(doSku);
+  return r.faturamento > 0 ? (r.lucroLiquido - r.custoMidia) / r.faturamento : null;
+}
+
+/** A menor margem mínima configurada nas contas do canal (a regra mais
+ * permissiva que o seller aceita); padrão quando nenhuma tem meta. */
+function margemMinimaDoCanal(contas: ContaMarketplace[], marketplaceId: MarketplaceId): number {
+  const metas = contas
+    .filter((c) => c.marketplaceId === marketplaceId && c.metas)
+    .map((c) => c.metas!.margemMinima);
+  return metas.length > 0 ? Math.min(...metas) : MARGEM_MINIMA_PADRAO;
+}
+
+const fmtPct = (n: number) => `${(n * 100).toFixed(1).replace(".", ",")}%`;
+
+/**
+ * Vale a pena repor? Cruza margem real e curva ABC:
+ * - prejuízo → não repor: comprar mais aumenta o prejuízo, o preço vem antes;
+ * - margem abaixo da mínima OU curva C → repor com cuidado (compra menor);
+ * - o resto → repor.
+ */
+export function avaliarReposicao(
+  margem: number | null,
+  classe: "A" | "B" | "C" | null,
+  margemMinima: number,
+): { veredito: VereditoReposicao; motivo: string } {
+  if (margem !== null && margem <= 0) {
+    return {
+      veredito: "nao-repor",
+      motivo: `Vende no prejuízo: margem de ${fmtPct(margem)} nos últimos 30 dias, já descontado o Ads. Repor agora só aumenta o prejuízo: ajuste o preço (Agente de Precificação) ou o Ads (Agente de Ads) antes.`,
+    };
+  }
+  const abaixoDaMinima = margem !== null && margem < margemMinima;
+  if (abaixoDaMinima || classe === "C") {
+    const razoes: string[] = [];
+    if (abaixoDaMinima)
+      razoes.push(`a margem (${fmtPct(margem!)}) está abaixo da sua mínima de ${fmtPct(margemMinima)}`);
+    if (classe === "C") razoes.push("é curva C (vende pouco perto dos outros)");
+    return {
+      veredito: "repor-com-cuidado",
+      motivo: `Vale repor, mas pouco: ${razoes.join(" e ")}. A sugestão cobre só ${DIAS_COBERTURA_CUIDADO} dias depois que a mercadoria chegar, pra não prender dinheiro.`,
+    };
+  }
+  return {
+    veredito: "repor",
+    motivo: `Vale repor: margem de ${margem === null ? "—" : fmtPct(margem)} depois do Ads${classe ? ` e curva ${classe}` : ""}.`,
+  };
+}
+
+/** Unidades vendidas por dia nos últimos 7 dias (venda real dos
+ * pedidos). `origem` separa quem consome cada estoque: os pedidos do Full
+ * saem do Full; os outros saem do estoque próprio. */
+function ritmo7Dias(
+  pedidos: Pedido[],
+  sku: string,
+  referencia: Date,
+  origem: "full" | "proprio",
+) {
+  const inicio = somarDias(inicioDoDia(referencia), -6);
+  const vendido = pedidos
+    .filter(
+      (p) =>
+        p.sku === sku &&
+        p.status !== "cancelado" &&
+        (origem === "full") === (p.tipoLogistica === "full") &&
+        dentroDoPeriodo(p.data, { inicio, fim: referencia, rotulo: "" }),
+    )
+    .reduce((s, p) => s + p.quantidade, 0);
+  return { vendido, media: vendido / 7 };
+}
+
+/**
+ * Agente de Estoque: avisa a tempo de o fornecedor entregar, diz se vale
+ * a pena repor e quanto dinheiro isso exige.
+ *
+ * O alerta sai quando os dias de estoque que restam ficam iguais ou
+ * menores que o prazo do fornecedor + a folga de segurança — ou seja,
+ * no último momento em que ainda dá pra pedir sem faltar.
+ */
+export function analisarReposicaoEstoque(
+  itens: ItemEstoqueDetalhado[],
+  pedidos: Pedido[],
+  contas: ContaMarketplace[],
+  referencia = new Date(),
+): AlertaEstoqueCalculado[] {
+  const abc = classificarAbcPorSku(pedidos, referencia);
+  const alertas: AlertaEstoqueCalculado[] = [];
+
+  for (const item of itens) {
+    if (item.quantidade <= 0) continue;
+    const { vendido, media } = ritmo7Dias(pedidos, item.sku, referencia, "proprio");
+    if (media <= 0) continue;
+
+    const diasRestantes = Math.floor(item.quantidade / media);
+    const prazo = item.prazoFornecedorDias;
+    if (diasRestantes > prazo + DIAS_SEGURANCA_REPOSICAO) continue;
+
+    const margem = margemDoSku(pedidos, item.sku, referencia);
+    const classe = abc.get(item.sku) ?? null;
+    const { veredito, motivo } = avaliarReposicao(
+      margem,
+      classe,
+      margemMinimaDoCanal(contas, item.marketplaceId),
+    );
+
+    // Compra que cobre o prazo de entrega + os dias de cobertura depois
+    // que a mercadoria chega. "Com cuidado" cobre menos dias.
+    const diasCobertura =
+      veredito === "repor-com-cuidado" ? DIAS_COBERTURA_CUIDADO : DIAS_ALVO_COBERTURA;
+    const quantidadeSugerida =
+      veredito === "nao-repor"
+        ? 0
+        : Math.max(1, Math.ceil(media * (prazo + diasCobertura)) - item.quantidade);
+
+    alertas.push({
+      tipoAlerta: "ruptura",
+      sku: item.sku,
+      produto: item.produto,
+      marketplaceId: item.marketplaceId,
+      estoqueAtual: item.quantidade,
+      vendidoUltimos7Dias: vendido,
+      mediaDiaria: media,
+      diasRestantes,
+      quantidadeSugerida,
+      diasAlvoCobertura: diasCobertura,
+      prazoFornecedorDias: prazo,
+      diasParaPedir: diasRestantes - prazo,
+      diasSemEstoque: Math.max(0, prazo - diasRestantes),
+      custoUnitario: item.custoUnitario,
+      custoReposicao: Math.round(quantidadeSugerida * item.custoUnitario * 100) / 100,
+      veredito,
+      motivoVeredito: motivo,
+      classeAbc: classe,
+      margem30d: margem,
+    });
+  }
+  // Quem já passou do ponto de pedir vem primeiro.
+  return alertas.sort((a, b) => (a.diasParaPedir ?? 0) - (b.diasParaPedir ?? 0));
+}
+
+/**
+ * Agente de Fulfillment, em duas frentes:
+ *
+ * 1. "ruptura" — vai faltar no Full. O prazo que conta é o de ENVIO pro
+ *    centro de distribuição (e, se o estoque próprio não der, também o do
+ *    fornecedor). Diz quanto mandar agora e quanto falta comprar.
+ * 2. "parado" — está sobrando no Full: cobertura acima de 60 dias paga a
+ *    taxa de estoque parado. Diz quanto retirar e quanto isso economiza.
+ */
+export function analisarFulfillment(
+  itensFull: ItemEstoqueDetalhado[],
+  estoqueProprio: ItemEstoqueDetalhado[],
+  pedidos: Pedido[],
+  contas: ContaMarketplace[],
+  referencia = new Date(),
+): AlertaEstoqueCalculado[] {
+  const abc = classificarAbcPorSku(pedidos, referencia);
+  const proprioPorSku = new Map(estoqueProprio.map((i) => [i.sku, i]));
+  const alertas: AlertaEstoqueCalculado[] = [];
+
+  for (const item of itensFull) {
+    if (item.quantidade <= 0) continue;
+    const prazoEnvio = PRAZO_ENVIO_FULL_DIAS[item.marketplaceId];
+    const { vendido, media } = ritmo7Dias(pedidos, item.sku, referencia, "full");
+    const diasRestantes = media > 0 ? Math.floor(item.quantidade / media) : Infinity;
+    const margem = margemDoSku(pedidos, item.sku, referencia);
+    const classe = abc.get(item.sku) ?? null;
+    // Do estoque próprio, só dá pra mandar o que SOBRA depois de reservar
+    // o que ele mesmo vai vender até uma compra nova chegar do fornecedor.
+    const itemProprio = proprioPorSku.get(item.sku);
+    const ritmoProprio = ritmo7Dias(pedidos, item.sku, referencia, "proprio").media;
+    const reserva = itemProprio ? Math.ceil(ritmoProprio * itemProprio.prazoFornecedorDias) : 0;
+    const proprio = Math.max(0, (itemProprio?.quantidade ?? 0) - reserva);
+
+    // --- 1. Vai faltar no Full ---
+    const soComCompra = proprio <= 0;
+    const prazoEfetivo = soComCompra ? item.prazoFornecedorDias + prazoEnvio : prazoEnvio;
+
+    if (media > 0 && diasRestantes <= prazoEfetivo + DIAS_SEGURANCA_REPOSICAO) {
+      const { veredito, motivo } = avaliarReposicao(
+        margem,
+        classe,
+        margemMinimaDoCanal(contas, item.marketplaceId),
+      );
+      const alvo = veredito === "repor-com-cuidado" ? DIAS_COBERTURA_CUIDADO : DIAS_ALVO_FULL;
+      const necessario =
+        veredito === "nao-repor"
+          ? 0
+          : Math.max(1, Math.ceil(media * (prazoEnvio + alvo)) - item.quantidade);
+      const enviar = Math.min(necessario, proprio);
+      const comprar = necessario - enviar;
+
+      alertas.push({
+        tipoAlerta: "ruptura",
+        sku: item.sku,
+        produto: item.produto,
+        marketplaceId: item.marketplaceId,
+        estoqueAtual: item.quantidade,
+        vendidoUltimos7Dias: vendido,
+        mediaDiaria: media,
+        diasRestantes,
+        quantidadeSugerida: necessario,
+        diasAlvoCobertura: alvo,
+        prazoFornecedorDias: item.prazoFornecedorDias,
+        prazoEnvioFullDias: prazoEnvio,
+        diasParaPedir: diasRestantes - prazoEfetivo,
+        diasSemEstoque: Math.max(0, prazoEfetivo - diasRestantes),
+        estoqueProprio: proprio,
+        quantidadeEnviar: enviar,
+        quantidadeComprar: comprar,
+        custoUnitario: item.custoUnitario,
+        // Dinheiro que sai do caixa: só a parte que precisa comprar.
+        custoReposicao: Math.round(comprar * item.custoUnitario * 100) / 100,
+        custoArmazenagemMensal: item.custoArmazenagemMensal,
+        veredito,
+        motivoVeredito: motivo,
+        classeAbc: classe,
+        margem30d: margem,
+      });
+      continue;
+    }
+
+    // --- 2. Parado no Full ---
+    if (item.coberturaDias > DIAS_PARADO_FULL) {
+      const ritmoTela = item.vendasDia;
+      const manter = Math.ceil(ritmoTela * DIAS_ALVO_FULL);
+      const retirar = Math.max(0, item.quantidade - manter);
+      if (retirar <= 0) continue;
+      const custoNovo = manter * item.custoUnitario * TAXA_ARMAZENAGEM_NORMAL;
+      const economia = Math.max(0, item.custoArmazenagemMensal - custoNovo);
+      const custoRetirada = retirar * TAXA_RETIRADA_POR_UNIDADE;
+
+      alertas.push({
+        tipoAlerta: "parado",
+        sku: item.sku,
+        produto: item.produto,
+        marketplaceId: item.marketplaceId,
+        estoqueAtual: item.quantidade,
+        vendidoUltimos7Dias: vendido,
+        mediaDiaria: ritmoTela,
+        diasRestantes: item.coberturaDias,
+        quantidadeSugerida: 0,
+        diasAlvoCobertura: DIAS_ALVO_FULL,
+        prazoEnvioFullDias: prazoEnvio,
+        custoUnitario: item.custoUnitario,
+        custoArmazenagemMensal: item.custoArmazenagemMensal,
+        quantidadeRetirar: retirar,
+        custoRetirada: Math.round(custoRetirada * 100) / 100,
+        economiaMensal: Math.round(economia * 100) / 100,
+        classeAbc: classe,
+        margem30d: margem,
+      });
+    }
+  }
+
+  return alertas.sort((a, b) => {
+    // Primeiro o que vai faltar (mais urgente antes), depois os parados
+    // (o que mais custa antes).
+    if (a.tipoAlerta !== b.tipoAlerta) return a.tipoAlerta === "ruptura" ? -1 : 1;
+    if (a.tipoAlerta === "ruptura") return (a.diasParaPedir ?? 0) - (b.diasParaPedir ?? 0);
+    return (b.custoArmazenagemMensal ?? 0) - (a.custoArmazenagemMensal ?? 0);
+  });
+}
+
+/** Chave estável de um alerta: o mesmo SKU pode ter um alerta de
+ * ruptura e, em outro momento, um de parado. */
+export function chaveAlertaEstoque(a: { sku: string; tipoAlerta?: string }): string {
+  return `${a.tipoAlerta ?? "ruptura"}:${a.sku}`;
+}
+
+/** Totais do topo do painel: quanto dinheiro a reposição exige. */
+export interface ResumoReposicao {
+  /** Soma das compras recomendadas (repor + repor com cuidado) */
+  dinheiroNecessario: number;
+  itensRepor: number;
+  itensCuidado: number;
+  itensNaoRepor: number;
+  /** Fulfillment: unidades pra mandar do estoque próprio pro Full */
+  unidadesEnviar: number;
+  /** Fulfillment: armazenagem por mês dos SKUs parados */
+  custoParadoMensal: number;
+  /** Fulfillment: economia por mês retirando o excesso */
+  economiaMensal: number;
+}
+
+export function resumirReposicao(alertas: AlertaEstoque[]): ResumoReposicao {
+  const r: ResumoReposicao = {
+    dinheiroNecessario: 0,
+    itensRepor: 0,
+    itensCuidado: 0,
+    itensNaoRepor: 0,
+    unidadesEnviar: 0,
+    custoParadoMensal: 0,
+    economiaMensal: 0,
+  };
+  for (const a of alertas) {
+    if (a.status !== "pendente") continue;
+    if (a.tipoAlerta === "parado") {
+      r.custoParadoMensal += a.custoArmazenagemMensal ?? 0;
+      r.economiaMensal += a.economiaMensal ?? 0;
+      continue;
+    }
+    if (a.veredito === "nao-repor") r.itensNaoRepor++;
+    else {
+      if (a.veredito === "repor-com-cuidado") r.itensCuidado++;
+      else r.itensRepor++;
+      r.dinheiroNecessario += a.custoReposicao ?? 0;
+      r.unidadesEnviar += a.quantidadeEnviar ?? 0;
+    }
+  }
+  const c = (n: number) => Math.round(n * 100) / 100;
+  r.dinheiroNecessario = c(r.dinheiroNecessario);
+  r.custoParadoMensal = c(r.custoParadoMensal);
+  r.economiaMensal = c(r.economiaMensal);
+  return r;
+}
+
+/**
+ * Junta o que está no banco (status que o seller escolheu) com o cálculo
+ * de agora: enquanto o alerta está pendente, os números vêm sempre do
+ * cálculo mais recente. Alerta já decidido fica como foi gravado.
+ */
+export function mesclarAlertasEstoque(
+  gravados: AlertaEstoque[],
+  calculados: AlertaEstoqueCalculado[],
+): AlertaEstoque[] {
+  const porChave = new Map(calculados.map((c) => [chaveAlertaEstoque(c), c]));
+  return gravados.map((g) => {
+    if (g.status !== "pendente") return g;
+    const atual = porChave.get(chaveAlertaEstoque(g));
+    return atual
+      ? { ...g, ...atual, id: g.id, data: g.data, status: g.status, decididoEm: g.decididoEm, contaId: g.contaId }
+      : g;
+  });
 }
 
 /* ------------------------------------------------------------------ */
