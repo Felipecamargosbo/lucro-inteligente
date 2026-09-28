@@ -5,7 +5,9 @@
 import type {
   AlteracaoPreco,
   Campanha,
+  CobrancaFullMes,
   ContaMarketplace,
+  ExtratoCobrancaPedido,
   Anuncio,
   DadosAds,
   Empresa,
@@ -33,6 +35,12 @@ import type {
   TipoOportunidadeRecuperacao,
   Usuario,
 } from "@/types";
+import {
+  ARMAZENAGEM_FULL,
+  MOTIVOS_DEVOLUCAO_CULPA_SELLER,
+  REGRAS_COBRANCA,
+  tamanhoFulfillmentDoSku,
+} from "@/lib/regrasCobranca";
 
 /** Gerador pseudoaleatório com semente: os dados são sempre os mesmos. */
 function criarRandom(semente: number) {
@@ -918,7 +926,141 @@ function gerarPedidos(): Pedido[] {
   return pedidos.sort((a, b) => +new Date(b.data) - +new Date(a.data));
 }
 
-export const PEDIDOS: Pedido[] = gerarPedidos();
+/* ------------------------------------------------------------------ */
+/* Extrato de cobranças por pedido (Agente Auditor) — FICTÍCIO         */
+/* ------------------------------------------------------------------ */
+
+/** Semente fixa por pedido: o extrato de um pedido é sempre o mesmo, e
+ * um sorteio aqui NUNCA mexe nos outros sorteios dos pedidos (que ficam
+ * iguais aos de antes — as ocorrências já gravadas continuam batendo). */
+function sementeDoTexto(texto: string): number {
+  let h = 2166136261;
+  for (const c of texto) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+  return h;
+}
+
+const cent = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Monta o extrato do canal pra um pedido: quem paga o frete, se veio de
+ * afiliado, cupom, e o valor COBRADO de cada item. Uma fatia pequena sai
+ * errada de propósito — é o que o Agente Auditor aponta.
+ */
+function montarExtratoPedido(p: Pedido): Pedido {
+  const rand = criarRandom(sementeDoTexto(`extrato:${p.id}`));
+  const regras = REGRAS_COBRANCA[p.marketplaceId];
+  const fat = p.faturamento;
+  const cobrado: ExtratoCobrancaPedido["cobrado"] = {};
+
+  // Frete: quem paga? No Full é o canal; abaixo do valor mínimo (ou em
+  // canal que não cobra frete do vendedor) é o comprador.
+  let freteEsperado = p.freteEsperado;
+  let freteCobrado = p.freteCobrado;
+  const responsavelFrete: ExtratoCobrancaPedido["responsavelFrete"] =
+    p.tipoLogistica === "full"
+      ? "canal-full"
+      : regras.freteSellerAPartirDe !== null && fat >= regras.freteSellerAPartirDe
+        ? "seller"
+        : "comprador";
+  if (responsavelFrete === "comprador") {
+    // O frete não é do vendedor: o esperado é zero. Se o pedido já tinha
+    // saído com erro de frete, o valor inteiro agora é cobrança indevida.
+    const jaTinhaErro = Math.abs(p.freteCobrado - p.freteEsperado) >= 0.05;
+    freteEsperado = 0;
+    freteCobrado = jaTinhaErro
+      ? p.freteCobrado
+      : rand() > 0.985
+        ? cent(9 + rand() * 12)
+        : 0;
+  }
+  cobrado.comissao = p.comissao;
+  cobrado.taxaFixa = p.taxaFixa;
+  cobrado.frete = freteCobrado;
+
+  // Parcelamento sem juros: 1,2% por parcela além da primeira. Erro: o
+  // canal cobra como se fossem mais parcelas.
+  if (regras.parcelamentoPorParcela !== null) {
+    const extras = Math.max(0, p.parcelas - 1);
+    const erro = rand() > 0.985;
+    const extrasCobradas = erro ? extras + 2 + Math.floor(rand() * 3) : extras;
+    cobrado.parcelamento = cent(fat * regras.parcelamentoPorParcela * extrasCobradas);
+  }
+
+  // Taxa de transação. Erro: um ponto percentual a mais.
+  if (regras.taxaTransacao !== null) {
+    const erro = rand() > 0.985;
+    cobrado.taxaTransacao = cent(fat * (regras.taxaTransacao + (erro ? 0.01 : 0)));
+  }
+
+  // Taxa de programa. Erro: dois pontos a mais.
+  if (regras.taxaServico !== null) {
+    const erro = rand() > 0.985;
+    cobrado.taxaServico = cent(fat * (regras.taxaServico + (erro ? 0.02 : 0)));
+  }
+
+  // Afiliado: ~20% das vendas vêm de afiliado. Erro: cobrar afiliado de
+  // venda que não veio de afiliado.
+  const veioDeAfiliado = regras.comissaoAfiliado !== null && rand() < 0.2;
+  if (regras.comissaoAfiliado !== null) {
+    const erro = !veioDeAfiliado && rand() > 0.98;
+    cobrado.afiliado = veioDeAfiliado || erro ? cent(fat * regras.comissaoAfiliado) : 0;
+  }
+
+  // Cupom: ~12% das compras usam cupom, metade do vendedor e metade do
+  // canal. Erro: cupom do canal descontado do vendedor.
+  let cupom: ExtratoCobrancaPedido["cupom"] = null;
+  if (rand() < 0.12) {
+    const origem = rand() < 0.5 ? "seller" : "canal";
+    const valor = cent(fat * (0.05 + rand() * 0.05));
+    cupom = { origem, valor };
+    const erro = origem === "canal" && rand() < 0.25;
+    cobrado.cupom = origem === "seller" || erro ? valor : 0;
+  }
+
+  // Frete de devolução: só é do vendedor quando a culpa é dele. Erro:
+  // cobrar o frete de volta de uma devolução por arrependimento/atraso.
+  let freteDevolucaoTabela: number | null = null;
+  if (p.valorDevolvido > 0) {
+    freteDevolucaoTabela = cent(12 + rand() * 10);
+    const culpaSeller = MOTIVOS_DEVOLUCAO_CULPA_SELLER.includes(p.motivoDevolucao ?? "");
+    const erro = !culpaSeller && rand() < 0.4;
+    cobrado.freteDevolucao = culpaSeller || erro ? freteDevolucaoTabela : 0;
+  }
+
+  // Tarifa do Full por unidade. Erro: o canal enquadra num tamanho maior.
+  let tamanhoFulfillment: ExtratoCobrancaPedido["tamanhoFulfillment"] = null;
+  if (p.tipoLogistica === "full" && regras.tarifaFulfillment !== null) {
+    tamanhoFulfillment = tamanhoFulfillmentDoSku(p.sku);
+    const erro = tamanhoFulfillment !== "grande" && rand() > 0.98;
+    const tamanhoCobrado = erro
+      ? tamanhoFulfillment === "pequeno"
+        ? "medio"
+        : "grande"
+      : tamanhoFulfillment;
+    cobrado.tarifaFulfillment = cent(regras.tarifaFulfillment[tamanhoCobrado] * p.quantidade);
+  }
+
+  // Garantia estendida cobrada por engano (raro).
+  if (p.marketplaceId === "mercado-livre" && rand() > 0.996) {
+    cobrado.garantia = cent(5 + rand() * 15);
+  }
+
+  return {
+    ...p,
+    freteEsperado,
+    freteCobrado,
+    extrato: {
+      responsavelFrete,
+      veioDeAfiliado,
+      cupom,
+      tamanhoFulfillment,
+      freteDevolucaoTabela,
+      cobrado,
+    },
+  };
+}
+
+export const PEDIDOS: Pedido[] = gerarPedidos().map(montarExtratoPedido);
 
 /**
  * Gera anúncios deliberadamente imperfeitos: alguns sem custo cadastrado,
@@ -1387,6 +1529,53 @@ export const FULFILLMENT_DETALHADO: ItemEstoqueDetalhado[] = PRODUTOS.map((produ
     custoArmazenagemMensal,
   };
 });
+
+/**
+ * Fatura do Full do mês passado, SKU por SKU — o que o canal cobrou de
+ * armazenagem, armazenagem prolongada, retirada e multa. FICTÍCIO. Quase
+ * tudo bate com a regra; quatro SKUs saem com erro de propósito, um de
+ * cada tipo, pra o Agente Auditor ter o que mostrar.
+ */
+function gerarCobrancasFull(): CobrancaFullMes[] {
+  const hoje = new Date();
+  const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const mesPassado = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
+  const mes = `${mesPassado.getFullYear()}-${String(mesPassado.getMonth() + 1).padStart(2, "0")}`;
+
+  const comEstoque = FULFILLMENT_DETALHADO.filter((i) => i.quantidade > 0);
+  // Os SKUs com erro: escolhidos pela posição, pra ser sempre os mesmos.
+  const girando = comEstoque.filter((i) => i.coberturaDias <= ARMAZENAGEM_FULL.diasParado);
+  const skuTaxaParado = girando[0]?.sku;
+  const skuProlongada = comEstoque[comEstoque.length - 1]?.sku;
+  const skuRetirada = girando[2]?.sku;
+  const skuMulta = girando[3]?.sku;
+
+  return comEstoque.map((i) => {
+    const parado = i.coberturaDias > ARMAZENAGEM_FULL.diasParado;
+    const taxa = parado ? ARMAZENAGEM_FULL.parado : ARMAZENAGEM_FULL.normal;
+    const cobrado: CobrancaFullMes["cobrado"] = {
+      armazenagem: cent(
+        i.valorEstoque * (i.sku === skuTaxaParado ? ARMAZENAGEM_FULL.parado : taxa),
+      ),
+      armazenagemProlongada:
+        i.sku === skuProlongada ? cent(64 * ARMAZENAGEM_FULL.prolongadaPorUnidade) : 0,
+      retirada: i.sku === skuRetirada ? cent(10 * ARMAZENAGEM_FULL.retiradaPorUnidade) : 0,
+      multaFull: i.sku === skuMulta ? 45 : 0,
+    };
+    return {
+      marketplaceId: i.marketplaceId,
+      sku: i.sku,
+      produto: i.produto,
+      mes,
+      data: inicioMes.toISOString(),
+      retiradasSolicitadas: 0,
+      naoConformidades: 0,
+      cobrado,
+    };
+  });
+}
+
+export const COBRANCAS_FULL: CobrancaFullMes[] = gerarCobrancasFull();
 
 /** Resumo consolidado do fulfillment. */
 export const RESUMO_FULFILLMENT = {
