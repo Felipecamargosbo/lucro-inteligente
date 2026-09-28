@@ -13,6 +13,7 @@ import {
   HISTORICO_PRECOS,
   HISTORICO_ADS,
   HISTORICO_TAXAS,
+  COBRANCAS_FULL,
   LOGS,
   MARKETPLACES,
   NOTIFICACOES,
@@ -1468,6 +1469,10 @@ export const auditorService = {
    * API do canal expor o histórico real de taxas. */
   historicoTaxas: () => HISTORICO_TAXAS,
 
+  /** Fatura mensal do Full por SKU (armazenagem, retirada, multa).
+   * Fictícia até a API do canal expor a fatura real. */
+  cobrancasFull: () => COBRANCAS_FULL,
+
   listar: async (perfilId: string): Promise<OcorrenciaAuditor[]> => {
     const { data, error } = await supabase
       .from("eventos_agente")
@@ -1510,7 +1515,7 @@ export const auditorService = {
       sku: o.sku,
       tipo: o.tipo,
       motivo: o.motivo,
-      semaforo: o.tipo === "cobranca-divergente" ? "vermelho" : "amarelo",
+      semaforo: o.tipo === "mudanca-taxa" ? "amarelo" : "vermelho",
       status: "pendente",
       dados: { chave: o.chave, statusAuditor: "aberto", ocorrencia: { ...o, id: "" } },
     });
