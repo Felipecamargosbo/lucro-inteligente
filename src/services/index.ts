@@ -21,6 +21,7 @@ import {
   PEDIDOS,
   PRODUTOS_CATALOGO,
   PROMOCOES,
+  MUDANCAS_PRECO_EXEMPLO,
   USUARIOS,
   contasDoCanal,
   getCampanha,
@@ -30,6 +31,7 @@ import {
 import type {
   AcaoAds,
   AgenteId,
+  DirecaoPreco,
   AlertaEstoque,
   Anuncio,
   ContaMarketplace,
@@ -365,6 +367,13 @@ export const produtosService = {
 
 export const promocoesService = {
   listar: () => PROMOCOES,
+};
+
+/** Histórico de mudanças de preço. Por enquanto só os exemplos fictícios;
+ * as aprovações do seller entram pela própria tela de Agentes (vêm das
+ * sugestões aprovadas em `eventos_agente`). */
+export const mudancasPrecoService = {
+  exemplos: () => MUDANCAS_PRECO_EXEMPLO,
 };
 
 export const campanhasService = {
@@ -737,6 +746,8 @@ function linhaParaEvento(l: LinhaEventoAgente): EventoAgente {
     travadoNoPiso: (d.travadoNoPiso as boolean) ?? false,
     status: l.status as StatusSugestao,
     decididoEm: l.decidido_em,
+    direcao: (d.direcao as DirecaoPreco | undefined) ?? undefined,
+    degrau: (d.degrau as number | undefined) ?? undefined,
   };
 }
 
@@ -839,9 +850,32 @@ export const eventosAgenteService = {
         margemSugerida: evento.margemSugerida,
         precoMinimo: evento.precoMinimo,
         travadoNoPiso: evento.travadoNoPiso,
+        ...(evento.direcao !== undefined ? { direcao: evento.direcao } : {}),
+        ...(evento.degrau !== undefined ? { degrau: evento.degrau } : {}),
       },
     });
     return error?.message ?? null;
+  },
+  /** Chaves `direcao:anuncioId` das sugestões de preço pendentes — o
+   * mesmo anúncio pode ter uma sugestão de baixar e, depois, uma de
+   * subir. Sugestão antiga, sem direção gravada, conta como "baixar". */
+  chavesPendentesPreco: async (perfilId: string): Promise<Set<string>> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("dados")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "precificacao")
+      .eq("status", "pendente");
+    if (error) {
+      console.error("eventosAgenteService.chavesPendentesPreco:", error.message);
+      return new Set();
+    }
+    return new Set(
+      (data ?? []).map((r) => {
+        const d = (r.dados ?? {}) as Record<string, unknown>;
+        return `${(d.direcao as string) ?? "baixar"}:${(d.anuncioId as string) ?? ""}`;
+      }),
+    );
   },
   decidir: async (
     eventoId: string,
