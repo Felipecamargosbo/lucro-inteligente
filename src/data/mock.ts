@@ -27,6 +27,7 @@ import type {
   HistoricoTaxaAnuncio,
   FichaAnuncio,
   ModeloMensagemSac,
+  MudancaPreco,
   RegraSac,
   StatusOportunidadeRecuperacao,
   StatusPedido,
@@ -1185,6 +1186,44 @@ function gerarAnuncios(): Anuncio[] {
 }
 
 export const ANUNCIOS: Anuncio[] = gerarAnuncios();
+
+/**
+ * Mudanças de preço de EXEMPLO — pra aba "Resultados" do Agente de
+ * Precificação ter o que mostrar antes de o seller aprovar a primeira
+ * sugestão. FICTÍCIAS: as vendas depois da mudança são os pedidos de
+ * exemplo, que não reagem ao preço de verdade.
+ */
+function gerarMudancasPrecoExemplo(): MudancaPreco[] {
+  const hoje = Date.now();
+  const exemplos: { conta: string; sku: string; variacao: number; diasAtras: number }[] = [
+    { conta: "ml-oficial", sku: "PEL-IP15-PM", variacao: -0.08, diasAtras: 30 },
+    { conta: "ml-oficial", sku: "TEC-MEC-RGB", variacao: 0.05, diasAtras: 21 },
+    { conta: "amazon-br", sku: "LUM-RING-18", variacao: -0.12, diasAtras: 25 },
+    { conta: "ml-oficial", sku: "CAM-WEB-4K", variacao: -0.05, diasAtras: 3 },
+  ];
+  const lista: MudancaPreco[] = [];
+  for (const e of exemplos) {
+    const a = ANUNCIOS.find((x) => x.contaId === e.conta && x.sku === e.sku);
+    if (!a) continue;
+    // O preço de hoje é o "depois"; o "antes" é o que era.
+    const precoAntes = Math.round((a.precoAtual / (1 + e.variacao)) * 100) / 100;
+    lista.push({
+      id: `exemplo-${e.conta}-${e.sku}`,
+      anuncioId: a.id,
+      sku: a.sku,
+      produto: a.produto,
+      marketplaceId: a.marketplaceId,
+      contaId: a.contaId,
+      precoAntes,
+      precoDepois: a.precoAtual,
+      data: new Date(hoje - e.diasAtras * 86400000).toISOString(),
+      exemplo: true,
+    });
+  }
+  return lista;
+}
+
+export const MUDANCAS_PRECO_EXEMPLO: MudancaPreco[] = gerarMudancasPrecoExemplo();
 
 export const HISTORICO_PRECOS: AlteracaoPreco[] = [
   {
