@@ -26,7 +26,6 @@ import type {
   FichaAnuncio,
   ModeloMensagemSac,
   RegraSac,
-  OcorrenciaAuditor,
   StatusOportunidadeRecuperacao,
   StatusPedido,
   TipoCampanha,
@@ -748,7 +747,17 @@ function gerarPedidos(): Pedido[] {
       const precoUnitario = Math.round((produto.preco - desconto) * 100) / 100;
       const faturamento = Math.round(precoUnitario * quantidade * 100) / 100;
       const cmv = Math.round(produto.cmv * quantidade * 100) / 100;
-      const comissao = Math.round(faturamento * conta.comissaoPercentual * 100) / 100;
+      // Numa fatia pequena dos pedidos o canal cobra alguma coisa a mais
+      // do que a regra manda — é o que o Agente Auditor aponta como
+      // cobrança divergente. O mesmo sorteio decide comissão e frete, pra
+      // existir também o caso de um pedido com DOIS itens errados (que
+      // vira uma ocorrência só, não duas).
+      const erroCobranca = rand() > 0.975;
+      const erroComissao = erroCobranca && rand() > 0.4;
+      const comissaoEsperada = Math.round(faturamento * conta.comissaoPercentual * 100) / 100;
+      const comissao = erroComissao
+        ? Math.round(comissaoEsperada * (1.03 + rand() * 0.09) * 100) / 100
+        : comissaoEsperada;
       const taxaFixa = conta.taxaFixa;
       const impostos = Math.round(faturamento * IMPOSTO_PADRAO * 100) / 100;
       const outrosCustos = Math.round((2 + rand() * 12) * 100) / 100;
@@ -794,10 +803,10 @@ function gerarPedidos(): Pedido[] {
       // do esperado — é esse desvio que o Agente Auditor aponta depois.
       const freteEsperado =
         tipoLogistica === "full" ? 0 : Math.round((6 + rand() * 6) * 100) / 100;
-      const freteCobrado =
-        rand() > 0.96
-          ? Math.round((freteEsperado + (4 + rand() * 10)) * 100) / 100
-          : freteEsperado;
+      const erroFrete = (erroCobranca && rand() > 0.4) || rand() > 0.99;
+      const freteCobrado = erroFrete
+        ? Math.round((freteEsperado + (4 + rand() * 10)) * 100) / 100
+        : freteEsperado;
       const estado = escolherEstado(rand);
 
       const parcelas = escolherParcelas(rand);
@@ -1555,7 +1564,7 @@ export const HISTORICO_TAXAS: HistoricoTaxaAnuncio[] = (() => {
     campo: "comissaoPercentual" as const,
     valorAnterior: Math.round((a.comissaoPercentual - 0.01) * 1000) / 1000,
     valorNovo: a.comissaoPercentual,
-    detectadoEm: new Date(Date.now() - (i + 1) * 2 * 86400000).toISOString(),
+    detectadoEm: new Date(Date.now() - (i + 1) * 6 * 86400000).toISOString(),
   }));
 })();
 
@@ -1605,70 +1614,6 @@ export const REGRAS_SAC: RegraSac[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Agente Auditor — ocorrências fictícias, uma de cada tipo, a partir do
-// histórico de taxas acima e de um pedido com frete cobrado divergente.
-// ---------------------------------------------------------------------------
-
-function gerarOcorrenciasAuditor(): OcorrenciaAuditor[] {
-  const ocorrencias: OcorrenciaAuditor[] = [];
-
-  for (const h of HISTORICO_TAXAS) {
-    const anuncio = ANUNCIOS.find((a) => a.id === h.anuncioId);
-    if (!anuncio) continue;
-    const nomeCampo = h.campo === "comissaoPercentual" ? "Comissão" : "Taxa fixa";
-    ocorrencias.push({
-      id: `auditor-${h.id}`,
-      tipo: "mudanca-taxa",
-      data: h.detectadoEm,
-      anuncioId: h.anuncioId,
-      pedidoId: null,
-      sku: h.sku,
-      produto: h.produto,
-      marketplaceId: h.marketplaceId,
-      contaId: anuncio.contaId,
-      motivo: `${nomeCampo} mudou de ${(h.valorAnterior * 100).toFixed(1)}% para ${(h.valorNovo * 100).toFixed(1)}%.`,
-      campo: h.campo,
-      valorAnterior: h.valorAnterior,
-      valorNovo: h.valorNovo,
-      itemDivergente: null,
-      valorEsperado: null,
-      valorCobrado: null,
-      diferenca: null,
-      status: "aberto",
-      atualizadoEm: null,
-    });
-  }
-
-  const pedidosDivergentes = PEDIDOS.filter(
-    (p) => Math.round((p.freteCobrado - p.freteEsperado) * 100) !== 0,
-  ).slice(0, 3);
-  for (const p of pedidosDivergentes) {
-    const diferenca = Math.round((p.freteCobrado - p.freteEsperado) * 100) / 100;
-    ocorrencias.push({
-      id: `auditor-${p.id}`,
-      tipo: "cobranca-divergente",
-      data: p.data,
-      anuncioId: null,
-      pedidoId: p.id,
-      sku: p.sku,
-      produto: p.produto,
-      marketplaceId: p.marketplaceId,
-      contaId: p.contaId,
-      motivo: `Frete cobrado ${diferenca > 0 ? "a mais" : "a menos"} no pedido ${p.id}.`,
-      campo: null,
-      valorAnterior: null,
-      valorNovo: null,
-      itemDivergente: "frete",
-      valorEsperado: p.freteEsperado,
-      valorCobrado: p.freteCobrado,
-      diferenca,
-      status: "aberto",
-      atualizadoEm: null,
-    });
-  }
-
-  return ocorrencias;
-}
-
-export const OCORRENCIAS_AUDITOR: OcorrenciaAuditor[] = gerarOcorrenciasAuditor();
+// As ocorrências do Agente Auditor não são geradas aqui: ele confere os
+// pedidos e o histórico de taxas na hora (ver `auditarCobrancas` e
+// `auditarMudancasTaxa` em src/lib/finance.ts).
