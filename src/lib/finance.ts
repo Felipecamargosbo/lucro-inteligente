@@ -9,6 +9,8 @@ import type {
   FaixaSaudeMargem,
   HistoricoAdsDia,
   CobrancaFullMes,
+  DirecaoPreco,
+  EventoAgente,
   HistoricoTaxaAnuncio,
   ItemCobrancaAuditor,
   ItemDivergenteAuditor,
@@ -18,6 +20,7 @@ import type {
   Lancamento,
   MarketplaceId,
   MetasMargem,
+  MudancaPreco,
   OrigemValor,
   Pedido,
   Periodo,
@@ -408,6 +411,506 @@ export function sugerirPrecoPorGiro(
     travadoNoPiso,
     semaforo,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente de Precificação — as cinco frentes (Bloco 5)                  */
+/* ------------------------------------------------------------------ */
+
+/** Tamanho do corte conforme o tempo parado: quanto mais tempo sem
+ * vender, maior o corte. A primeira linha que bater vale. */
+export const DEGRAUS_CORTE: { dias: number; degrau: number }[] = [
+  { dias: 90, degrau: 0.12 },
+  { dias: 60, degrau: 0.08 },
+  { dias: DIAS_PARADO_PADRAO, degrau: DEGRAU_DESCONTO_PADRAO },
+];
+/** Dinheiro parado no estoque do SKU (próprio + Full, a preço de custo) a
+ * partir do qual o corte ganha um degrau extra — capital preso custa. */
+export const CAPITAL_PRESO_ALTO = 20000;
+export const DEGRAU_EXTRA_CAPITAL = 0.03;
+/** Subida de preço: normal, e forte quando o estoque dura menos de uma
+ * semana. */
+export const DEGRAU_SUBIDA = 0.05;
+export const DEGRAU_SUBIDA_FORTE = 0.08;
+export const DIAS_COBERTURA_SUBIDA_FORTE = 7;
+/** Só sugere subir em anúncio que vendeu nos últimos dias. */
+export const DIAS_VENDA_RECENTE_SUBIDA = 7;
+/** Janela pra comparar antes × depois de uma mudança de preço. */
+export const DIAS_AVALIACAO_PRECO = 14;
+/** Antes disso a mudança ainda está "em acompanhamento". */
+export const DIAS_MINIMOS_AVALIACAO = 7;
+/** Variação de vendas que conta como "reagiu" ao corte. */
+export const VARIACAO_VENDAS_RELEVANTE = 0.2;
+
+const pctBr = (n: number, casas = 0) =>
+  `${(n * 100).toFixed(casas).replace(".", ",")}%`;
+const brlBr = (n: number) =>
+  `R$ ${n.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d),)/g, ".")}`;
+
+/** Quanto cortar: pelo tempo parado + um extra se tem muito dinheiro preso. */
+export function degrauDeCorte(
+  diasParado: number,
+  capitalPreso: number,
+): { degrau: number; explicacao: string } {
+  const faixa = DEGRAUS_CORTE.find((d) => diasParado >= d.dias) ?? DEGRAUS_CORTE[DEGRAUS_CORTE.length - 1]!;
+  const extra = capitalPreso >= CAPITAL_PRESO_ALTO ? DEGRAU_EXTRA_CAPITAL : 0;
+  const degrau = Math.round((faixa.degrau + extra) * 1000) / 1000;
+  const explicacao =
+    extra > 0
+      ? `${pctBr(faixa.degrau)} pelo tempo parado + ${pctBr(extra)} porque tem ${brlBr(capitalPreso)} presos no estoque deste produto`
+      : "";
+  return { degrau, explicacao };
+}
+
+/** Estoque de um SKU somando próprio + Full, e quanto tempo ele dura. */
+export interface SituacaoEstoqueSku {
+  estoque: number;
+  /** Unidades vendidas por dia nos últimos 7 dias (todos os canais) */
+  ritmo: number;
+  /** Dias que o estoque dura; Infinity quando não vendeu */
+  cobertura: number;
+  prazoFornecedor: number;
+  /** Dinheiro parado no estoque, a preço de custo */
+  capitalPreso: number;
+  /** O estoque acaba antes de uma compra nova chegar do fornecedor */
+  acabando: boolean;
+}
+
+export function situacaoEstoquePorSku(
+  estoqueProprio: ItemEstoqueDetalhado[],
+  estoqueFull: ItemEstoqueDetalhado[],
+  pedidos: Pedido[],
+  referencia = new Date(),
+): Map<string, SituacaoEstoqueSku> {
+  const inicio = somarDias(inicioDoDia(referencia), -6);
+  const vendidoPorSku = new Map<string, number>();
+  for (const p of pedidos) {
+    if (p.status === "cancelado") continue;
+    if (!dentroDoPeriodo(p.data, { inicio, fim: referencia, rotulo: "" })) continue;
+    vendidoPorSku.set(p.sku, (vendidoPorSku.get(p.sku) ?? 0) + p.quantidade);
+  }
+  const mapa = new Map<string, SituacaoEstoqueSku>();
+  for (const item of [...estoqueProprio, ...estoqueFull]) {
+    const atual = mapa.get(item.sku);
+    const estoque = (atual?.estoque ?? 0) + item.quantidade;
+    const capitalPreso = (atual?.capitalPreso ?? 0) + item.valorEstoque;
+    const prazoFornecedor = Math.max(atual?.prazoFornecedor ?? 0, item.prazoFornecedorDias);
+    const ritmo = (vendidoPorSku.get(item.sku) ?? 0) / 7;
+    const cobertura = ritmo > 0 ? estoque / ritmo : Infinity;
+    mapa.set(item.sku, {
+      estoque,
+      ritmo,
+      cobertura,
+      prazoFornecedor,
+      capitalPreso,
+      acabando: ritmo > 0 && cobertura < prazoFornecedor,
+    });
+  }
+  return mapa;
+}
+
+export type SugestaoPrecoCalculada = Omit<EventoAgente, "id" | "status" | "decididoEm" | "data">;
+
+/** Chave estável de uma sugestão: o mesmo anúncio pode ter, em momentos
+ * diferentes, uma sugestão de baixar e outra de subir. */
+export function chaveSugestaoPreco(e: { anuncioId: string; direcao?: DirecaoPreco }): string {
+  return `${e.direcao ?? "baixar"}:${e.anuncioId}`;
+}
+
+/**
+ * As sugestões de preço (frentes 1 e 2):
+ * - BAIXAR: produto parado há 30+ dias. O corte varia com o tempo parado
+ *   (5%, 8%, 12%) e ganha +3 pontos com muito dinheiro preso. Nunca abaixo
+ *   do piso da margem mínima. NÃO corta se o estoque do SKU está acabando
+ *   — desconto só apressaria a falta.
+ * - SUBIR: o SKU vende rápido e o estoque acaba antes de a reposição
+ *   chegar. Subir segura a venda até lá e ganha margem.
+ */
+export function sugerirPrecos(
+  anuncios: Anuncio[],
+  situacao: Map<string, SituacaoEstoqueSku>,
+  metasDe: (contaId: string) => MetasMargem,
+  opcoes: OpcoesLimites = {},
+  referencia = new Date(),
+): SugestaoPrecoCalculada[] {
+  const sugestoes: SugestaoPrecoCalculada[] = [];
+
+  for (const a of anuncios) {
+    if (a.status !== "ativo" || a.cmv === null) continue;
+    const metas = metasDe(a.contaId);
+    const sit = situacao.get(a.sku);
+    const lim = limitesDePreco(a, metas.margemMinima, opcoes);
+    const dias = diasSemVender(a, referencia);
+    const base = {
+      agenteId: "precificacao" as const,
+      anuncioId: a.id,
+      sku: a.sku,
+      produto: a.produto,
+      marketplaceId: a.marketplaceId,
+      contaId: a.contaId,
+      precoAtual: a.precoAtual,
+      margemAtual: lim.margemAtual,
+      precoMinimo: lim.precoMinimo,
+    };
+
+    // --- SUBIR: vende rápido e o estoque vai acabar antes da reposição ---
+    // Com estoque zerado não tem o que segurar: não sugere subir.
+    if (sit?.acabando && sit.estoque > 0 && dias !== null && dias <= DIAS_VENDA_RECENTE_SUBIDA) {
+      const forte = sit.cobertura < DIAS_COBERTURA_SUBIDA_FORTE;
+      const degrau = forte ? DEGRAU_SUBIDA_FORTE : DEGRAU_SUBIDA;
+      const precoSugerido = Math.round(a.precoAtual * (1 + degrau) * 100) / 100;
+      const margemSugerida = margemNoPreco(a, precoSugerido, opcoes);
+      const semaforo: SemaforoDecisao =
+        precoSugerido < lim.precoEmpate
+          ? "vermelho"
+          : margemSugerida < metas.margemMinima - 0.0001
+            ? "amarelo"
+            : "verde";
+      sugestoes.push({
+        ...base,
+        direcao: "subir",
+        degrau,
+        motivo: `Vende ${sit.ritmo.toFixed(1).replace(".", ",")} un./dia e o estoque (${sit.estoque} un., próprio + Full) dura só ${Math.floor(sit.cobertura)} dias — o fornecedor leva ${sit.prazoFornecedor}. Subir ${pctBr(degrau)} ganha margem e faz o estoque durar até a reposição chegar.`,
+        diasParado: dias,
+        precoSugerido,
+        margemSugerida,
+        semaforo,
+        travadoNoPiso: false,
+      });
+      continue;
+    }
+
+    // --- BAIXAR: parado há 30+ dias ---
+    if (dias === null || dias < DIAS_PARADO_PADRAO) continue;
+    if (sit?.acabando) continue; // estoque acabando: não é hora de desconto
+    const { degrau, explicacao } = degrauDeCorte(dias, sit?.capitalPreso ?? 0);
+    const s = sugerirPrecoPorGiro(a, metas.margemMinima, opcoes, {
+      diasParado: DIAS_PARADO_PADRAO,
+      degrau,
+      referencia,
+    });
+    if (!s) continue;
+    sugestoes.push({
+      ...base,
+      direcao: "baixar",
+      degrau,
+      motivo: s.travadoNoPiso
+        ? `Parado há ${s.diasParado} dias. O corte seria de ${pctBr(degrau)}${explicacao ? ` (${explicacao})` : ""}, mas passaria do piso, então parei no preço mínimo.`
+        : `Parado há ${s.diasParado} dias. Sugiro cortar ${pctBr(degrau)}${explicacao ? ` (${explicacao})` : ""} e ver se volta a girar.`,
+      diasParado: s.diasParado,
+      precoSugerido: s.precoSugerido,
+      margemAtual: s.margemAtual,
+      margemSugerida: s.margemSugerida,
+      precoMinimo: s.precoMinimo,
+      semaforo: s.semaforo,
+      travadoNoPiso: s.travadoNoPiso,
+    });
+  }
+  return sugestoes;
+}
+
+/* --- Frente 3: acompanhar o resultado de uma mudança ---------------- */
+
+export type VereditoMudancaPreco = "acompanhando" | "funcionou" | "nao-mudou" | "piorou";
+
+export interface ResultadoMudancaPreco {
+  mudanca: MudancaPreco;
+  direcao: DirecaoPreco;
+  diasDesde: number;
+  /** Tamanho de cada janela comparada (antes e depois), em dias */
+  diasJanela: number;
+  unidadesDiaAntes: number;
+  unidadesDiaDepois: number;
+  /** Lucro por dia depois do Ads */
+  lucroDiaAntes: number;
+  lucroDiaDepois: number;
+  /** Variação das vendas (0,4 = +40%); null sem venda antes */
+  variacaoVendas: number | null;
+  veredito: VereditoMudancaPreco;
+  explicacao: string;
+}
+
+/**
+ * Compara as vendas e o lucro do anúncio (mesmo SKU, mesma conta) nos
+ * dias ANTES e DEPOIS da mudança de preço, em janelas do mesmo tamanho.
+ * - Corte: funcionou se as vendas subiram 20% ou mais. Se não reagiram,
+ *   o problema provavelmente não é preço.
+ * - Subida: funcionou se o lucro por dia não caiu (margem maior compensou
+ *   uma eventual venda menor).
+ */
+export function avaliarMudancaPreco(
+  m: MudancaPreco,
+  pedidos: Pedido[],
+  referencia = new Date(),
+): ResultadoMudancaPreco {
+  const t0 = new Date(m.data).getTime();
+  const diasDesde = Math.max(0, Math.floor((referencia.getTime() - t0) / 86400000));
+  const diasJanela = Math.max(1, Math.min(DIAS_AVALIACAO_PRECO, diasDesde));
+  const direcao: DirecaoPreco = m.precoDepois > m.precoAntes ? "subir" : "baixar";
+
+  const somar = (inicio: number, fim: number) => {
+    let unidades = 0;
+    let lucro = 0;
+    for (const p of pedidos) {
+      if (p.sku !== m.sku || p.contaId !== m.contaId || p.status === "cancelado") continue;
+      const t = new Date(p.data).getTime();
+      if (t < inicio || t >= fim) continue;
+      unidades += p.quantidade;
+      lucro += p.lucroLiquido - p.custoMidia;
+    }
+    return { unidades: unidades / diasJanela, lucro: lucro / diasJanela };
+  };
+  const antes = somar(t0 - diasJanela * 86400000, t0);
+  const depois = somar(t0, t0 + diasJanela * 86400000);
+  const variacaoVendas = antes.unidades > 0 ? depois.unidades / antes.unidades - 1 : null;
+
+  const base = {
+    mudanca: m,
+    direcao,
+    diasDesde,
+    diasJanela,
+    unidadesDiaAntes: antes.unidades,
+    unidadesDiaDepois: depois.unidades,
+    lucroDiaAntes: antes.lucro,
+    lucroDiaDepois: depois.lucro,
+    variacaoVendas,
+  };
+  const un = (n: number) => `${n.toFixed(1).replace(".", ",")} un./dia`;
+  const vendasTxt = `As vendas foram de ${un(antes.unidades)} para ${un(depois.unidades)}${
+    variacaoVendas !== null ? ` (${variacaoVendas >= 0 ? "+" : ""}${pctBr(variacaoVendas)})` : ""
+  }`;
+  const lucroTxt = `o lucro depois do Ads foi de ${brlBr(antes.lucro)} para ${brlBr(depois.lucro)} por dia`;
+
+  if (diasDesde < DIAS_MINIMOS_AVALIACAO) {
+    return {
+      ...base,
+      veredito: "acompanhando",
+      explicacao: `Mudou há ${diasDesde} dia${diasDesde !== 1 ? "s" : ""}. Faltam ${DIAS_MINIMOS_AVALIACAO - diasDesde} dia(s) pra ter venda suficiente e dizer se funcionou.`,
+    };
+  }
+  if (antes.unidades === 0 && depois.unidades === 0) {
+    return {
+      ...base,
+      veredito: "nao-mudou",
+      explicacao: `Não vendeu nada nem antes nem depois da mudança. O problema provavelmente não é preço: vale revisar fotos e descrição (Agente Criativo) ou o Ads.`,
+    };
+  }
+  if (direcao === "baixar") {
+    const reagiu =
+      variacaoVendas === null ? depois.unidades > 0 : variacaoVendas >= VARIACAO_VENDAS_RELEVANTE;
+    return reagiu
+      ? {
+          ...base,
+          veredito: "funcionou",
+          explicacao: `${vendasTxt} e ${lucroTxt}. O corte destravou o produto.`,
+        }
+      : {
+          ...base,
+          veredito: "nao-mudou",
+          explicacao: `${vendasTxt}: não reagiram ao corte. O problema provavelmente não é preço — vale revisar fotos e descrição (Agente Criativo) ou o Ads, e considerar voltar ao preço de antes (${brlBr(m.precoAntes)}) pra não perder margem à toa.`,
+        };
+  }
+  const manteveLucro = depois.lucro >= antes.lucro * 0.95;
+  return manteveLucro
+    ? {
+        ...base,
+        veredito: "funcionou",
+        explicacao: `${vendasTxt} e ${lucroTxt}. Ganhou margem sem perder lucro.`,
+      }
+    : {
+        ...base,
+        veredito: "piorou",
+        explicacao: `${vendasTxt} e ${lucroTxt}. A venda caiu mais do que a margem compensou: considere voltar ao preço de antes (${brlBr(m.precoAntes)}).`,
+      };
+}
+
+/* --- Frente 4: campanhas de promoção do marketplace ----------------- */
+
+export type VereditoCampanha = "entrar" | "entrar-com-cuidado" | "nao-compensa" | "nao-entrar";
+
+export interface AvaliacaoCampanha {
+  promocao: Promocao;
+  /** Anúncio usado na conta (mesmo SKU, mesmo canal); null sem anúncio com custo */
+  anuncio: Anuncio | null;
+  margemHoje: number | null;
+  margemCampanha: number | null;
+  lucroUnidadeHoje: number | null;
+  lucroUnidadeCampanha: number | null;
+  margemMinima: number;
+  veredito: VereditoCampanha;
+  motivo: string;
+}
+
+/**
+ * Convite de campanha do marketplace: entra ou não? Usa o custo completo
+ * do anúncio (comissão, frete, Ads, afiliado) no preço da campanha — já
+ * com o rebate que o canal banca.
+ * - prejuízo no preço da campanha → não entrar;
+ * - estoque acabando → não precisa (desconto só apressa a falta);
+ * - abaixo da margem mínima → só compensa se o produto está parado;
+ * - o resto → pode entrar.
+ */
+export function avaliarCampanhas(
+  promocoes: Promocao[],
+  anuncios: Anuncio[],
+  situacao: Map<string, SituacaoEstoqueSku>,
+  metasDe: (contaId: string) => MetasMargem,
+  opcoes: OpcoesLimites = {},
+  referencia = new Date(),
+): AvaliacaoCampanha[] {
+  return promocoes.map((p) => {
+    // O anúncio da campanha: mesmo SKU no mesmo canal, ativo e com custo.
+    // Com mais de uma conta, fica o que mais vende.
+    const candidatos = anuncios
+      .filter((a) => a.sku === p.sku && a.marketplaceId === p.marketplaceId && a.cmv !== null && a.status === "ativo")
+      .sort((x, y) => y.unidadesVendidas - x.unidadesVendidas);
+    const a = candidatos[0] ?? null;
+    const metas = a ? metasDe(a.contaId) : FAIXAS_MARGEM_PADRAO;
+    if (!a) {
+      return {
+        promocao: p,
+        anuncio: null,
+        margemHoje: null,
+        margemCampanha: null,
+        lucroUnidadeHoje: null,
+        lucroUnidadeCampanha: null,
+        margemMinima: metas.margemMinima,
+        veredito: "nao-entrar" as const,
+        motivo: "Sem anúncio ativo com custo cadastrado neste canal: não dá pra calcular a margem. Cadastre o custo antes de decidir.",
+      };
+    }
+    const margemHoje = margemNoPreco(a, a.precoAtual, opcoes);
+    const margemCampanha = margemNoPreco(a, p.precoFinal, opcoes);
+    const lucroHoje = a.precoAtual * margemHoje;
+    const lucroCampanha = p.precoFinal * margemCampanha;
+    const sit = situacao.get(p.sku);
+    const dias = diasSemVender(a, referencia);
+    const parado = dias !== null && dias >= DIAS_PARADO_PADRAO;
+    const comum = {
+      promocao: p,
+      anuncio: a,
+      margemHoje,
+      margemCampanha,
+      lucroUnidadeHoje: lucroHoje,
+      lucroUnidadeCampanha: lucroCampanha,
+      margemMinima: metas.margemMinima,
+    };
+
+    if (margemCampanha < 0) {
+      return {
+        ...comum,
+        veredito: "nao-entrar" as const,
+        motivo: `No preço da campanha (${brlBr(p.precoFinal)}, já com o rebate de ${brlBr(p.rebate)}) você perde ${brlBr(Math.abs(lucroCampanha))} por unidade (margem de ${pctBr(margemCampanha, 1)}).`,
+      };
+    }
+    if (sit && sit.estoque <= 0) {
+      return {
+        ...comum,
+        veredito: "nao-compensa" as const,
+        motivo: "Está sem estoque: não dá pra entrar agora. Reponha antes (Agente de Estoque).",
+      };
+    }
+    if (sit?.acabando) {
+      return {
+        ...comum,
+        veredito: "nao-compensa" as const,
+        motivo: `O estoque deste produto dura só ${Math.floor(sit.cobertura)} dias e o fornecedor leva ${sit.prazoFornecedor}: ele já vende sozinho. Desconto agora só apressa a falta e reduz o lucro de ${brlBr(lucroHoje)} para ${brlBr(lucroCampanha)} por unidade.`,
+      };
+    }
+    if (margemCampanha < metas.margemMinima) {
+      return parado
+        ? {
+            ...comum,
+            veredito: "entrar-com-cuidado" as const,
+            motivo: `A margem na campanha (${pctBr(margemCampanha, 1)}) fica abaixo da sua mínima (${pctBr(metas.margemMinima)}), mas o produto está parado há ${dias} dias: vale entrar pra girar, sabendo que o lucro cai de ${brlBr(lucroHoje)} para ${brlBr(lucroCampanha)} por unidade.`,
+          }
+        : {
+            ...comum,
+            veredito: "nao-compensa" as const,
+            motivo: `A margem na campanha (${pctBr(margemCampanha, 1)}) fica abaixo da sua mínima (${pctBr(metas.margemMinima)}) e o produto já vende sem desconto. O lucro cairia de ${brlBr(lucroHoje)} para ${brlBr(lucroCampanha)} por unidade.`,
+          };
+    }
+    return {
+      ...comum,
+      veredito: "entrar" as const,
+      motivo: `Margem de ${pctBr(margemCampanha, 1)} no preço da campanha, acima da sua mínima (${pctBr(metas.margemMinima)}). O lucro por unidade vai de ${brlBr(lucroHoje)} para ${brlBr(lucroCampanha)}; compensa se a campanha trouxer mais venda.`,
+    };
+  });
+}
+
+/* --- Frente 5: preço por canal ---------------------------------------- */
+
+export type FaixaPrecoCanal = "abaixo-do-piso" | "abaixo-do-ideal" | "ok" | "sem-custo";
+
+export interface PrecoCanal {
+  anuncio: Anuncio;
+  margemAtual: number | null;
+  /** Preço pra atingir a margem mínima da conta */
+  precoMinimo: number | null;
+  /** Preço pra atingir a margem ideal da conta */
+  precoIdeal: number | null;
+  metas: MetasMargem;
+  faixa: FaixaPrecoCanal;
+}
+
+export interface PrecoPorCanalSku {
+  sku: string;
+  produto: string;
+  canais: PrecoCanal[];
+  /** Quantos canais estão abaixo do piso */
+  abaixoDoPiso: number;
+  /** Maior diferença entre o preço ideal de um canal e o de outro */
+  diferencaIdeal: number;
+}
+
+/**
+ * O mesmo produto tem custos diferentes em cada canal (comissão, taxa
+ * fixa, frete). Pra cada anúncio ativo, calcula o preço que dá a margem
+ * mínima e o que dá a margem ideal DAQUELA conta — em vez de um preço
+ * único pra todos. Os SKUs com canal abaixo do piso vêm primeiro.
+ */
+export function precosPorCanal(
+  anuncios: Anuncio[],
+  metasDe: (contaId: string) => MetasMargem,
+  opcoes: OpcoesLimites = {},
+): PrecoPorCanalSku[] {
+  const porSku = new Map<string, Anuncio[]>();
+  for (const a of anuncios) {
+    if (a.status !== "ativo") continue;
+    porSku.set(a.sku, [...(porSku.get(a.sku) ?? []), a]);
+  }
+  const lista: PrecoPorCanalSku[] = [];
+  for (const [sku, doSku] of porSku) {
+    if (doSku.length < 2) continue;
+    const canais: PrecoCanal[] = doSku.map((a) => {
+      const metas = metasDe(a.contaId);
+      if (a.cmv === null) {
+        return { anuncio: a, margemAtual: null, precoMinimo: null, precoIdeal: null, metas, faixa: "sem-custo" as const };
+      }
+      const precoMinimo = limitesDePreco(a, metas.margemMinima, opcoes).precoMinimo;
+      const precoIdeal = limitesDePreco(a, metas.margemIdeal, opcoes).precoMinimo;
+      const margemAtual = margemNoPreco(a, a.precoAtual, opcoes);
+      const faixa: FaixaPrecoCanal =
+        a.precoAtual < precoMinimo ? "abaixo-do-piso" : a.precoAtual < precoIdeal ? "abaixo-do-ideal" : "ok";
+      return {
+        anuncio: a,
+        margemAtual,
+        precoMinimo: Math.round(precoMinimo * 100) / 100,
+        precoIdeal: Math.round(precoIdeal * 100) / 100,
+        metas,
+        faixa,
+      };
+    });
+    const ideais = canais.map((c) => c.precoIdeal).filter((v): v is number => v !== null);
+    lista.push({
+      sku,
+      produto: doSku[0]!.produto,
+      canais: canais.sort((x, y) => (x.precoIdeal ?? Infinity) - (y.precoIdeal ?? Infinity)),
+      abaixoDoPiso: canais.filter((c) => c.faixa === "abaixo-do-piso").length,
+      diferencaIdeal: ideais.length > 1 ? Math.max(...ideais) - Math.min(...ideais) : 0,
+    });
+  }
+  return lista.sort((a, b) => b.abaixoDoPiso - a.abaixoDoPiso || b.diferencaIdeal - a.diferencaIdeal);
 }
 
 /** Cobertura de dados: sem isso, a margem exibida é uma promessa vazia. */
