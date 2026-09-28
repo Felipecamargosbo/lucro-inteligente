@@ -32,7 +32,9 @@ import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import {
   analisarRoasAnuncios,
   auditarCobrancas,
+  auditarCobrancasFull,
   auditarMudancasTaxa,
+  mesclarOcorrenciasAuditor,
   DEGRAU_DESCONTO_PADRAO,
   DIAS_PARADO_PADRAO,
   diagnosticarCurvaAbc,
@@ -525,6 +527,11 @@ function Agentes() {
         contas,
       ),
       ...auditarCobrancas(pedidos, contas),
+      ...auditarCobrancasFull(
+        auditorService.cobrancasFull(),
+        fulfillmentService.listarDetalhado(),
+        contas,
+      ),
     ];
 
     const jaRegistradas = await auditorService.chavesRegistradas(perfilId);
@@ -534,7 +541,10 @@ function Agentes() {
       if (erro) console.error("Não consegui gravar a ocorrência do Auditor:", erro);
     }
 
-    setOcorrenciasAuditor(await auditorService.listar(perfilId));
+    // O banco guarda o status; a conta e as explicações vêm sempre do
+    // cálculo de agora — assim ocorrências antigas ganham as melhorias.
+    const gravadas = await auditorService.listar(perfilId);
+    setOcorrenciasAuditor(mesclarOcorrenciasAuditor(gravadas, encontradas));
     setCarregandoAuditor(false);
   }, [sessao, recursos.agentes]);
 
