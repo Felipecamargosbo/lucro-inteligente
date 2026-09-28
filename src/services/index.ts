@@ -12,6 +12,7 @@ import {
   RESUMO_FULFILLMENT,
   HISTORICO_PRECOS,
   HISTORICO_ADS,
+  HISTORICO_TAXAS,
   LOGS,
   MARKETPLACES,
   NOTIFICACOES,
@@ -36,10 +37,12 @@ import type {
   InsightAnalista,
   MarketplaceId,
   MetasMargem,
+  OcorrenciaAuditor,
   Produto,
   SemaforoDecisao,
   StatusSugestao,
   SugestaoCriativo,
+  StatusOcorrenciaAuditor,
   TicketSac,
   TipoAcaoAds,
   TipoEventoAds,
@@ -725,11 +728,16 @@ export const eventosAgenteService = {
     return resultado;
   },
 
-  listar: async (perfilId: string): Promise<EventoAgente[]> => {
+  /** As sugestões de UM agente. O `agenteId` é obrigatório de propósito:
+   * sem ele, a tela de Precificação acabava listando o que os outros
+   * agentes gravaram na mesma tabela — e como aquelas linhas não têm
+   * preço, apareciam como cards de R$ 0,00. */
+  listar: async (perfilId: string, agenteId: AgenteId): Promise<EventoAgente[]> => {
     const { data, error } = await supabase
       .from("eventos_agente")
       .select("*")
       .eq("perfil_id", perfilId)
+      .eq("agente_id", agenteId)
       .order("criado_em", { ascending: false });
     if (error) {
       console.error("eventosAgenteService.listar:", error.message);
@@ -1416,5 +1424,121 @@ export const chatGestorService = {
       return { resposta: null, erro: data.erro as string };
     }
     return { resposta: (data?.resposta as string) ?? null, erro: null };
+  },
+};
+
+/* ------------------------------------------------------------------ */
+/* Agente Auditor                                                      */
+/* ------------------------------------------------------------------ */
+
+/** O Auditor acompanha um PROCESSO (reclamar, esperar, conferir se
+ * voltou), então tem quatro estados — mais que o aprovar/recusar dos
+ * outros agentes. A coluna `status` da tabela continua com os três
+ * valores de sempre, e o estado detalhado vive dentro de `dados`. */
+const STATUS_TABELA: Record<StatusOcorrenciaAuditor, StatusSugestao> = {
+  aberto: "pendente",
+  "reclamacao-aberta": "pendente",
+  reembolsado: "aprovada",
+  ignorado: "recusada",
+};
+
+function linhaParaOcorrenciaAuditor(l: {
+  id: string;
+  conta_id: string | null;
+  criado_em: string;
+  status: string;
+  decidido_em: string | null;
+  motivo: string | null;
+  dados: Record<string, unknown>;
+}): OcorrenciaAuditor {
+  const d = (l.dados ?? {}) as Record<string, unknown>;
+  const guardada = (d.ocorrencia ?? {}) as Partial<OcorrenciaAuditor>;
+  return {
+    ...(guardada as OcorrenciaAuditor),
+    id: l.id,
+    contaId: guardada.contaId ?? l.conta_id ?? "",
+    motivo: guardada.motivo ?? l.motivo ?? "",
+    status: (d.statusAuditor as StatusOcorrenciaAuditor) ?? "aberto",
+    atualizadoEm: l.decidido_em,
+  };
+}
+
+export const auditorService = {
+  /** Mudanças de taxa que o Auditor já teria detectado. Fictício até a
+   * API do canal expor o histórico real de taxas. */
+  historicoTaxas: () => HISTORICO_TAXAS,
+
+  listar: async (perfilId: string): Promise<OcorrenciaAuditor[]> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "auditor")
+      .order("criado_em", { ascending: false });
+    if (error) {
+      console.error("auditorService.listar:", error.message);
+      return [];
+    }
+    return (data ?? []).map(linhaParaOcorrenciaAuditor);
+  },
+
+  /** Todas as chaves já registradas, em QUALQUER estado — inclusive as
+   * ignoradas, pra a varredura não trazer de volta o que o seller já
+   * mandou embora. */
+  chavesRegistradas: async (perfilId: string): Promise<Set<string>> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("dados")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "auditor");
+    if (error) {
+      console.error("auditorService.chavesRegistradas:", error.message);
+      return new Set();
+    }
+    return new Set(
+      (data ?? [])
+        .map((r) => (r.dados as Record<string, unknown> | null)?.chave)
+        .filter((c): c is string => typeof c === "string"),
+    );
+  },
+
+  criar: async (perfilId: string, o: OcorrenciaAuditor): Promise<string | null> => {
+    const { error } = await supabase.from("eventos_agente").insert({
+      perfil_id: perfilId,
+      agente_id: "auditor",
+      conta_id: o.contaId,
+      sku: o.sku,
+      tipo: o.tipo,
+      motivo: o.motivo,
+      semaforo: o.tipo === "cobranca-divergente" ? "vermelho" : "amarelo",
+      status: "pendente",
+      dados: { chave: o.chave, statusAuditor: "aberto", ocorrencia: { ...o, id: "" } },
+    });
+    return error?.message ?? null;
+  },
+
+  atualizarStatus: async (
+    ocorrencia: OcorrenciaAuditor,
+    status: StatusOcorrenciaAuditor,
+  ): Promise<string | null> => {
+    const { data, error: erroLeitura } = await supabase
+      .from("eventos_agente")
+      .select("dados")
+      .eq("id", ocorrencia.id)
+      .single();
+    if (erroLeitura) {
+      console.error("auditorService.atualizarStatus:", erroLeitura.message);
+      return erroLeitura.message;
+    }
+    const dados = (data?.dados ?? {}) as Record<string, unknown>;
+    const { error } = await supabase
+      .from("eventos_agente")
+      .update({
+        status: STATUS_TABELA[status],
+        decidido_em: new Date().toISOString(),
+        dados: { ...dados, statusAuditor: status },
+      })
+      .eq("id", ocorrencia.id);
+    return error?.message ?? null;
   },
 };
