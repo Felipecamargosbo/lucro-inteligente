@@ -754,6 +754,31 @@ export interface EventoAgente {
   status: StatusSugestao;
   /** Quando o seller decidiu (ISO); null enquanto pendente */
   decididoEm: string | null;
+  /** Precificação: "baixar" (produto parado) ou "subir" (vende rápido e o
+   * estoque vai acabar). Sugestões antigas não têm — contam como "baixar". */
+  direcao?: DirecaoPreco;
+  /** Tamanho do ajuste sugerido, de 0 a 1 (0,08 = 8%) */
+  degrau?: number;
+}
+
+export type DirecaoPreco = "baixar" | "subir";
+
+/** Uma mudança de preço já feita — base do "acompanhar o resultado".
+ * Vem das sugestões aprovadas (e, enquanto não há histórico real, de
+ * exemplos fictícios). */
+export interface MudancaPreco {
+  id: string;
+  anuncioId: string;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  contaId: string;
+  precoAntes: number;
+  precoDepois: number;
+  /** Quando o preço mudou (ISO) */
+  data: string;
+  /** true = exemplo fictício, não uma aprovação do seller */
+  exemplo: boolean;
 }
 
 /* ------------------------------------------------------------------ */
