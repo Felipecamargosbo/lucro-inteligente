@@ -5,6 +5,7 @@ import {
   Building2,
   Check,
   History,
+  MessageCircle,
   Percent,
   Plug,
   Plus,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { AbaConta } from "@/components/configuracoes/AbaConta";
+import { AbaAtendimento } from "@/components/configuracoes/AbaAtendimento";
 import { IdentidadeLoja } from "@/components/configuracoes/IdentidadeLoja";
 import { marketplacesService, logsService } from "@/services";
 import { formatBRL, formatData, formatDataHora, formatPercentual } from "@/lib/format";
@@ -66,6 +68,7 @@ const ABAS = [
   { id: "fiscal", titulo: "Fiscal", Icone: Receipt },
   { id: "margens", titulo: "Margens e custos", Icone: Percent },
   { id: "integracoes", titulo: "Integrações", Icone: Plug },
+  { id: "atendimento", titulo: "Atendimento (SAC)", Icone: MessageCircle },
   { id: "historico", titulo: "Histórico", Icone: History },
 ] as const;
 
@@ -1025,6 +1028,7 @@ function Configuracoes() {
           {aba === "fiscal" && <AbaFiscal />}
           {aba === "margens" && <AbaMargens />}
           {aba === "integracoes" && <AbaIntegracoes />}
+          {aba === "atendimento" && <AbaAtendimento />}
           {aba === "historico" && <AbaHistorico />}
         </div>
       </div>
