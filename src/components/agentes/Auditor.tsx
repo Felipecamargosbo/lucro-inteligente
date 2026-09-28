@@ -40,11 +40,11 @@ const ROTULO_STATUS: Record<
 > = {
   aberto: { texto: "Aberto", cor: "bg-loss-soft text-loss", ponto: "bg-loss" },
   "reclamacao-aberta": {
-    texto: "Reclamação aberta",
+    texto: "Acompanhando",
     cor: "bg-warning/15 text-warning",
     ponto: "bg-warning",
   },
-  reembolsado: { texto: "Reembolsado", cor: "bg-profit-soft text-profit", ponto: "bg-profit" },
+  reembolsado: { texto: "Resolvido", cor: "bg-profit-soft text-profit", ponto: "bg-profit" },
   ignorado: { texto: "Ignorado", cor: "bg-muted text-muted-foreground", ponto: "bg-muted-foreground" },
 };
 
@@ -492,8 +492,8 @@ function DetalheOcorrencia({
               className="text-xs"
             />
             <p className="mt-1 text-[10px] text-muted-foreground">
-              Pode editar antes de copiar. Ao copiar, a ocorrência passa pra "Reclamação
-              aberta" sozinha.
+              Pode editar antes de copiar. Ao copiar, a ocorrência passa pra "Acompanhando"
+              sozinha.
             </p>
           </div>
         )}
@@ -507,13 +507,13 @@ function DetalheOcorrencia({
                 variant="outline"
                 onClick={() => aoAtualizarStatus(o, "reclamacao-aberta")}
               >
-                Marcar como reclamação aberta
+                Acompanhando
               </Button>
             )}
             {o.status !== "reembolsado" && (
               <Button size="sm" onClick={() => aoAtualizarStatus(o, "reembolsado")}>
                 <Check className="size-3.5" />
-                {ehCobranca ? "O dinheiro voltou" : "Já tratei"}
+                Resolvido
               </Button>
             )}
             {o.status !== "ignorado" && (
