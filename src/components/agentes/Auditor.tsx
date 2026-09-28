@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
+  Package,
   Check,
   ClipboardCopy,
   Loader2,
@@ -14,7 +15,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatBRL, formatData, formatNumero } from "@/lib/format";
-import { ROTULO_ITEM_AUDITOR, resumirAuditoria } from "@/lib/finance";
+import {
+  ROTULO_ITEM_AUDITOR,
+  itemDivergente,
+  resumirAuditoria,
+  rotuloMesReferencia,
+} from "@/lib/finance";
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -60,16 +66,23 @@ const ROTULO_STATUS: Record<
 export function montarReclamacao(o: OcorrenciaAuditor): string {
   const canal = o.contaNome ? `equipe ${o.contaNome}` : "equipe de atendimento";
   const linhas = o.itensDivergentes
-    .map(
-      (i) =>
-        `- ${ROTULO_ITEM_AUDITOR[i.item]}: esperado ${formatBRL(i.esperado)}, cobrado ${formatBRL(i.cobrado)} (diferença de ${formatBRL(i.cobrado - i.esperado)}).`,
-    )
+    .map((i) => {
+      const base = `- ${ROTULO_ITEM_AUDITOR[i.item]}: esperado ${formatBRL(i.esperado)}, cobrado ${formatBRL(i.cobrado)} (diferença de ${formatBRL(i.cobrado - i.esperado)}).`;
+      const regra = i.regra ? `\n  Regra: ${i.regra}.` : "";
+      const obs = i.observacao ? `\n  ${i.observacao}` : "";
+      return base + regra + obs;
+    })
     .join("\n");
+
+  const abertura =
+    o.tipo === "cobranca-full"
+      ? `Identifiquei uma cobrança divergente na fatura do Full de ${o.mesReferencia ? rotuloMesReferencia(o.mesReferencia) : formatData(o.data)}, do produto ${o.produto} (SKU ${o.sku}).`
+      : `Identifiquei uma cobrança divergente no pedido ${o.pedidoId}, de ${formatData(o.data)}, do produto ${o.produto} (SKU ${o.sku}).`;
 
   return [
     `Olá, ${canal}.`,
     "",
-    `Identifiquei uma cobrança divergente no pedido ${o.pedidoId}, de ${formatData(o.data)}, do produto ${o.produto} (SKU ${o.sku}).`,
+    abertura,
     "",
     linhas,
     "",
@@ -79,6 +92,21 @@ export function montarReclamacao(o: OcorrenciaAuditor): string {
     "",
     "Obrigado.",
   ].join("\n");
+}
+
+/** Título curto de cada tipo de ocorrência. */
+const TITULO_TIPO = {
+  "cobranca-divergente": "Cobrança divergente",
+  "cobranca-full": "Fatura do Full",
+  "mudanca-taxa": "Mudança de regra",
+} as const;
+
+/** "comissão, frete e cupom de desconto" */
+function nomesItens(o: OcorrenciaAuditor): string {
+  const nomes = o.itensDivergentes.map((i) => ROTULO_ITEM_AUDITOR[i.item]);
+  return nomes.length <= 1
+    ? (nomes[0] ?? "")
+    : `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -97,6 +125,9 @@ type JanelaAuditor = "abertas" | "historico";
  *
  * "Cobrança divergente" — UM pedido foi cobrado fora da regra que vale.
  * Um pedido com frete e comissão errados vira uma ocorrência só.
+ *
+ * "Fatura do Full" — a fatura mensal do Full de UM SKU (armazenagem,
+ * armazenagem prolongada, retirada, multa) veio fora da regra.
  *
  * O Auditor avisa e deixa a reclamação pronta; quem reclama é o seller.
  */
@@ -144,7 +175,7 @@ export function PainelAuditor({
         <div className="min-w-0">
           <p className="text-xs font-semibold">Agente Auditor</p>
           <p className="text-[10px] text-muted-foreground">
-            Compara comissão, taxa fixa e frete de cada pedido com a regra da conta
+            Confere comissão, taxas, frete, cupom, afiliado, devolução e a fatura do Full
           </p>
         </div>
         <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-profit-soft px-2.5 py-1 text-[10px] font-semibold text-profit">
@@ -211,8 +242,10 @@ export function PainelAuditor({
       )}
 
       <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
-        O Auditor confere os pedidos dos últimos 30 dias contra a comissão, a taxa fixa e o
-        frete configurados na conta. Ele aponta e deixa o texto da reclamação pronto — quem
+        O Auditor confere os pedidos dos últimos 30 dias (comissão, taxa fixa, frete,
+        parcelamento, taxas de transação e de programa, afiliado, cupom, frete de devolução,
+        tarifa do Full e garantia) e a fatura mensal do Full (armazenagem, armazenagem
+        prolongada, retirada e multa). Ele aponta e deixa o texto da reclamação pronto — quem
         abre a reclamação no marketplace é você.
       </div>
     </Painel>
@@ -253,14 +286,17 @@ function LinhaOcorrencia({
   aoAbrir: () => void;
 }) {
   const s = ROTULO_STATUS[o.status];
-  const ehCobranca = o.tipo === "cobranca-divergente";
+  const ehCobranca = o.tipo !== "mudanca-taxa";
+  const ehFull = o.tipo === "cobranca-full";
   return (
     <button
       onClick={aoAbrir}
       className="flex w-full flex-wrap items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
     >
       <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">
-        {ehCobranca ? (
+        {ehFull ? (
+          <Package className="size-3.5 text-loss" />
+        ) : ehCobranca ? (
           <AlertTriangle className="size-3.5 text-loss" />
         ) : (
           <Percent className="size-3.5 text-warning" />
@@ -269,16 +305,20 @@ function LinhaOcorrencia({
       <div className="min-w-[180px] flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <SeloMarketplace id={o.marketplaceId} />
-          <span className="text-xs font-semibold">
-            {ehCobranca ? "Cobrança divergente" : "Mudança de regra"}
-          </span>
+          <span className="text-xs font-semibold">{TITULO_TIPO[o.tipo]}</span>
           <span className="text-[10px] text-muted-foreground">{formatData(o.data)}</span>
         </div>
         <p className="mt-0.5 truncate text-xs">{o.produto}</p>
         <p className="num text-[10px] text-muted-foreground">
           {o.sku}
           {o.pedidoId ? ` · pedido ${o.pedidoId}` : ""}
+          {ehFull && o.mesReferencia ? ` · fatura de ${rotuloMesReferencia(o.mesReferencia)}` : ""}
         </p>
+        {ehCobranca && o.itensDivergentes.length > 0 && (
+          <p className="mt-0.5 text-[10px] font-medium text-loss">
+            Cobrado errado: {nomesItens(o)}
+          </p>
+        )}
       </div>
       <div className="text-right">
         <p
@@ -316,11 +356,13 @@ function DetalheOcorrencia({
   aoVoltar: () => void;
   aoAtualizarStatus: (o: OcorrenciaAuditor, status: StatusOcorrenciaAuditor) => void;
 }) {
-  const ehCobranca = o.tipo === "cobranca-divergente";
+  const ehCobranca = o.tipo !== "mudanca-taxa";
+  // Ocorrências gravadas antes desta versão só têm os itens errados.
+  const itensTabela = o.itensConferidos ?? o.itensDivergentes;
   const [texto, setTexto] = useState(() => (ehCobranca ? montarReclamacao(o) : ""));
   const s = ROTULO_STATUS[o.status];
 
-  /** Copiar já muda o status pra "Reclamação aberta" — um clique a menos
+  /** Copiar já muda o status pra "Acompanhando" — um clique a menos
    * pro seller, que é o que ele ia fazer em seguida de qualquer jeito. */
   async function copiar() {
     try {
@@ -334,8 +376,12 @@ function DetalheOcorrencia({
 
   return (
     <Painel
-      titulo={ehCobranca ? "Cobrança divergente" : "Mudança de regra"}
-      descricao={`${o.produto} · ${o.sku}`}
+      titulo={TITULO_TIPO[o.tipo]}
+      descricao={`${o.produto} · ${o.sku}${
+        o.tipo === "cobranca-full" && o.mesReferencia
+          ? ` · fatura de ${rotuloMesReferencia(o.mesReferencia)}`
+          : ""
+      }`}
       acoes={
         <Button size="sm" variant="ghost" onClick={aoVoltar}>
           <ArrowLeft className="size-3.5" />
@@ -365,30 +411,75 @@ function DetalheOcorrencia({
 
         {ehCobranca && (
           <div>
-            <p className="mb-2 text-xs font-semibold">A conta, linha por linha</p>
-            <div className="overflow-hidden rounded-lg border">
-              <table className="w-full text-xs">
+            <p className="text-xs font-semibold">A conta, linha por linha</p>
+            <p className="mb-2 text-[10px] text-muted-foreground">
+              Quanto era pra ser cobrado, quanto foi cobrado e de onde vem cada valor. Os itens
+              com ✓ vieram certos.
+            </p>
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full min-w-[420px] text-xs">
                 <thead>
                   <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
                     <th className="px-3 py-2 text-left font-bold">Item</th>
-                    <th className="px-3 py-2 text-right font-bold">Esperado</th>
+                    <th className="px-3 py-2 text-right font-bold">Era pra ser</th>
                     <th className="px-3 py-2 text-right font-bold">Cobrado</th>
                     <th className="px-3 py-2 text-right font-bold">Diferença</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {o.itensDivergentes.map((i: ItemDivergenteAuditor) => (
-                    <tr key={i.item}>
-                      <td className="px-3 py-2">{ROTULO_ITEM_AUDITOR[i.item]}</td>
-                      <td className="num px-3 py-2 text-right text-muted-foreground">
-                        {formatBRL(i.esperado)}
-                      </td>
-                      <td className="num px-3 py-2 text-right">{formatBRL(i.cobrado)}</td>
-                      <td className="num px-3 py-2 text-right font-bold text-loss">
-                        {formatBRL(i.cobrado - i.esperado)}
-                      </td>
-                    </tr>
-                  ))}
+                  {itensTabela.map((i: ItemDivergenteAuditor) => {
+                    const errado = itemDivergente(i);
+                    return (
+                      <tr key={i.item} className={cn(errado && "bg-loss-soft/40")}>
+                        <td className="px-3 py-2 align-top">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className={cn("font-medium", !errado && "text-muted-foreground")}>
+                              {ROTULO_ITEM_AUDITOR[i.item]}
+                            </span>
+                            {i.indevido && (
+                              <span className="rounded bg-loss px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                                Cobrado indevidamente
+                              </span>
+                            )}
+                          </div>
+                          {i.regra && (
+                            <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">
+                              {i.regra}
+                            </p>
+                          )}
+                          {errado && i.observacao && (
+                            <p className="mt-0.5 text-[10px] font-medium leading-snug text-loss">
+                              {i.observacao}
+                            </p>
+                          )}
+                        </td>
+                        <td className="num px-3 py-2 text-right align-top text-muted-foreground">
+                          {formatBRL(i.esperado)}
+                        </td>
+                        <td
+                          className={cn(
+                            "num px-3 py-2 text-right align-top",
+                            errado ? "font-semibold" : "text-muted-foreground",
+                          )}
+                        >
+                          {formatBRL(i.cobrado)}
+                        </td>
+                        <td className="num px-3 py-2 text-right align-top">
+                          {errado ? (
+                            <span className="font-bold text-loss">
+                              {i.cobrado > i.esperado ? "+" : ""}
+                              {formatBRL(i.cobrado - i.esperado)}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-profit">
+                              <Check className="size-3.5" />
+                              ok
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                   <tr className="bg-muted/50">
                     <td className="px-3 py-2 font-semibold" colSpan={3}>
                       Diferença total
