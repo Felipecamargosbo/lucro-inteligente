@@ -835,6 +835,32 @@ export interface TicketSac {
   resposta: string | null;
   status: StatusSugestao;
   decididoEm: string | null;
+  /** Pedido a que a mensagem se refere (pós-venda/reclamação); null em
+   * pergunta de pré-venda, feita antes de comprar */
+  pedidoId?: string | null;
+  /** Nome do cliente, pra personalizar a mensagem pronta */
+  cliente?: string | null;
+}
+
+/** O tipo de mensagem, decidido por palavras-chave (sem IA, sem token):
+ * - pré-venda: dúvida antes de comprar;
+ * - pós-venda: "cadê meu pedido";
+ * - reclamação: onde a reputação corre risco — o seller responde. */
+export type CategoriaSac = "pre-venda" | "pos-venda" | "reclamacao";
+
+/** Tom de voz das respostas do SAC. */
+export type TomSac = "formal" | "neutro" | "descontraido";
+
+/** A personalização do SAC que o seller define em Configurações. */
+export interface ConfiguracaoSac {
+  tom: TomSac;
+  /** Como assinar as mensagens ("Equipe Planeta97") */
+  assinatura: string;
+  politicaTroca: string;
+  garantia: string;
+  prazoEnvio: string;
+  /** Uma frase ou palavra por linha */
+  frasesProibidas: string;
 }
 
 /* ------------------------------------------------------------------ */
