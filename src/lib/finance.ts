@@ -7,7 +7,11 @@ import type {
   ContaMarketplace,
   FaixaSaudeMargem,
   HistoricoAdsDia,
+  HistoricoTaxaAnuncio,
+  ItemDivergenteAuditor,
   ItemEstoqueDetalhado,
+  OcorrenciaAuditor,
+  PedidoAfetadoAuditor,
   Lancamento,
   MarketplaceId,
   MetasMargem,
@@ -1754,4 +1758,240 @@ export function diagnosticarAnunciosCansados(analises: AnaliseRoasAnuncio[]): An
       x.conversao !== null &&
       x.conversao < CONVERSAO_MAXIMA_CANSADO,
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente Auditor — conferência de taxas e cobranças                   */
+/* ------------------------------------------------------------------ */
+
+/** Diferença em reais a partir da qual vale apontar uma cobrança. Abaixo
+ * disso é arredondamento do canal, não erro. */
+export const TOLERANCIA_AUDITOR = 0.05;
+
+/** Quantos dias pra trás o Auditor confere os pedidos. Mais que isso, o
+ * prazo de reclamação da maioria dos canais já passou. */
+export const DIAS_AUDITORIA = 30;
+
+/** Rótulo em português de cada item conferido. */
+export const ROTULO_ITEM_AUDITOR: Record<ItemDivergenteAuditor["item"], string> = {
+  frete: "Frete",
+  comissao: "Comissão",
+  taxaFixa: "Taxa fixa",
+};
+
+/**
+ * Confere UM pedido contra a regra que vale pra conta dele e devolve o
+ * que saiu diferente. Compara três coisas:
+ * - frete: o cobrado contra o esperado que o próprio pedido já registra;
+ * - comissão: contra o percentual configurado na conta;
+ * - taxa fixa: contra o valor configurado na conta.
+ */
+export function conferirCobrancaPedido(
+  pedido: Pedido,
+  conta: ContaMarketplace,
+): ItemDivergenteAuditor[] {
+  const candidatos: ItemDivergenteAuditor[] = [
+    { item: "frete", esperado: pedido.freteEsperado, cobrado: pedido.freteCobrado },
+    {
+      item: "comissao",
+      esperado: Math.round(pedido.faturamento * conta.comissaoPercentual * 100) / 100,
+      cobrado: pedido.comissao,
+    },
+    { item: "taxaFixa", esperado: conta.taxaFixa, cobrado: pedido.taxaFixa },
+  ];
+  return candidatos.filter(
+    (c) => Math.abs(c.cobrado - c.esperado) >= TOLERANCIA_AUDITOR,
+  );
+}
+
+function causaProvavel(itens: ItemDivergenteAuditor[]): string {
+  const nomes = itens.map((i) => i.item);
+  const partes: string[] = [];
+  if (nomes.includes("frete")) {
+    partes.push(
+      "o frete costuma sair diferente quando o peso ou as medidas cadastradas no anúncio não batem com o volume real",
+    );
+  }
+  if (nomes.includes("comissao")) {
+    partes.push(
+      "a comissão sai diferente quando o canal reclassifica a categoria do anúncio ou aplica uma regra de campanha",
+    );
+  }
+  if (nomes.includes("taxaFixa")) {
+    partes.push("a taxa fixa muda quando o canal reenquadra a faixa de preço do pedido");
+  }
+  return partes.length > 0
+    ? `Possível causa: ${partes.join("; ")}.`
+    : "Confira a fatura do canal pra entender a diferença.";
+}
+
+/**
+ * Varre os pedidos dos últimos `dias` e devolve uma ocorrência por
+ * PEDIDO com alguma cobrança fora da regra — nunca uma por item, pra um
+ * pedido com frete e comissão errados não virar dois alertas.
+ */
+export function auditarCobrancas(
+  pedidos: Pedido[],
+  contas: ContaMarketplace[],
+  config: { dias?: number; referencia?: Date } = {},
+): OcorrenciaAuditor[] {
+  const dias = config.dias ?? DIAS_AUDITORIA;
+  const referencia = config.referencia ?? new Date();
+  const corte = referencia.getTime() - dias * 86400000;
+  const porConta = new Map(contas.map((c) => [c.id, c]));
+
+  const ocorrencias: OcorrenciaAuditor[] = [];
+  for (const p of pedidos) {
+    if (p.status === "cancelado") continue;
+    if (new Date(p.data).getTime() < corte) continue;
+    const conta = porConta.get(p.contaId);
+    if (!conta) continue;
+
+    const itens = conferirCobrancaPedido(p, conta);
+    if (itens.length === 0) continue;
+
+    const diferenca =
+      Math.round(itens.reduce((s, i) => s + (i.cobrado - i.esperado), 0) * 100) / 100;
+    if (Math.abs(diferenca) < TOLERANCIA_AUDITOR) continue;
+
+    const nomes = itens.map((i) => ROTULO_ITEM_AUDITOR[i.item].toLowerCase());
+    const lista =
+      nomes.length === 1
+        ? nomes[0]!
+        : `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
+
+    ocorrencias.push({
+      id: "",
+      chave: `pedido:${p.id}`,
+      tipo: "cobranca-divergente",
+      data: p.data,
+      anuncioId: null,
+      pedidoId: p.id,
+      sku: p.sku,
+      produto: p.produto,
+      marketplaceId: p.marketplaceId,
+      contaId: p.contaId,
+      contaNome: conta.nome,
+      motivo: `O pedido ${p.id} foi cobrado ${diferenca > 0 ? "a mais" : "a menos"} em ${lista}: diferença de ${diferenca.toFixed(2).replace(".", ",")} reais.`,
+      causaProvavel: causaProvavel(itens),
+      campo: null,
+      valorAnterior: null,
+      valorNovo: null,
+      pedidosAfetados: [],
+      itensDivergentes: itens,
+      diferenca,
+      status: "aberto",
+      atualizadoEm: null,
+    });
+  }
+  return ocorrencias.sort((a, b) => Math.abs(b.diferenca) - Math.abs(a.diferenca));
+}
+
+/**
+ * Transforma cada mudança de regra (comissão ou taxa fixa de um anúncio)
+ * numa ocorrência, já com os pedidos que saíram DEPOIS da mudança e
+ * quanto isso custou a mais. Esses pedidos não são erro de cobrança — é
+ * a regra nova valendo —, por isso ficam agrupados aqui dentro.
+ */
+export function auditarMudancasTaxa(
+  historico: HistoricoTaxaAnuncio[],
+  anuncios: Anuncio[],
+  pedidos: Pedido[],
+  contas: ContaMarketplace[],
+): OcorrenciaAuditor[] {
+  const porAnuncio = new Map(anuncios.map((a) => [a.id, a]));
+  const porConta = new Map(contas.map((c) => [c.id, c]));
+
+  const ocorrencias: OcorrenciaAuditor[] = [];
+  for (const h of historico) {
+    const anuncio = porAnuncio.get(h.anuncioId);
+    if (!anuncio) continue;
+    const conta = porConta.get(anuncio.contaId);
+
+    const ehPercentual = h.campo === "comissaoPercentual";
+    const fmt = (v: number) =>
+      ehPercentual
+        ? `${(v * 100).toFixed(1).replace(".", ",")}%`
+        : `R$ ${v.toFixed(2).replace(".", ",")}`;
+    const delta = h.valorNovo - h.valorAnterior;
+    const desde = new Date(h.detectadoEm).getTime();
+
+    const afetados: PedidoAfetadoAuditor[] = pedidos
+      .filter(
+        (p) =>
+          p.sku === h.sku &&
+          p.contaId === anuncio.contaId &&
+          p.status !== "cancelado" &&
+          new Date(p.data).getTime() >= desde,
+      )
+      .map((p) => ({
+        pedidoId: p.id,
+        data: p.data,
+        faturamento: p.faturamento,
+        custoExtra:
+          Math.round((ehPercentual ? p.faturamento * delta : delta * p.quantidade) * 100) / 100,
+      }))
+      .sort((a, b) => +new Date(b.data) - +new Date(a.data));
+
+    const total = Math.round(afetados.reduce((s, p) => s + p.custoExtra, 0) * 100) / 100;
+    const nomeCampo = ehPercentual ? "A comissão" : "A taxa fixa";
+
+    ocorrencias.push({
+      id: "",
+      chave: `taxa:${h.id}`,
+      tipo: "mudanca-taxa",
+      data: h.detectadoEm,
+      anuncioId: h.anuncioId,
+      pedidoId: null,
+      sku: h.sku,
+      produto: h.produto,
+      marketplaceId: h.marketplaceId,
+      contaId: anuncio.contaId,
+      contaNome: conta?.nome ?? "",
+      motivo: `${nomeCampo} deste anúncio mudou de ${fmt(h.valorAnterior)} para ${fmt(h.valorNovo)}.`,
+      causaProvavel:
+        delta > 0
+          ? "A margem deste anúncio caiu e o ROAS mínimo dele subiu. Confira o preço no Agente de Precificação e o objetivo de Ads no Agente de Ads."
+          : "A taxa caiu: a margem deste anúncio melhorou e ele aguenta um ROAS mínimo menor.",
+      campo: h.campo,
+      valorAnterior: h.valorAnterior,
+      valorNovo: h.valorNovo,
+      pedidosAfetados: afetados,
+      itensDivergentes: [],
+      diferenca: total,
+      status: "aberto",
+      atualizadoEm: null,
+    });
+  }
+  return ocorrencias.sort((a, b) => +new Date(b.data) - +new Date(a.data));
+}
+
+export interface ResumoAuditoria {
+  /** Só o que foi cobrado A MAIS (as diferenças a menos não entram) */
+  cobradoAMais: number;
+  recuperado: number;
+  pendente: number;
+  abertas: number;
+}
+
+/** Os três números do topo da tela do Auditor. */
+export function resumirAuditoria(ocorrencias: OcorrenciaAuditor[]): ResumoAuditoria {
+  let cobradoAMais = 0;
+  let recuperado = 0;
+  let pendente = 0;
+  let abertas = 0;
+  for (const o of ocorrencias) {
+    if (o.tipo !== "cobranca-divergente" || o.diferenca <= 0) continue;
+    cobradoAMais += o.diferenca;
+    if (o.status === "reembolsado") recuperado += o.diferenca;
+    else if (o.status !== "ignorado") pendente += o.diferenca;
+    if (o.status === "aberto" || o.status === "reclamacao-aberta") abertas++;
+  }
+  const arredondar = (n: number) => Math.round(n * 100) / 100;
+  return {
+    cobradoAMais: arredondar(cobradoAMais),
+    recuperado: arredondar(recuperado),
+    pendente: arredondar(pendente),
+    abertas,
+  };
 }
