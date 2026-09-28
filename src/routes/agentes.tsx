@@ -30,7 +30,11 @@ import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import {
+  analisarFulfillment,
+  analisarReposicaoEstoque,
   analisarRoasAnuncios,
+  chaveAlertaEstoque,
+  mesclarAlertasEstoque,
   auditarCobrancas,
   auditarCobrancasFull,
   auditarMudancasTaxa,
@@ -40,7 +44,6 @@ import {
   diagnosticarCurvaAbc,
   diagnosticarDadoFaltando,
   diagnosticarQuedaMargem,
-  diagnosticarRuptura,
   diagnosticarSaudeContas,
   FAIXAS_MARGEM_PADRAO,
   montarResumoDiario,
@@ -373,70 +376,56 @@ function Agentes() {
   }, [sessao, recursos.agentes]);
 
   /**
-   * Projeta ruptura a partir da venda real dos últimos 7 dias de cada SKU
-   * — não do número médio que já vem no cadastro de estoque.
+   * Agente de Estoque (estoque próprio): avisa a tempo de o fornecedor
+   * entregar, diz se vale a pena repor (margem depois do Ads + curva ABC)
+   * e quanto dinheiro a reposição exige. O banco guarda o status de cada
+   * alerta; os números vêm sempre do cálculo de agora.
    */
   const carregarAlertasEstoque = useCallback(async () => {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
-    const itens = estoqueService.listarDetalhado();
-    const pedidos = vendasService.listar();
-    const diagnosticos = diagnosticarRuptura(itens, pedidos);
+    const calculados = analisarReposicaoEstoque(
+      estoqueService.listarDetalhado(),
+      vendasService.listar(),
+      contasService.ativas(),
+    );
 
-    const jaPendentes = await estoqueService.skusPendentes(perfilId);
-    for (const d of diagnosticos) {
-      if (jaPendentes.has(d.sku)) continue;
-      const erro = await estoqueService.criarAlerta(perfilId, {
-        contaId: null,
-        sku: d.sku,
-        produto: d.produto,
-        marketplaceId: d.marketplaceId,
-        estoqueAtual: d.estoqueAtual,
-        vendidoUltimos7Dias: d.vendidoUltimos7Dias,
-        mediaDiaria: d.mediaDiaria,
-        diasRestantes: d.diasRestantes,
-        quantidadeSugerida: d.quantidadeSugerida,
-        diasAlvoCobertura: d.diasAlvoCobertura,
-      });
+    const jaPendentes = await estoqueService.chavesPendentes(perfilId);
+    for (const a of calculados) {
+      if (jaPendentes.has(chaveAlertaEstoque(a))) continue;
+      const erro = await estoqueService.criarAlerta(perfilId, { ...a, contaId: null });
       if (erro) console.error("Não consegui gravar o alerta de estoque:", erro);
     }
 
-    const lista = await estoqueService.listarAlertas(perfilId);
-    setAlertasEstoque(lista);
+    const gravados = await estoqueService.listarAlertas(perfilId);
+    setAlertasEstoque(mesclarAlertasEstoque(gravados, calculados));
     setCarregandoEstoque(false);
   }, [sessao, recursos.agentes]);
 
-  /** Mesma lógica do Estoque, só que olhando o estoque alocado nos
-   * centros de distribuição do marketplace (Full), não o próprio. */
+  /** Agente de Fulfillment: o que vai faltar no Full (contando o prazo de
+   * envio até o centro de distribuição, quanto mandar e quanto comprar)
+   * e o que está parado lá pagando armazenagem. */
   const carregarAlertasFulfillment = useCallback(async () => {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
-    const itens = fulfillmentService.listarDetalhado();
-    const pedidos = vendasService.listar();
-    const diagnosticos = diagnosticarRuptura(itens, pedidos);
+    const calculados = analisarFulfillment(
+      fulfillmentService.listarDetalhado(),
+      estoqueService.listarDetalhado(),
+      vendasService.listar(),
+      contasService.ativas(),
+    );
 
-    const jaPendentes = await fulfillmentService.skusPendentes(perfilId);
-    for (const d of diagnosticos) {
-      if (jaPendentes.has(d.sku)) continue;
-      const erro = await fulfillmentService.criarAlerta(perfilId, {
-        contaId: null,
-        sku: d.sku,
-        produto: d.produto,
-        marketplaceId: d.marketplaceId,
-        estoqueAtual: d.estoqueAtual,
-        vendidoUltimos7Dias: d.vendidoUltimos7Dias,
-        mediaDiaria: d.mediaDiaria,
-        diasRestantes: d.diasRestantes,
-        quantidadeSugerida: d.quantidadeSugerida,
-        diasAlvoCobertura: d.diasAlvoCobertura,
-      });
+    const jaPendentes = await fulfillmentService.chavesPendentes(perfilId);
+    for (const a of calculados) {
+      if (jaPendentes.has(chaveAlertaEstoque(a))) continue;
+      const erro = await fulfillmentService.criarAlerta(perfilId, { ...a, contaId: null });
       if (erro) console.error("Não consegui gravar o alerta de fulfillment:", erro);
     }
 
-    const lista = await fulfillmentService.listarAlertas(perfilId);
-    setAlertasFulfillment(lista);
+    const gravados = await fulfillmentService.listarAlertas(perfilId);
+    setAlertasFulfillment(mesclarAlertasEstoque(gravados, calculados));
     setCarregandoFulfillment(false);
   }, [sessao, recursos.agentes]);
 
