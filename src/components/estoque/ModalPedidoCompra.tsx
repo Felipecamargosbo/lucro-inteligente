@@ -43,14 +43,21 @@ Equipe de Compras`;
 export function ModalPedidoCompra({
   item,
   onFechar,
+  quantidade,
 }: {
   item: ItemEstoqueDetalhado | null;
   onFechar: () => void;
+  /** Quantidade já calculada por um agente (Estoque/Fulfillment). Sem
+   * ela, a janela usa a sugestão padrão de ~30 dias de cobertura. */
+  quantidade?: number;
 }) {
   const [emailFornecedor, setEmailFornecedor] = useState("compras@fornecedor.com");
   const [mensagem, setMensagem] = useState("");
 
-  const qtdSugerida = useMemo(() => (item ? quantidadeSugerida(item) : 0), [item]);
+  const qtdSugerida = useMemo(
+    () => (item ? (quantidade ?? quantidadeSugerida(item)) : 0),
+    [item, quantidade],
+  );
 
   // Recalcula o texto sempre que outro produto for selecionado.
   useEffect(() => {
