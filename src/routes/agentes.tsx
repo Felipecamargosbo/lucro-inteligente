@@ -6,6 +6,7 @@ import {
   Bot,
   Boxes,
   MessageCircle,
+  ShieldCheck,
   Target,
   TrendingDown,
   Wand2,
@@ -14,6 +15,7 @@ import {
 import {
   anunciosService,
   adsService,
+  auditorService,
   contasService,
   criativoService,
   estoqueService,
@@ -29,6 +31,8 @@ import { useSelecaoContas } from "@/context/selecao-contas";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import {
   analisarRoasAnuncios,
+  auditarCobrancas,
+  auditarMudancasTaxa,
   DEGRAU_DESCONTO_PADRAO,
   DIAS_PARADO_PADRAO,
   diagnosticarCurvaAbc,
@@ -47,6 +51,8 @@ import { cn } from "@/lib/utils";
 import type {
   AcaoAds,
   AlertaEstoque,
+  OcorrenciaAuditor,
+  StatusOcorrenciaAuditor,
   EventoAds,
   EventoAgente,
   InsightAnalista,
@@ -60,6 +66,7 @@ import { PainelSac } from "@/components/agentes/Sac";
 import { PainelEstoque } from "@/components/agentes/Estoque";
 import { PainelFulfillment } from "@/components/agentes/Fulfillment";
 import { PainelAds, montarAcoesAds } from "@/components/agentes/Ads";
+import { PainelAuditor } from "@/components/agentes/Auditor";
 import { PainelCriativo } from "@/components/agentes/Criativo";
 
 export const Route = createFileRoute("/agentes")({
@@ -95,7 +102,14 @@ function Agentes() {
     useSelecaoContas();
   const { sessao, recursos } = useAuth();
   const [abaAgente, setAbaAgente] = useState<
-    "analista" | "precificacao" | "sac" | "estoque" | "fulfillment" | "ads" | "criativo"
+    | "analista"
+    | "precificacao"
+    | "sac"
+    | "estoque"
+    | "fulfillment"
+    | "ads"
+    | "auditor"
+    | "criativo"
   >("analista");
   const [eventos, setEventos] = useState<EventoAgente[]>([]);
   const [insights, setInsights] = useState<InsightAnalista[]>([]);
@@ -108,6 +122,8 @@ function Agentes() {
   const [analisesAds, setAnalisesAds] = useState<AnaliseRoasAnuncio[]>([]);
   const [acoesAds, setAcoesAds] = useState<AcaoAds[]>([]);
   const [carregandoAds, setCarregandoAds] = useState(true);
+  const [ocorrenciasAuditor, setOcorrenciasAuditor] = useState<OcorrenciaAuditor[]>([]);
+  const [carregandoAuditor, setCarregandoAuditor] = useState(true);
   const [carregandoTickets, setCarregandoTickets] = useState(true);
   /** Ticket com resposta em andamento de gerar (mostra o spinner só nele) */
   const [gerandoId, setGerandoId] = useState<string | null>(null);
@@ -181,7 +197,7 @@ function Agentes() {
       if (erro) console.error("Não consegui gravar a sugestão:", erro);
     }
 
-    const lista = await eventosAgenteService.listar(perfilId);
+    const lista = await eventosAgenteService.listar(perfilId, "precificacao");
     setEventos(lista);
     setCarregando(false);
   }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
@@ -489,6 +505,39 @@ function Agentes() {
     setCarregandoAds(false);
   }, [sessao, recursos.agentes, fiscal, custoOperacionalTotal]);
 
+  /**
+   * A varredura do Auditor: confere os pedidos dos últimos 30 dias contra
+   * a regra de cada conta e junta as mudanças de taxa detectadas. Só grava
+   * o que ainda não foi registrado — inclusive o que o seller já ignorou
+   * não volta.
+   */
+  const carregarAuditor = useCallback(async () => {
+    if (!sessao || !recursos.agentes) return;
+    const perfilId = sessao.user.id;
+
+    const contas = contasService.ativas();
+    const pedidos = vendasService.listar();
+    const encontradas = [
+      ...auditarMudancasTaxa(
+        auditorService.historicoTaxas(),
+        anunciosService.listar(),
+        pedidos,
+        contas,
+      ),
+      ...auditarCobrancas(pedidos, contas),
+    ];
+
+    const jaRegistradas = await auditorService.chavesRegistradas(perfilId);
+    for (const o of encontradas) {
+      if (jaRegistradas.has(o.chave)) continue;
+      const erro = await auditorService.criar(perfilId, o);
+      if (erro) console.error("Não consegui gravar a ocorrência do Auditor:", erro);
+    }
+
+    setOcorrenciasAuditor(await auditorService.listar(perfilId));
+    setCarregandoAuditor(false);
+  }, [sessao, recursos.agentes]);
+
   useEffect(() => {
     carregarEventos();
     carregarInsights();
@@ -496,6 +545,7 @@ function Agentes() {
     carregarAlertasEstoque();
     carregarAlertasFulfillment();
     carregarAvaliacoesAds();
+    carregarAuditor();
     carregarSugestoesCriativo();
   }, [
     carregarEventos,
@@ -504,6 +554,7 @@ function Agentes() {
     carregarAlertasEstoque,
     carregarAlertasFulfillment,
     carregarAvaliacoesAds,
+    carregarAuditor,
     carregarSugestoesCriativo,
   ]);
 
@@ -747,6 +798,27 @@ function Agentes() {
     );
   };
 
+  const atualizarStatusAuditor = async (
+    o: OcorrenciaAuditor,
+    status: StatusOcorrenciaAuditor,
+  ) => {
+    setOcorrenciasAuditor((atual) =>
+      atual.map((item) =>
+        item.id === o.id
+          ? { ...item, status, atualizadoEm: new Date().toISOString() }
+          : item,
+      ),
+    );
+    const erro = await auditorService.atualizarStatus(o, status);
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      await carregarAuditor();
+      return;
+    }
+    if (status === "reembolsado") toast.success("Marcado como resolvido.");
+    else if (status === "ignorado") toast("Ocorrência ignorada.");
+  };
+
   const insightsPendentes = insights.filter((i) => i.status === "pendente").length;
   const ticketsPendentes = tickets.filter((t) => t.status === "pendente").length;
   const alertasEstoquePendentes = alertasEstoque.filter((a) => a.status === "pendente").length;
@@ -763,6 +835,12 @@ function Agentes() {
   const avaliacoesAdsPendentes =
     avaliacoesAds.filter((a) => a.status === "pendente" && a.tipo === "sugestao").length +
     acoesAdsNaSelecao.filter((a) => a.status === "pendente").length;
+  const ocorrenciasAuditorNaSelecao = semRestricaoDeConta
+    ? ocorrenciasAuditor
+    : ocorrenciasAuditor.filter((o) => contasSelecionadas.has(o.contaId));
+  const ocorrenciasAuditorAbertas = ocorrenciasAuditorNaSelecao.filter(
+    (o) => o.status === "aberto" || o.status === "reclamacao-aberta",
+  ).length;
   const sugestoesCriativoPendentes = sugestoesCriativo.filter(
     (s) => s.status === "pendente",
   ).length;
@@ -800,6 +878,7 @@ function Agentes() {
             ["estoque", "Estoque", Boxes, alertasEstoquePendentes] as const,
             ["fulfillment", "Fulfillment", Warehouse, alertasFulfillmentPendentes] as const,
             ["ads", "Ads", Target, avaliacoesAdsPendentes] as const,
+            ["auditor", "Auditor", ShieldCheck, ocorrenciasAuditorAbertas] as const,
             ["criativo", "Criativo", Wand2, sugestoesCriativoPendentes] as const,
           ] as const
         ).map(([id, nome, Icone, contagem]) => (
@@ -886,6 +965,14 @@ function Agentes() {
           aoDecidirAcao={decidirAcaoAds}
           aoDispensarCandidato={dispensarAvaliacaoAds}
           aoAbrirCriativo={() => setAbaAgente("criativo")}
+        />
+      )}
+
+      {abaAgente === "auditor" && (
+        <PainelAuditor
+          ocorrencias={ocorrenciasAuditorNaSelecao}
+          carregando={carregandoAuditor}
+          aoAtualizarStatus={atualizarStatusAuditor}
         />
       )}
 
