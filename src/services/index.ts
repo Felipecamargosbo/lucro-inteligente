@@ -22,16 +22,23 @@ import {
   PRODUTOS_CATALOGO,
   PROMOCOES,
   MUDANCAS_PRECO_EXEMPLO,
+  FICHAS_ANUNCIO,
   USUARIOS,
   contasDoCanal,
   getCampanha,
   getConta,
   obterContasAtuais,
 } from "@/data/mock";
+import { CONFIGURACAO_SAC_PADRAO, MODELOS_SAC_PADRAO } from "@/lib/sac";
 import type {
   AcaoAds,
   AgenteId,
+  CategoriaSac,
+  ConfiguracaoSac,
   DirecaoPreco,
+  RegraSac,
+  SituacaoSac,
+  TomSac,
   AlertaEstoque,
   Anuncio,
   ContaMarketplace,
@@ -983,8 +990,167 @@ function linhaParaTicketSac(l: {
     resposta: (d.resposta as string) ?? null,
     status: l.status as StatusSugestao,
     decididoEm: l.decidido_em,
+    pedidoId: (d.pedidoId as string) ?? null,
+    cliente: (d.cliente as string) ?? null,
   };
 }
+
+/** Quando a Edge Function responde com erro (4xx/5xx), o supabase-js não
+ * entrega o corpo da resposta automaticamente — só um aviso genérico. O
+ * motivo de verdade, que a function escreve em `{ erro: "..." }`, está
+ * escondido em error.context. */
+async function motivoErroFunction(error: { message?: string }): Promise<string> {
+  let motivo = error.message ?? "Não consegui falar com a IA.";
+  const contexto = (error as { context?: Response }).context;
+  if (contexto && typeof contexto.json === "function") {
+    try {
+      const corpo = await contexto.json();
+      if (corpo?.erro) motivo = corpo.erro;
+    } catch {
+      // Corpo não era JSON — fica com a mensagem genérica mesmo.
+    }
+  }
+  return motivo;
+}
+
+/** Personalização do SAC (tom de voz, política da loja, frases
+ * proibidas). Uma linha por seller na tabela `sac_configuracoes`. */
+export const sacConfigService = {
+  carregar: async (perfilId: string): Promise<ConfiguracaoSac> => {
+    const { data, error } = await supabase
+      .from("sac_configuracoes")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .maybeSingle();
+    if (error) {
+      console.error("sacConfigService.carregar:", error.message);
+      return { ...CONFIGURACAO_SAC_PADRAO };
+    }
+    if (!data) return { ...CONFIGURACAO_SAC_PADRAO };
+    return {
+      tom: (data.tom as TomSac) ?? "neutro",
+      assinatura: (data.assinatura as string) ?? "",
+      politicaTroca: (data.politica_troca as string) ?? "",
+      garantia: (data.garantia as string) ?? "",
+      prazoEnvio: (data.prazo_envio as string) ?? "",
+      frasesProibidas: (data.frases_proibidas as string) ?? "",
+    };
+  },
+
+  salvar: async (perfilId: string, c: ConfiguracaoSac): Promise<string | null> => {
+    const { error } = await supabase.from("sac_configuracoes").upsert(
+      {
+        perfil_id: perfilId,
+        tom: c.tom,
+        assinatura: c.assinatura,
+        politica_troca: c.politicaTroca,
+        garantia: c.garantia,
+        prazo_envio: c.prazoEnvio,
+        frases_proibidas: c.frasesProibidas,
+        atualizado_em: new Date().toISOString(),
+      },
+      { onConflict: "perfil_id" },
+    );
+    return error?.message ?? null;
+  },
+};
+
+/** Ficha do anúncio (descrição completa por SKU) — o que o SAC e o
+ * Criativo usam pra não inventar característica. Vem da tabela
+ * `fichas_anuncio`; enquanto o seller não preencheu, usa as fichas de
+ * exemplo. */
+export const fichasService = {
+  /** Mapa SKU → descrição completa */
+  listar: async (perfilId: string): Promise<Map<string, string>> => {
+    const mapa = new Map(FICHAS_ANUNCIO.map((f) => [f.sku, f.descricaoCompleta]));
+    const { data, error } = await supabase
+      .from("fichas_anuncio")
+      .select("sku, descricao_completa")
+      .eq("perfil_id", perfilId);
+    if (error) {
+      console.error("fichasService.listar:", error.message);
+      return mapa;
+    }
+    for (const f of data ?? []) {
+      const texto = (f.descricao_completa as string) ?? "";
+      if (texto.trim()) mapa.set(f.sku as string, texto);
+    }
+    return mapa;
+  },
+};
+
+/** Mensagens prontas do SAC por situação do pedido. Começam com um texto
+ * padrão; quando o seller salva uma versão editada, ela passa a valer. */
+export const modelosSacService = {
+  listar: async (perfilId: string): Promise<Record<SituacaoSac, string>> => {
+    const modelos = { ...MODELOS_SAC_PADRAO };
+    const { data, error } = await supabase
+      .from("sac_modelos_mensagem")
+      .select("situacao, texto")
+      .eq("perfil_id", perfilId);
+    if (error) {
+      console.error("modelosSacService.listar:", error.message);
+      return modelos;
+    }
+    for (const m of data ?? []) {
+      const situacao = m.situacao as SituacaoSac;
+      if (situacao in modelos && (m.texto as string)?.trim()) modelos[situacao] = m.texto as string;
+    }
+    return modelos;
+  },
+
+  salvar: async (perfilId: string, situacao: SituacaoSac, texto: string): Promise<string | null> => {
+    const { error } = await supabase.from("sac_modelos_mensagem").upsert(
+      { perfil_id: perfilId, situacao, texto, atualizado_em: new Date().toISOString() },
+      { onConflict: "perfil_id,situacao" },
+    );
+    return error?.message ?? null;
+  },
+};
+
+/** Regras que moldam as respostas do SAC — aprendidas com as edições do
+ * seller (via o Gestor) ou escritas direto nas Configurações. */
+export const regrasSacService = {
+  listar: async (perfilId: string): Promise<RegraSac[]> => {
+    const { data, error } = await supabase
+      .from("sac_regras")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .order("criada_em", { ascending: false });
+    if (error) {
+      console.error("regrasSacService.listar:", error.message);
+      return [];
+    }
+    return (data ?? []).map((r) => ({
+      id: r.id as string,
+      regra: r.regra as string,
+      origem: r.origem as RegraSac["origem"],
+      ativa: Boolean(r.ativa),
+      criadaEm: r.criada_em as string,
+    }));
+  },
+
+  criar: async (
+    perfilId: string,
+    regra: string,
+    origem: RegraSac["origem"],
+  ): Promise<string | null> => {
+    const { error } = await supabase
+      .from("sac_regras")
+      .insert({ perfil_id: perfilId, regra, origem, ativa: true });
+    return error?.message ?? null;
+  },
+
+  alternar: async (id: string, ativa: boolean): Promise<string | null> => {
+    const { error } = await supabase.from("sac_regras").update({ ativa }).eq("id", id);
+    return error?.message ?? null;
+  },
+
+  apagar: async (id: string): Promise<string | null> => {
+    const { error } = await supabase.from("sac_regras").delete().eq("id", id);
+    return error?.message ?? null;
+  },
+};
 
 /**
  * O Agente de SAC. A pergunta do cliente é sempre fictícia por enquanto
@@ -1016,6 +1182,10 @@ export const sacService = {
       sku: string;
       marketplaceId: MarketplaceId;
       pergunta: string;
+      pedidoId?: string | null;
+      cliente?: string | null;
+      /** Marca de qual leva de exemplos o ticket veio */
+      lote?: string;
     },
   ): Promise<string | null> => {
     const { error } = await supabase.from("eventos_agente").insert({
@@ -1033,40 +1203,80 @@ export const sacService = {
         sku: ticket.sku,
         marketplaceId: ticket.marketplaceId,
         pergunta: ticket.pergunta,
+        ...(ticket.pedidoId ? { pedidoId: ticket.pedidoId } : {}),
+        ...(ticket.cliente ? { cliente: ticket.cliente } : {}),
+        ...(ticket.lote ? { lote: ticket.lote } : {}),
       },
     });
     return error?.message ?? null;
   },
 
-  /** Chama a Edge Function — é aqui, e só aqui, que sai custo de token real. */
-  gerarResposta: async (
-    pergunta: string,
-    produto: string,
-  ): Promise<{ resposta: string | null; erro: string | null }> => {
-    const { data, error } = await supabase.functions.invoke("responder-sac", {
-      body: { pergunta, produto },
-    });
+  /** Quais levas de exemplos já foram criadas pra este seller. */
+  lotesCriados: async (perfilId: string): Promise<Set<string>> => {
+    const { data, error } = await supabase
+      .from("eventos_agente")
+      .select("dados")
+      .eq("perfil_id", perfilId)
+      .eq("agente_id", "sac");
     if (error) {
-      // Quando a function responde com erro (4xx/5xx), o supabase-js não
-      // entrega o corpo da resposta automaticamente — só um aviso
-      // genérico. O motivo de verdade, que a nossa function escreve em
-      // `{ erro: "..." }`, está escondido em error.context.
-      let motivo = error.message ?? "Não consegui falar com a IA.";
-      const contexto = (error as { context?: Response }).context;
-      if (contexto && typeof contexto.json === "function") {
-        try {
-          const corpo = await contexto.json();
-          if (corpo?.erro) motivo = corpo.erro;
-        } catch {
-          // Corpo não era JSON — fica com a mensagem genérica mesmo.
-        }
-      }
-      return { resposta: null, erro: motivo };
+      console.error("sacService.lotesCriados:", error.message);
+      return new Set();
     }
-    if (data?.erro) {
-      return { resposta: null, erro: data.erro as string };
-    }
+    return new Set(
+      (data ?? [])
+        .map((r) => ((r.dados ?? {}) as Record<string, unknown>).lote)
+        .filter((l): l is string => typeof l === "string"),
+    );
+  },
+
+  /** Chama a Edge Function — é aqui, e só aqui, que sai custo de token real.
+   * Manda junto tudo que deixa a resposta com a cara da loja: categoria,
+   * ficha do produto, tom de voz, política e as regras aprendidas. */
+  gerarResposta: async (contexto: {
+    pergunta: string;
+    produto: string;
+    categoria: CategoriaSac;
+    ficha: string | null;
+    config: ConfiguracaoSac;
+    regras: string[];
+  }): Promise<{ resposta: string | null; erro: string | null }> => {
+    const { data, error } = await supabase.functions.invoke("responder-sac", {
+      body: {
+        modo: "responder",
+        pergunta: contexto.pergunta,
+        produto: contexto.produto,
+        categoria: contexto.categoria,
+        ficha: contexto.ficha,
+        config: {
+          ...contexto.config,
+          frasesProibidas: contexto.config.frasesProibidas
+            .split("\n")
+            .map((f) => f.trim())
+            .filter(Boolean),
+        },
+        regras: contexto.regras,
+      },
+    });
+    if (error) return { resposta: null, erro: await motivoErroFunction(error) };
+    if (data?.erro) return { resposta: null, erro: data.erro as string };
     return { resposta: (data?.resposta as string) ?? null, erro: null };
+  },
+
+  /** O seller editou a resposta da IA: o Gestor compara as duas versões e
+   * propõe UMA regra curta pro SAC seguir daqui pra frente. null quando a
+   * edição foi só de digitação e não dá pra tirar regra. */
+  aprenderComEdicao: async (dados: {
+    pergunta: string;
+    produto: string;
+    respostaOriginal: string;
+    respostaEditada: string;
+  }): Promise<{ regra: string | null; erro: string | null }> => {
+    const { data, error } = await supabase.functions.invoke("responder-sac", {
+      body: { modo: "aprender", ...dados },
+    });
+    if (error) return { regra: null, erro: await motivoErroFunction(error) };
+    if (data?.erro) return { regra: null, erro: data.erro as string };
+    return { regra: (data?.regra as string) ?? null, erro: null };
   },
 
   /** Grava a resposta gerada (ou editada pelo seller) no ticket, sem
@@ -1348,6 +1558,9 @@ export const criativoService = {
       produto: string;
       sku: string;
       marketplaceId: MarketplaceId;
+      /** Por que o anúncio veio pro Criativo (ex.: perguntas repetidas no
+       * SAC). Sem ele, fica o motivo padrão. */
+      motivo?: string;
     },
   ): Promise<string | null> => {
     const { error } = await supabase.from("eventos_agente").insert({
@@ -1356,7 +1569,7 @@ export const criativoService = {
       conta_id: s.contaId,
       sku: s.sku,
       tipo: "conteudo_anuncio",
-      motivo: `Título, descrição, palavras-chave e bullet points para "${s.produto}".`,
+      motivo: s.motivo ?? `Título, descrição, palavras-chave e bullet points para "${s.produto}".`,
       semaforo: "amarelo",
       status: "pendente",
       dados: {
