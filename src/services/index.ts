@@ -375,38 +375,122 @@ export const campanhasService = {
     PEDIDOS.filter((p) => p.campanhaId === campanhaId),
 };
 
+/* ------------------------------------------------------------------ */
+/* Alertas de Estoque e Fulfillment — leitura e gravação comuns         */
+/* ------------------------------------------------------------------ */
+
+/** Campos opcionais do Bloco 4 que vão e voltam do `dados` do banco. */
+const CAMPOS_EXTRAS_ALERTA_ESTOQUE = [
+  "tipoAlerta",
+  "prazoFornecedorDias",
+  "diasParaPedir",
+  "diasSemEstoque",
+  "custoUnitario",
+  "custoReposicao",
+  "veredito",
+  "motivoVeredito",
+  "classeAbc",
+  "margem30d",
+  "prazoEnvioFullDias",
+  "estoqueProprio",
+  "quantidadeEnviar",
+  "quantidadeComprar",
+  "custoArmazenagemMensal",
+  "quantidadeRetirar",
+  "custoRetirada",
+  "economiaMensal",
+] as const;
+
+/** Como uma linha de `eventos_agente` vira um AlertaEstoque (serve pros
+ * dois agentes). Alertas gravados antes do Bloco 4 não têm os campos
+ * extras — eles ficam `undefined` e a tela mostra só o básico. */
+function linhaParaAlertaEstoque(l: {
+  id: string;
+  conta_id: string | null;
+  criado_em: string;
+  status: string;
+  decidido_em: string | null;
+  dados: Record<string, unknown>;
+}): AlertaEstoque {
+  const d = l.dados ?? {};
+  const extras: Record<string, unknown> = {};
+  for (const campo of CAMPOS_EXTRAS_ALERTA_ESTOQUE) {
+    if (d[campo] !== undefined) extras[campo] = d[campo];
+  }
+  return {
+    id: l.id,
+    data: l.criado_em,
+    contaId: l.conta_id,
+    sku: (d.sku as string) ?? "",
+    produto: (d.produto as string) ?? "",
+    marketplaceId: d.marketplaceId as MarketplaceId,
+    estoqueAtual: (d.estoqueAtual as number) ?? 0,
+    vendidoUltimos7Dias: (d.vendidoUltimos7Dias as number) ?? 0,
+    mediaDiaria: (d.mediaDiaria as number) ?? 0,
+    diasRestantes: (d.diasRestantes as number) ?? 0,
+    quantidadeSugerida: (d.quantidadeSugerida as number) ?? 0,
+    diasAlvoCobertura: (d.diasAlvoCobertura as number) ?? 30,
+    status: l.status as StatusSugestao,
+    decididoEm: l.decidido_em,
+    ...(extras as Partial<AlertaEstoque>),
+  };
+}
+
+/** O que vai no `dados` do banco: o básico + os campos do Bloco 4. */
+function dadosAlertaEstoque(
+  alerta: Omit<AlertaEstoque, "id" | "status" | "decididoEm" | "data">,
+): Record<string, unknown> {
+  const dados: Record<string, unknown> = {
+    sku: alerta.sku,
+    produto: alerta.produto,
+    marketplaceId: alerta.marketplaceId,
+    estoqueAtual: alerta.estoqueAtual,
+    vendidoUltimos7Dias: alerta.vendidoUltimos7Dias,
+    mediaDiaria: alerta.mediaDiaria,
+    diasRestantes: alerta.diasRestantes,
+    quantidadeSugerida: alerta.quantidadeSugerida,
+    diasAlvoCobertura: alerta.diasAlvoCobertura,
+  };
+  for (const campo of CAMPOS_EXTRAS_ALERTA_ESTOQUE) {
+    if (alerta[campo] !== undefined) dados[campo] = alerta[campo];
+  }
+  return dados;
+}
+
+/** Chaves `tipo:sku` dos alertas pendentes de um agente — pra não
+ * recriar o mesmo aviso toda vez que a tela abre. Alerta antigo, sem
+ * tipo gravado, conta como "ruptura". */
+async function chavesPendentesEstoque(
+  perfilId: string,
+  agenteId: "estoque" | "fulfillment",
+): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from("eventos_agente")
+    .select("sku, dados")
+    .eq("perfil_id", perfilId)
+    .eq("agente_id", agenteId)
+    .eq("status", "pendente");
+  if (error) {
+    console.error(`chavesPendentesEstoque(${agenteId}):`, error.message);
+    return new Set();
+  }
+  return new Set(
+    (data ?? [])
+      .filter((r) => Boolean(r.sku))
+      .map((r) => {
+        const tipo = ((r.dados as Record<string, unknown> | null)?.tipoAlerta as string) ?? "ruptura";
+        return `${tipo}:${r.sku}`;
+      }),
+  );
+}
+
 export const estoqueService = {
   listar: () => ESTOQUE,
   listarDetalhado: () => ESTOQUE_DETALHADO,
   resumo: () => RESUMO_ESTOQUE,
 
   /** Como uma linha de `eventos_agente` vira um AlertaEstoque. */
-  linhaParaAlerta: (l: {
-    id: string;
-    conta_id: string | null;
-    criado_em: string;
-    status: string;
-    decidido_em: string | null;
-    dados: Record<string, unknown>;
-  }): AlertaEstoque => {
-    const d = l.dados ?? {};
-    return {
-      id: l.id,
-      data: l.criado_em,
-      contaId: l.conta_id,
-      sku: (d.sku as string) ?? "",
-      produto: (d.produto as string) ?? "",
-      marketplaceId: d.marketplaceId as MarketplaceId,
-      estoqueAtual: (d.estoqueAtual as number) ?? 0,
-      vendidoUltimos7Dias: (d.vendidoUltimos7Dias as number) ?? 0,
-      mediaDiaria: (d.mediaDiaria as number) ?? 0,
-      diasRestantes: (d.diasRestantes as number) ?? 0,
-      quantidadeSugerida: (d.quantidadeSugerida as number) ?? 0,
-      diasAlvoCobertura: (d.diasAlvoCobertura as number) ?? 30,
-      status: l.status as StatusSugestao,
-      decididoEm: l.decidido_em,
-    };
-  },
+  linhaParaAlerta: linhaParaAlertaEstoque,
 
   listarAlertas: async (perfilId: string): Promise<AlertaEstoque[]> => {
     const { data, error } = await supabase
@@ -438,6 +522,9 @@ export const estoqueService = {
     return new Set((data ?? []).map((r) => r.sku).filter((s): s is string => Boolean(s)));
   },
 
+  /** Chaves `tipo:sku` pendentes (ruptura e parado são avisos diferentes). */
+  chavesPendentes: (perfilId: string) => chavesPendentesEstoque(perfilId, "estoque"),
+
   criarAlerta: async (
     perfilId: string,
     alerta: Omit<AlertaEstoque, "id" | "status" | "decididoEm" | "data">,
@@ -448,20 +535,10 @@ export const estoqueService = {
       conta_id: alerta.contaId,
       sku: alerta.sku,
       tipo: "risco_ruptura",
-      motivo: `Vendeu ${alerta.vendidoUltimos7Dias} unidade(s) nos últimos 7 dias (média de ${alerta.mediaDiaria.toFixed(1)}/dia). No ritmo atual, o estoque acaba em ${alerta.diasRestantes} dia(s).`,
-      semaforo: alerta.diasRestantes <= 3 ? "vermelho" : "amarelo",
+      motivo: `Vendeu ${alerta.vendidoUltimos7Dias} unidade(s) nos últimos 7 dias (média de ${alerta.mediaDiaria.toFixed(1)}/dia). No ritmo atual, o estoque acaba em ${alerta.diasRestantes} dia(s)${alerta.prazoFornecedorDias !== undefined ? `, e o fornecedor leva ${alerta.prazoFornecedorDias} dia(s) pra entregar` : ""}.`,
+      semaforo: (alerta.diasSemEstoque ?? 0) > 0 || alerta.diasRestantes <= 3 ? "vermelho" : "amarelo",
       status: "pendente",
-      dados: {
-        sku: alerta.sku,
-        produto: alerta.produto,
-        marketplaceId: alerta.marketplaceId,
-        estoqueAtual: alerta.estoqueAtual,
-        vendidoUltimos7Dias: alerta.vendidoUltimos7Dias,
-        mediaDiaria: alerta.mediaDiaria,
-        diasRestantes: alerta.diasRestantes,
-        quantidadeSugerida: alerta.quantidadeSugerida,
-        diasAlvoCobertura: alerta.diasAlvoCobertura,
-      },
+      dados: dadosAlertaEstoque(alerta),
     });
     return error?.message ?? null;
   },
@@ -473,32 +550,7 @@ export const fulfillmentService = {
 
   /** Mesma estrutura do alerta de Estoque — reaproveita o tipo
    * `AlertaEstoque`, só troca o `agente_id` gravado no banco. */
-  linhaParaAlerta: (l: {
-    id: string;
-    conta_id: string | null;
-    criado_em: string;
-    status: string;
-    decidido_em: string | null;
-    dados: Record<string, unknown>;
-  }): AlertaEstoque => {
-    const d = l.dados ?? {};
-    return {
-      id: l.id,
-      data: l.criado_em,
-      contaId: l.conta_id,
-      sku: (d.sku as string) ?? "",
-      produto: (d.produto as string) ?? "",
-      marketplaceId: d.marketplaceId as MarketplaceId,
-      estoqueAtual: (d.estoqueAtual as number) ?? 0,
-      vendidoUltimos7Dias: (d.vendidoUltimos7Dias as number) ?? 0,
-      mediaDiaria: (d.mediaDiaria as number) ?? 0,
-      diasRestantes: (d.diasRestantes as number) ?? 0,
-      quantidadeSugerida: (d.quantidadeSugerida as number) ?? 0,
-      diasAlvoCobertura: (d.diasAlvoCobertura as number) ?? 30,
-      status: l.status as StatusSugestao,
-      decididoEm: l.decidido_em,
-    };
-  },
+  linhaParaAlerta: linhaParaAlertaEstoque,
 
   listarAlertas: async (perfilId: string): Promise<AlertaEstoque[]> => {
     const { data, error } = await supabase
@@ -528,6 +580,9 @@ export const fulfillmentService = {
     return new Set((data ?? []).map((r) => r.sku).filter((s): s is string => Boolean(s)));
   },
 
+  /** Chaves `tipo:sku` pendentes (ruptura e parado são avisos diferentes). */
+  chavesPendentes: (perfilId: string) => chavesPendentesEstoque(perfilId, "fulfillment"),
+
   criarAlerta: async (
     perfilId: string,
     alerta: Omit<AlertaEstoque, "id" | "status" | "decididoEm" | "data">,
@@ -537,21 +592,19 @@ export const fulfillmentService = {
       agente_id: "fulfillment",
       conta_id: alerta.contaId,
       sku: alerta.sku,
-      tipo: "risco_ruptura",
-      motivo: `No centro de distribuição do marketplace, vendeu ${alerta.vendidoUltimos7Dias} unidade(s) nos últimos 7 dias (média de ${alerta.mediaDiaria.toFixed(1)}/dia). No ritmo atual, o estoque alocado lá acaba em ${alerta.diasRestantes} dia(s).`,
-      semaforo: alerta.diasRestantes <= 3 ? "vermelho" : "amarelo",
+      tipo: alerta.tipoAlerta === "parado" ? "estoque_parado" : "risco_ruptura",
+      motivo:
+        alerta.tipoAlerta === "parado"
+          ? `Estoque parado no Full: ${alerta.estoqueAtual} unidade(s), cobertura de ${alerta.diasRestantes} dias, custando R$ ${(alerta.custoArmazenagemMensal ?? 0).toFixed(2).replace(".", ",")} por mês de armazenagem.`
+          : `No centro de distribuição do marketplace, vendeu ${alerta.vendidoUltimos7Dias} unidade(s) nos últimos 7 dias (média de ${alerta.mediaDiaria.toFixed(1)}/dia). No ritmo atual, o estoque alocado lá acaba em ${alerta.diasRestantes} dia(s).`,
+      semaforo:
+        alerta.tipoAlerta === "parado"
+          ? "amarelo"
+          : (alerta.diasSemEstoque ?? 0) > 0 || alerta.diasRestantes <= 3
+            ? "vermelho"
+            : "amarelo",
       status: "pendente",
-      dados: {
-        sku: alerta.sku,
-        produto: alerta.produto,
-        marketplaceId: alerta.marketplaceId,
-        estoqueAtual: alerta.estoqueAtual,
-        vendidoUltimos7Dias: alerta.vendidoUltimos7Dias,
-        mediaDiaria: alerta.mediaDiaria,
-        diasRestantes: alerta.diasRestantes,
-        quantidadeSugerida: alerta.quantidadeSugerida,
-        diasAlvoCobertura: alerta.diasAlvoCobertura,
-      },
+      dados: dadosAlertaEstoque(alerta),
     });
     return error?.message ?? null;
   },
