@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
-  BarChart3,
   Bot,
   Boxes,
   MessageCircle,
@@ -77,6 +76,7 @@ import {
   listaPalavrasSeller,
   montarInformacoesProduto,
 } from "@/lib/criativo";
+import { montarComparativos, montarTop3, type AgenteTop } from "@/lib/gestor";
 import { Painel } from "@/components/comum/Indicadores";
 import { cn } from "@/lib/utils";
 import type {
@@ -1153,6 +1153,29 @@ function Agentes() {
     (s) => s.status === "pendente",
   ).length;
 
+  /** Gestor: as 3 decisões pendentes que valem mais dinheiro (uma por
+   * agente). Olha todas as contas — é o que o seller precisa ver primeiro,
+   * independente do filtro de canal. */
+  const top3 = useMemo(() => {
+    const precoPorSku = new Map<string, number>();
+    for (const a of anunciosService.listar()) {
+      if (!precoPorSku.has(a.sku)) precoPorSku.set(a.sku, a.precoAtual);
+    }
+    return montarTop3({
+      ocorrenciasAuditor,
+      alertasEstoque,
+      alertasFulfillment,
+      eventosPreco: eventos,
+      acoesAds,
+      estoqueDetalhado: estoqueService.listarDetalhado(),
+      precoPorSku,
+    });
+  }, [ocorrenciasAuditor, alertasEstoque, alertasFulfillment, eventos, acoesAds]);
+
+  /** Gestor: hoje × mesmo dia da semana passada, 7 dias × 7 anteriores,
+   * mês até hoje × mesmo período do mês passado. */
+  const comparativos = useMemo(() => montarComparativos(vendasService.listar()), []);
+
   /** Um produto por SKU, pra aba Fichas do Criativo */
   const produtosFicha = useMemo(() => {
     const vistos = new Map<string, AlvoFicha>();
@@ -1196,7 +1219,7 @@ function Agentes() {
       <div className="flex gap-2 overflow-x-auto pb-1">
         {(
           [
-            ["analista", "Analista", BarChart3, insightsPendentes] as const,
+            ["analista", "Gestor", Bot, insightsPendentes] as const,
             ["precificacao", "Precificação", TrendingDown, pendentes.length] as const,
             ["sac", "SAC", MessageCircle, ticketsPendentes] as const,
             ["estoque", "Estoque", Boxes, alertasEstoquePendentes] as const,
@@ -1238,6 +1261,9 @@ function Agentes() {
           carregando={carregandoInsights}
           aoDispensar={dispensarInsight}
           perfilId={sessao?.user.id ?? null}
+          top3={top3}
+          comparativos={comparativos}
+          aoAbrirAgente={(agente: AgenteTop) => setAbaAgente(agente)}
         />
       )}
 
