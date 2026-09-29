@@ -2,7 +2,7 @@
 // limite de título por canal, palavras proibidas e a nota do anúncio atual.
 // A IA só entra quando o seller clica em "Gerar conteúdo".
 
-import type { Anuncio, ConfiguracaoCriativo, MarketplaceId } from "@/types";
+import type { Anuncio, ConfiguracaoCriativo, ConteudoPublicado, MarketplaceId } from "@/types";
 
 /** Tira acento e deixa minúsculo, pra comparar palavra sem erro. */
 function normalizar(texto: string): string {
@@ -86,6 +86,44 @@ export function limiteTitulo(config: ConfiguracaoCriativo, marketplaceId: Market
 }
 
 /* ------------------------------------------------------------------ */
+/* O que a IA lê sobre o produto                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Junta num texto só o que a IA precisa saber do produto: o anúncio
+ * publicado (descrição + ficha técnica) e as informações extras do
+ * seller. As extras vêm por último e com o aviso de que valem mais — é o
+ * seller corrigindo ou completando o anúncio. null = não tem nada.
+ */
+export function montarInformacoesProduto(
+  publicado: ConteudoPublicado | null,
+  extras: string | null,
+): string | null {
+  const partes: string[] = [];
+  if (publicado) {
+    if (publicado.descricao.trim()) {
+      partes.push(`Descrição publicada no anúncio:\n${publicado.descricao.trim()}`);
+    }
+    if (publicado.atributos.length > 0) {
+      partes.push(
+        `Ficha técnica do anúncio:\n${publicado.atributos.map((a) => `- ${a.nome}: ${a.valor}`).join("\n")}`,
+      );
+    }
+  }
+  if (extras && extras.trim()) {
+    partes.push(
+      `Informações extras do lojista (se contradisserem o anúncio, valem estas):\n${extras.trim()}`,
+    );
+  }
+  return partes.length > 0 ? partes.join("\n\n") : null;
+}
+
+/** Abaixo disso, a descrição publicada é curta demais pra tirar dúvida. */
+export const DESCRICAO_MINIMA = 300;
+/** Abaixo disso, a ficha técnica do anúncio está incompleta. */
+export const ATRIBUTOS_MINIMOS = 5;
+
+/* ------------------------------------------------------------------ */
 /* Nota do anúncio atual                                               */
 /* ------------------------------------------------------------------ */
 
@@ -104,16 +142,16 @@ export interface NotaAnuncio {
 
 /**
  * Nota de 0 a 10 do anúncio como ele está hoje — sem IA, só com o que o
- * NEXO já sabe. Sem a API, o NEXO não enxerga a descrição publicada; por
- * isso a nota olha o título, se existe ficha, a conversão do Ads e as
- * perguntas repetidas no SAC. Item sem dado (ex.: anúncio sem Ads) não
- * entra na conta, em vez de puxar a nota pra baixo.
+ * NEXO já sabe: título, descrição e ficha técnica publicadas, conversão do
+ * Ads e perguntas repetidas no SAC. Item sem dado (ex.: anúncio sem Ads)
+ * não entra na conta, em vez de puxar a nota pra baixo. As informações
+ * extras do seller NÃO entram: a nota é do anúncio que o cliente vê.
  */
 export function notaDoAnuncio(p: {
   titulo: string;
   marketplaceId: MarketplaceId;
   config: ConfiguracaoCriativo;
-  temFicha: boolean;
+  publicado: ConteudoPublicado | null;
   anuncio: Anuncio | null;
   perguntasRepetidas: number;
 }): NotaAnuncio {
@@ -150,13 +188,28 @@ export function notaDoAnuncio(p: {
     peso: 2,
   });
 
-  itens.push({
-    ok: p.temFicha,
-    texto: p.temFicha
-      ? "Tem ficha do produto — a IA escreve com base nela"
-      : "Sem ficha do produto — a IA não tem de onde tirar as características",
-    peso: 2,
-  });
+  if (p.publicado) {
+    const tamDescricao = p.publicado.descricao.trim().length;
+    itens.push({
+      ok: tamDescricao >= DESCRICAO_MINIMA,
+      texto:
+        tamDescricao >= DESCRICAO_MINIMA
+          ? `Descrição completa (${tamDescricao} caracteres)`
+          : `Descrição curta (${tamDescricao} caracteres): o cliente fica com dúvida e não compra — o ideal é passar de ${DESCRICAO_MINIMA}`,
+      peso: 2,
+    });
+    const qtdAtributos = p.publicado.atributos.length;
+    itens.push({
+      ok: qtdAtributos >= ATRIBUTOS_MINIMOS,
+      texto:
+        qtdAtributos >= ATRIBUTOS_MINIMOS
+          ? `Ficha técnica bem preenchida (${qtdAtributos} itens)`
+          : `Ficha técnica incompleta (${qtdAtributos} ${qtdAtributos === 1 ? "item" : "itens"}): o marketplace mostra menos o anúncio nos filtros de busca`,
+      peso: 1,
+    });
+  } else {
+    itens.push({ ok: null, texto: "Descrição e ficha técnica: ainda não puxadas do anúncio", peso: 2 });
+  }
 
   const ads = p.anuncio?.ads ?? null;
   if (ads && ads.cliques >= 30) {
