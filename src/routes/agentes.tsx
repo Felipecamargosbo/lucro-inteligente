@@ -19,6 +19,7 @@ import {
   contasService,
   criativoConfigService,
   criativoService,
+  conteudoPublicadoService,
   estoqueService,
   fichasService,
   modelosSacService,
@@ -74,6 +75,7 @@ import {
   CONFIGURACAO_CRIATIVO_PADRAO,
   limiteTitulo,
   listaPalavrasSeller,
+  montarInformacoesProduto,
 } from "@/lib/criativo";
 import { Painel } from "@/components/comum/Indicadores";
 import { cn } from "@/lib/utils";
@@ -819,7 +821,12 @@ function Agentes() {
       pergunta: ticket.pergunta,
       produto: ticket.produto,
       categoria: classificarPergunta(ticket.pergunta, ticket.pedidoId),
-      ficha: fichas.get(ticket.sku) ?? null,
+      // O anúncio publicado (puxado do marketplace) + as informações
+      // extras do seller, num texto só.
+      ficha: montarInformacoesProduto(
+        conteudoPublicadoService.buscar(ticket.sku),
+        fichas.get(ticket.sku) ?? null,
+      ),
       config: configSac,
       regras: regrasSac.filter((r) => r.ativa).map((r) => r.regra),
     });
@@ -950,7 +957,10 @@ function Agentes() {
       produto: s.produto,
       marketplace: getMarketplace(s.marketplaceId).nome,
       limiteTitulo: limiteTitulo(configCriativo, s.marketplaceId),
-      ficha: fichas.get(s.sku) ?? null,
+      ficha: montarInformacoesProduto(
+        conteudoPublicadoService.buscar(s.sku),
+        fichas.get(s.sku) ?? null,
+      ),
       motivo: s.origem === "exemplo" ? "" : s.motivo,
       palavrasProibidas: listaPalavrasSeller(configCriativo),
     });
@@ -1023,7 +1033,7 @@ function Agentes() {
     if (!sessao) return false;
     const erro = await fichasService.salvar(sessao.user.id, sku, texto);
     if (erro) {
-      toast.error(`Não consegui salvar a ficha: ${erro}`);
+      toast.error(`Não consegui salvar as informações extras: ${erro}`);
       return false;
     }
     setFichas((atual) => {
@@ -1032,7 +1042,11 @@ function Agentes() {
       else novo.delete(sku);
       return novo;
     });
-    toast.success(texto.trim() ? "Ficha salva. O SAC e o Criativo já usam." : "Ficha apagada.");
+    toast.success(
+      texto.trim()
+        ? "Informações extras salvas. O SAC e o Criativo já usam."
+        : "Informações extras apagadas.",
+    );
     return true;
   };
 
@@ -1259,6 +1273,7 @@ function Agentes() {
           aoSalvarModelo={salvarModeloSac}
           aoEnviarParaCriativo={enviarRepetidaParaCriativo}
           aoAbrirFicha={setAlvoFicha}
+          buscarPublicado={conteudoPublicadoService.buscar}
         />
       )}
 
@@ -1326,12 +1341,14 @@ function Agentes() {
           aoSalvarConfig={salvarConfigCriativo}
           buscarAnuncio={(id) => (id ? anunciosService.buscarPorId(id) : null)}
           repetidasPorSku={repetidasPorSku}
+          buscarPublicado={conteudoPublicadoService.buscar}
         />
       )}
 
       <ModalFicha
         alvo={alvoFicha}
         textoAtual={alvoFicha ? (fichas.get(alvoFicha.sku) ?? "") : ""}
+        publicado={alvoFicha ? conteudoPublicadoService.buscar(alvoFicha.sku) : null}
         aoFechar={() => setAlvoFicha(null)}
         aoSalvar={salvarFicha}
       />
