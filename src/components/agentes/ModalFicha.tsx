@@ -1,5 +1,7 @@
-// Janela de ficha do produto — a mesma no Criativo e no SAC. As duas telas
-// salvam no mesmo lugar (tabela fichas_anuncio), uma ficha por SKU.
+// Janela de "Informações extras" do produto — a mesma no Criativo e no SAC.
+// O principal vem do anúncio publicado (puxado do marketplace); aqui o
+// seller só completa ou corrige. As duas telas salvam no mesmo lugar
+// (tabela fichas_anuncio), um texto por SKU.
 
 import { useEffect, useState } from "react";
 import { FileText, Loader2 } from "lucide-react";
@@ -13,8 +15,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import type { ConteudoPublicado } from "@/types";
 
-/** O produto que está com a ficha aberta. null = janela fechada. */
+/** O produto que está com a janela aberta. null = janela fechada. */
 export interface AlvoFicha {
   sku: string;
   produto: string;
@@ -23,12 +26,15 @@ export interface AlvoFicha {
 export function ModalFicha({
   alvo,
   textoAtual,
+  publicado,
   aoFechar,
   aoSalvar,
 }: {
   alvo: AlvoFicha | null;
-  /** A ficha que já está salva pra esse SKU ("" se ainda não tem) */
+  /** As informações extras já salvas pra esse SKU ("" se ainda não tem) */
   textoAtual: string;
+  /** O anúncio como está publicado — mostrado só pra consulta */
+  publicado: ConteudoPublicado | null;
   aoFechar: () => void;
   /** Devolve true se salvou — aí a janela fecha sozinha */
   aoSalvar: (sku: string, texto: string) => Promise<boolean>;
@@ -36,7 +42,7 @@ export function ModalFicha({
   const [texto, setTexto] = useState("");
   const [salvando, setSalvando] = useState(false);
 
-  // Sempre que abrir pra outro produto, começa com a ficha dele.
+  // Sempre que abrir pra outro produto, começa com o texto dele.
   useEffect(() => {
     if (alvo) setTexto(textoAtual);
   }, [alvo, textoAtual]);
@@ -51,31 +57,50 @@ export function ModalFicha({
 
   return (
     <Dialog open={alvo !== null} onOpenChange={(aberto) => !aberto && aoFechar()}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm">
             <FileText className="size-4 text-brand" />
-            Ficha do produto
+            Informações extras do produto
           </DialogTitle>
           <DialogDescription className="text-xs">
             {alvo?.produto} <span className="num">· {alvo?.sku}</span>
           </DialogDescription>
         </DialogHeader>
 
+        {publicado ? (
+          <div className="space-y-2 rounded-md bg-muted/40 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              O que já vem do anúncio {publicado.origem === "exemplo" && "(exemplo fictício até a API conectar)"}
+            </p>
+            <p className="text-[11px] leading-relaxed">{publicado.descricao}</p>
+            {publicado.atributos.length > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                {publicado.atributos.map((a) => `${a.nome}: ${a.valor}`).join(" · ")}
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="rounded-md bg-warning-soft px-3 py-2 text-[11px] text-warning">
+            Ainda não temos o anúncio publicado deste produto. Até a API conectar, o que você escrever
+            aqui é tudo o que a IA sabe sobre ele.
+          </p>
+        )}
+
         <div className="space-y-2">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Cole aqui a descrição completa do produto: medidas, voltagem, compatibilidade,
-            material, o que vem na caixa, garantia. O SAC usa esse texto pra responder cliente e o
-            Criativo pra escrever o anúncio — nenhum dos dois inventa o que não estiver aqui.
+            Opcional. Escreva só o que o anúncio não diz ou diz errado — por exemplo "serve também
+            no modelo X", "a cor real é um pouco mais escura que a foto", "usa 1 pilha AA, que vem
+            junto". Se contradisser o anúncio, a IA segue o que você escreveu aqui.
           </p>
           <Textarea
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
-            placeholder="Ex.: Tela de 1,43 polegada, compatível com Android 8+ e iOS 13+, bateria de até 7 dias, resistência à água IP68. Na caixa: relógio, cabo magnético e manual."
-            className="min-h-56 text-xs"
+            placeholder="Ex.: Funciona com Windows, Mac e Linux. Usa 1 pilha AA (vem junto)."
+            className="min-h-36 text-xs"
           />
           <p className="text-[10px] text-muted-foreground">
-            {texto.trim().length} caracteres · a IA lê até 3.000. Salvar em branco apaga a ficha.
+            {texto.trim().length} caracteres. Salvar em branco apaga as informações extras.
           </p>
         </div>
 
@@ -85,7 +110,7 @@ export function ModalFicha({
           </Button>
           <Button size="sm" onClick={salvar} disabled={salvando} className="text-xs">
             {salvando && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
-            Salvar ficha
+            Salvar
           </Button>
         </DialogFooter>
       </DialogContent>
