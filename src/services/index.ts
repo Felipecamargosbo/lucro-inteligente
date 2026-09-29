@@ -30,11 +30,14 @@ import {
   obterContasAtuais,
 } from "@/data/mock";
 import { CONFIGURACAO_SAC_PADRAO, MODELOS_SAC_PADRAO } from "@/lib/sac";
+import { CONFIGURACAO_CRIATIVO_PADRAO, LIMITES_TITULO_PADRAO } from "@/lib/criativo";
 import type {
   AcaoAds,
   AgenteId,
   CategoriaSac,
+  ConfiguracaoCriativo,
   ConfiguracaoSac,
+  OrigemCriativo,
   DirecaoPreco,
   RegraSac,
   SituacaoSac,
@@ -1073,9 +1076,71 @@ export const fichasService = {
     }
     for (const f of data ?? []) {
       const texto = (f.descricao_completa as string) ?? "";
+      // Ficha salva em branco = o seller apagou: some até da ficha de exemplo.
       if (texto.trim()) mapa.set(f.sku as string, texto);
+      else mapa.delete(f.sku as string);
     }
     return mapa;
+  },
+
+  /** Cria ou atualiza a ficha de um SKU (uma por SKU). Salvar em branco
+   * apaga a ficha. Usado pelo Criativo e pelo botão do SAC — os dois
+   * salvam no mesmo lugar. */
+  salvar: async (perfilId: string, sku: string, descricaoCompleta: string): Promise<string | null> => {
+    const { error } = await supabase.from("fichas_anuncio").upsert(
+      {
+        perfil_id: perfilId,
+        sku,
+        descricao_completa: descricaoCompleta.trim(),
+        atualizado_em: new Date().toISOString(),
+      },
+      { onConflict: "perfil_id,sku" },
+    );
+    return error?.message ?? null;
+  },
+};
+
+/** Palavras proibidas e limite de título por canal do Agente Criativo.
+ * Tabela `criativo_configuracoes` (Bloco 7); sem linha salva, vale o padrão. */
+export const criativoConfigService = {
+  carregar: async (perfilId: string): Promise<ConfiguracaoCriativo> => {
+    const padrao = {
+      ...CONFIGURACAO_CRIATIVO_PADRAO,
+      limitesTitulo: { ...LIMITES_TITULO_PADRAO },
+    };
+    const { data, error } = await supabase
+      .from("criativo_configuracoes")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .maybeSingle();
+    if (error) {
+      console.error("criativoConfigService.carregar:", error.message);
+      return padrao;
+    }
+    if (!data) return padrao;
+    const salvos = (data.limites_titulo ?? {}) as Record<string, unknown>;
+    const limites = { ...LIMITES_TITULO_PADRAO };
+    for (const id of Object.keys(limites) as MarketplaceId[]) {
+      const n = Number(salvos[id]);
+      if (Number.isFinite(n) && n > 0) limites[id] = Math.round(n);
+    }
+    return {
+      palavrasProibidas: (data.palavras_proibidas as string) ?? "",
+      limitesTitulo: limites,
+    };
+  },
+
+  salvar: async (perfilId: string, c: ConfiguracaoCriativo): Promise<string | null> => {
+    const { error } = await supabase.from("criativo_configuracoes").upsert(
+      {
+        perfil_id: perfilId,
+        palavras_proibidas: c.palavrasProibidas,
+        limites_titulo: c.limitesTitulo,
+        atualizado_em: new Date().toISOString(),
+      },
+      { onConflict: "perfil_id" },
+    );
+    return error?.message ?? null;
   },
 };
 
@@ -1508,6 +1573,7 @@ export const adsService = {
 function linhaParaSugestaoCriativo(l: {
   id: string;
   conta_id: string | null;
+  motivo?: string | null;
   criado_em: string;
   status: string;
   decidido_em: string | null;
@@ -1522,13 +1588,31 @@ function linhaParaSugestaoCriativo(l: {
     sku: (d.sku as string) ?? "",
     produto: (d.produto as string) ?? "",
     marketplaceId: d.marketplaceId as MarketplaceId,
+    motivo: l.motivo ?? "",
+    origem: ((d.origem as OrigemCriativo) ?? "exemplo") as OrigemCriativo,
     tituloSugerido: (d.tituloSugerido as string) ?? null,
+    titulosAlternativos: Array.isArray(d.titulosAlternativos)
+      ? (d.titulosAlternativos as unknown[]).filter((t): t is string => typeof t === "string")
+      : null,
     descricaoSugerida: (d.descricaoSugerida as string) ?? null,
     palavrasChave: (d.palavrasChave as string) ?? null,
     bulletPoints: (d.bulletPoints as string) ?? null,
     status: l.status as StatusSugestao,
     decididoEm: l.decidido_em,
   };
+}
+
+/** Os quatro campos que o seller edita antes de aprovar. */
+export interface RascunhoCriativo {
+  titulo: string;
+  descricao: string;
+  palavrasChave: string;
+  bulletPoints: string;
+}
+
+/** O que a IA devolve: o rascunho + as 3 opções de título. */
+export interface ConteudoCriativo extends RascunhoCriativo {
+  titulos: string[];
 }
 
 /**
@@ -1561,6 +1645,7 @@ export const criativoService = {
       /** Por que o anúncio veio pro Criativo (ex.: perguntas repetidas no
        * SAC). Sem ele, fica o motivo padrão. */
       motivo?: string;
+      origem?: OrigemCriativo;
     },
   ): Promise<string | null> => {
     const { error } = await supabase.from("eventos_agente").insert({
@@ -1577,6 +1662,7 @@ export const criativoService = {
         produto: s.produto,
         sku: s.sku,
         marketplaceId: s.marketplaceId,
+        origem: s.origem ?? "exemplo",
       },
     });
     return error?.message ?? null;
@@ -1584,19 +1670,20 @@ export const criativoService = {
 
   /** Chama a Edge Function — os quatro campos vêm juntos, na mesma
    * chamada, porque gerar um ou quatro custa praticamente o mesmo. */
-  gerarConteudo: async (
-    produto: string,
-  ): Promise<{
-    conteudo: {
-      titulo: string;
-      descricao: string;
-      palavrasChave: string;
-      bulletPoints: string;
-    } | null;
+  gerarConteudo: async (p: {
+    produto: string;
+    /** Nome do canal, ex.: "Mercado Livre" */
+    marketplace: string;
+    limiteTitulo: number;
+    ficha: string | null;
+    motivo: string;
+    palavrasProibidas: string[];
+  }): Promise<{
+    conteudo: ConteudoCriativo | null;
     erro: string | null;
   }> => {
     const { data, error } = await supabase.functions.invoke("gerar-criativo", {
-      body: { produto },
+      body: p,
     });
     if (error) {
       let motivo = error.message ?? "Não consegui falar com a IA.";
@@ -1614,14 +1701,28 @@ export const criativoService = {
     if (data?.erro) {
       return { conteudo: null, erro: data.erro as string };
     }
-    return { conteudo: data?.conteudo ?? null, erro: null };
+    const c = data?.conteudo;
+    if (!c) return { conteudo: null, erro: null };
+    const titulos: string[] = Array.isArray(c.titulos)
+      ? (c.titulos as unknown[]).filter((t): t is string => typeof t === "string" && t.trim() !== "")
+      : [];
+    return {
+      conteudo: {
+        titulo: c.titulo ?? titulos[0] ?? "",
+        titulos: titulos.length > 0 ? titulos : [c.titulo ?? ""],
+        descricao: c.descricao ?? "",
+        palavrasChave: c.palavrasChave ?? "",
+        bulletPoints: c.bulletPoints ?? "",
+      },
+      erro: null,
+    };
   },
 
   /** Grava o conteúdo gerado (ou editado pelo seller), sem mudar o
    * status — aprovar é um passo separado, deliberado. */
   salvarConteudo: async (
     sugestaoId: string,
-    conteudo: { titulo: string; descricao: string; palavrasChave: string; bulletPoints: string },
+    conteudo: RascunhoCriativo & { titulos?: string[] },
   ): Promise<string | null> => {
     const { data: atual, error: erroLeitura } = await supabase
       .from("eventos_agente")
@@ -1639,6 +1740,9 @@ export const criativoService = {
           descricaoSugerida: conteudo.descricao,
           palavrasChave: conteudo.palavrasChave,
           bulletPoints: conteudo.bulletPoints,
+          // Só troca as opções de título quando veio geração nova da IA;
+          // uma edição do seller mantém as opções que já estavam lá.
+          ...(conteudo.titulos ? { titulosAlternativos: conteudo.titulos } : {}),
         },
       })
       .eq("id", sugestaoId);
