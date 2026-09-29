@@ -23,6 +23,7 @@ import {
   PROMOCOES,
   MUDANCAS_PRECO_EXEMPLO,
   FICHAS_ANUNCIO,
+  CONTEUDOS_PUBLICADOS,
   USUARIOS,
   contasDoCanal,
   getCampanha,
@@ -36,6 +37,7 @@ import type {
   AgenteId,
   CategoriaSac,
   ConfiguracaoCriativo,
+  ConteudoPublicado,
   ConfiguracaoSac,
   OrigemCriativo,
   DirecaoPreco,
@@ -1058,7 +1060,15 @@ export const sacConfigService = {
   },
 };
 
-/** Ficha do anúncio (descrição completa por SKU) — o que o SAC e o
+/** O anúncio como está publicado (título, descrição e ficha técnica).
+ * Hoje vem dos dados fictícios; com a API, esta é a função que passa a
+ * buscar no marketplace — as telas não mudam. */
+export const conteudoPublicadoService = {
+  buscar: (sku: string): ConteudoPublicado | null =>
+    CONTEUDOS_PUBLICADOS.find((c) => c.sku === sku) ?? null,
+};
+
+/** Informações extras (opcionais) por SKU — o que o SAC e o
  * Criativo usam pra não inventar característica. Vem da tabela
  * `fichas_anuncio`; enquanto o seller não preencheu, usa as fichas de
  * exemplo. */
