@@ -208,7 +208,7 @@ export function PainelAds({
   opcoesCusto: OpcoesLimites;
   aoDecidirAcao: (acao: AcaoAds, status: Extract<StatusSugestao, "aprovada" | "recusada">) => void;
   aoDispensarCandidato: (e: EventoAds) => void;
-  aoAbrirCriativo: () => void;
+  aoAbrirCriativo: (acao: AcaoAds) => void;
 }) {
   const [janela, setJanela] = useState<JanelaAds>("acoes");
   const [detalheId, setDetalheId] = useState<string | null>(null);
@@ -357,7 +357,7 @@ function CardAcaoAds({
   /** null = modo histórico (só leitura) */
   aoDecidir: ((status: Extract<StatusSugestao, "aprovada" | "recusada">) => void) | null;
   aoVerDetalhe: (() => void) | null;
-  aoAbrirCriativo: () => void;
+  aoAbrirCriativo: (acao: AcaoAds) => void;
 }) {
   const d = acao.detalhe;
   const titulo =
@@ -452,9 +452,9 @@ function CardAcaoAds({
           </Button>
         )}
         {d.tipo === "anuncio_cansado" && (
-          <Button size="sm" variant="outline" onClick={aoAbrirCriativo}>
+          <Button size="sm" variant="outline" onClick={() => aoAbrirCriativo(acao)}>
             <Wand2 className="size-3.5" />
-            Revisar no Criativo
+            Mandar pro Criativo
           </Button>
         )}
         {aoDecidir && (
