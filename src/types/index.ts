@@ -1044,6 +1044,11 @@ export interface AcaoAds {
  * praticamente o mesmo gerar um ou os quatro. Todos ficam null até o
  * seller pedir: é o único passo desse agente que gasta token de verdade.
  */
+/** De onde veio o pedido de conteúdo novo: dos exemplos iniciais, do SAC
+ * (clientes perguntando a mesma coisa) ou do Ads (muito clique, pouca
+ * compra). */
+export type OrigemCriativo = "exemplo" | "sac" | "ads";
+
 export interface SugestaoCriativo {
   id: string;
   data: string;
@@ -1052,7 +1057,13 @@ export interface SugestaoCriativo {
   sku: string;
   produto: string;
   marketplaceId: MarketplaceId;
+  /** Por que esse anúncio veio pro Criativo — escrito pelo agente que mandou */
+  motivo: string;
+  origem: OrigemCriativo;
   tituloSugerido: string | null;
+  /** As 3 opções de título que a IA escreveu (a 1ª é o tituloSugerido).
+   * null em sugestões geradas antes do Bloco 7, que só tinham um título. */
+  titulosAlternativos: string[] | null;
   descricaoSugerida: string | null;
   palavrasChave: string | null;
   bulletPoints: string | null;
@@ -1077,6 +1088,18 @@ export interface FichaAnuncio {
   sku: string;
   descricaoCompleta: string;
   atualizadoEm: string; // ISO
+}
+
+/**
+ * O que o seller configurou pro Agente Criativo: palavras que ele não quer
+ * ver nos anúncios ("quem avisa é você") e o limite de caracteres do
+ * título em cada canal — os marketplaces mudam essa regra de tempos em
+ * tempos, então o seller pode corrigir o número sem esperar o NEXO.
+ */
+export interface ConfiguracaoCriativo {
+  /** Uma palavra ou frase por linha */
+  palavrasProibidas: string;
+  limitesTitulo: Record<MarketplaceId, number>;
 }
 
 /* ------------------------------------------------------------------ */
