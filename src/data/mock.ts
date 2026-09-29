@@ -25,6 +25,7 @@ import type {
   OrigemCampanha,
   HistoricoAdsDia,
   HistoricoTaxaAnuncio,
+  ConteudoPublicado,
   FichaAnuncio,
   ModeloMensagemSac,
   MudancaPreco,
@@ -1802,21 +1803,170 @@ export const HISTORICO_TAXAS: HistoricoTaxaAnuncio[] = (() => {
 // quanto o caso "ainda falta preencher".
 // ---------------------------------------------------------------------------
 
-/** Fichas de exemplo — uma por SKU (antes o filtro pegava o mesmo SKU em
- * contas diferentes e repetia a ficha do smartwatch 4 vezes). Texto
- * fictício, no formato que o seller cola a partir do anúncio dele. */
-const TEXTOS_FICHAS_EXEMPLO: Record<string, string> = {
-  "SW-X-BLK-001":
-    "Smartwatch Series X Titanium Black. Tela AMOLED de 1,43 polegada, caixa em liga de titânio e pulseira de silicone preta (tamanho único, ajustável de 14 a 21 cm). Compatível com Android 8 ou superior e iPhone com iOS 13 ou superior, pelo aplicativo gratuito. Bateria de até 7 dias em uso normal; carregador magnético incluso. Resistência à água IP68 (chuva e lavar as mãos; não usar em sauna). Recebe notificações, mede batimentos, oxigenação e sono. Na caixa: relógio, cabo de carga magnético e manual em português. Garantia de 12 meses direto com a loja.",
-  "AU-G3-2026":
-    "Fone Bluetooth G3 com cancelamento ativo de ruído. Bluetooth 5.3, alcance de até 10 metros. Bateria de até 30 horas com o estojo (8 horas só no fone, com o cancelamento ligado). Carga USB-C. Funciona com qualquer celular com Bluetooth, Android ou iPhone. Tem microfone para chamadas e controles por toque. Na caixa: fones, estojo de carga, cabo USB-C e 3 tamanhos de ponteira de silicone. Cor preta. Garantia de 6 meses.",
-  "PWR-GAN-65W":
-    "Carregador Turbo 65W com tecnologia GaN. Duas saídas USB-C e uma USB-A. Potência máxima de 65W numa porta USB-C só; com as três portas em uso, divide a potência. Bivolt automático (110V e 220V). Carrega notebook com entrada USB-C, celular e tablet. Não acompanha cabo. Tamanho: 5,5 x 5,5 x 3 cm. Garantia de 12 meses.",
+/** Anúncio publicado de cada SKU — FICTÍCIO. Com a API, o NEXO puxa o
+ * título, a descrição e a ficha técnica direto do marketplace; até lá,
+ * estes textos simulam o que vai chegar. Alguns são fracos de propósito
+ * (descrição curta, ficha técnica incompleta) pra nota do Criativo
+ * mostrar a diferença. */
+export const CONTEUDOS_PUBLICADOS: ConteudoPublicado[] = [
+  {
+    sku: "SW-X-BLK-001",
+    titulo: "Smartwatch Series X Titanium Black",
+    descricao:
+      "Smartwatch Series X com tela AMOLED de 1,43 polegada e caixa em liga de titânio. Pulseira de silicone preta, tamanho único, ajustável de 14 a 21 cm. Mede batimentos, oxigenação e sono, e recebe notificações do celular. Bateria de até 7 dias em uso normal, com carregador magnético. Resistente à água IP68: aguenta chuva e lavar as mãos, mas não é para sauna. Na caixa: relógio, cabo de carga magnético e manual em português.",
+    atributos: [
+      { nome: "Marca", valor: "Series X" },
+      { nome: "Tamanho da tela", valor: "1,43 pol" },
+      { nome: "Compatibilidade", valor: "Android 8+ e iOS 13+" },
+      { nome: "Resistência à água", valor: "IP68" },
+      { nome: "Duração da bateria", valor: "Até 7 dias" },
+      { nome: "Cor", valor: "Preto" },
+    ],
+    origem: "exemplo",
+  },
+  {
+    sku: "AU-G3-2026",
+    titulo: "Fone Bluetooth Cancelamento de Ruído G3",
+    descricao:
+      "Fone Bluetooth G3 com cancelamento ativo de ruído. Bluetooth 5.3 com alcance de até 10 metros. Bateria de até 30 horas com o estojo (8 horas só no fone, com o cancelamento ligado). Carga por USB-C. Tem microfone para chamadas e controle por toque. Na caixa: fones, estojo de carga, cabo USB-C e 3 tamanhos de ponteira.",
+    atributos: [
+      { nome: "Conectividade", valor: "Bluetooth 5.3" },
+      { nome: "Cancelamento de ruído", valor: "Ativo" },
+      { nome: "Duração da bateria", valor: "30 h com estojo" },
+      { nome: "Cor", valor: "Preto" },
+    ],
+    origem: "exemplo",
+  },
+  {
+    sku: "PWR-GAN-65W",
+    titulo: "Carregador Turbo 65W GaN",
+    descricao:
+      "Carregador Turbo 65W com tecnologia GaN, menor e mais frio que os carregadores comuns. Duas saídas USB-C e uma USB-A. Entrega 65W numa porta USB-C só; com as três em uso, divide a potência. Bivolt automático. Carrega notebook com entrada USB-C, celular e tablet. Não acompanha cabo.",
+    atributos: [
+      { nome: "Potência", valor: "65 W" },
+      { nome: "Portas", valor: "2 USB-C + 1 USB-A" },
+      { nome: "Voltagem", valor: "Bivolt" },
+      { nome: "Acompanha cabo", valor: "Não" },
+      { nome: "Tecnologia", valor: "GaN" },
+    ],
+    origem: "exemplo",
+  },
+  {
+    sku: "HUB-USBC-7X1",
+    titulo: "Hub USB-C 7 em 1 Alumínio",
+    descricao:
+      "Hub USB-C 7 em 1 em alumínio: HDMI 4K, 2 USB-A 3.0, USB-C de dados, USB-C de carga até 100W e leitor de cartão SD e microSD.",
+    atributos: [
+      { nome: "Portas", valor: "7" },
+      { nome: "Material", valor: "Alumínio" },
+    ],
+    origem: "exemplo",
+  },
+  {
+    sku: "PEL-IP15-PM",
+    titulo: "Película de Vidro iPhone 15 Pro Max",
+    descricao: "Película de vidro temperado para iPhone 15 Pro Max.",
+    atributos: [{ nome: "Modelo compatível", valor: "iPhone 15 Pro Max" }],
+    origem: "exemplo",
+  },
+  {
+    sku: "CAD-ERG-PRO",
+    titulo: "Cadeira Gamer Ergonômica Pro",
+    descricao:
+      "Cadeira gamer ergonômica com encosto reclinável até 155°, apoio de braço 4D e almofadas de lombar e pescoço. Estrutura em aço, base em nylon com rodízios de 60 mm e pistão classe 4. Aguenta até 150 kg. Revestimento em couro sintético respirável. Altura do assento ajustável de 48 a 58 cm. Vem desmontada, com manual e ferramentas; montagem em cerca de 30 minutos.",
+    atributos: [
+      { nome: "Peso máximo suportado", valor: "150 kg" },
+      { nome: "Reclinação", valor: "Até 155°" },
+      { nome: "Material do revestimento", valor: "Couro sintético" },
+      { nome: "Altura do assento", valor: "48 a 58 cm" },
+      { nome: "Cor", valor: "Preto e vermelho" },
+      { nome: "Requer montagem", valor: "Sim" },
+    ],
+    origem: "exemplo",
+  },
+  {
+    sku: "TEC-MEC-RGB",
+    titulo: "Teclado Mecânico RGB 75%",
+    descricao:
+      "Teclado mecânico compacto 75% com iluminação RGB. Switches marrons (táteis e silenciosos), teclas em ABS e cabo USB-C removível. Layout ABNT2, com Ç.",
+    atributos: [
+      { nome: "Layout", valor: "ABNT2" },
+      { nome: "Switch", valor: "Marrom" },
+      { nome: "Conexão", valor: "USB-C com fio" },
+    ],
+    origem: "exemplo",
+  },
+  {
+    sku: "MON-27-QHD",
+    titulo: "Monitor 27'' QHD 165Hz",
+    descricao:
+      "Monitor de 27 polegadas com resolução QHD (2560 x 1440) e taxa de atualização de 165Hz. Painel IPS com tempo de resposta de 1 ms e suporte a FreeSync. Entradas: 2 HDMI 2.0 e 1 DisplayPort 1.4 — para os 165Hz, use o DisplayPort. Base com ajuste de inclinação e padrão VESA 100 x 100. Acompanha cabo DisplayPort e fonte bivolt.",
+    atributos: [
+      { nome: "Tamanho da tela", valor: "27 pol" },
+      { nome: "Resolução", valor: "2560 x 1440" },
+      { nome: "Taxa de atualização", valor: "165 Hz" },
+      { nome: "Tipo de painel", valor: "IPS" },
+      { nome: "Entradas", valor: "2 HDMI + 1 DisplayPort" },
+      { nome: "Voltagem", valor: "Bivolt" },
+    ],
+    origem: "exemplo",
+  },
+  {
+    sku: "CAM-WEB-4K",
+    titulo: "Webcam 4K com Microfone Duplo",
+    descricao:
+      "Webcam 4K com microfone duplo e foco automático. Conexão USB, funciona sem instalar programa. Ideal para reuniões e lives.",
+    atributos: [
+      { nome: "Resolução", valor: "4K" },
+      { nome: "Conexão", valor: "USB" },
+    ],
+    origem: "exemplo",
+  },
+  {
+    sku: "SSD-1TB-NVME",
+    titulo: "SSD NVMe 1TB Gen4",
+    descricao:
+      "SSD NVMe de 1TB, PCIe Gen4, formato M.2 2280. Leitura de até 7.000 MB/s e gravação de até 6.000 MB/s. Funciona também em entrada Gen3, com velocidade de Gen3. Compatível com PC e PlayStation 5 (com dissipador). Não serve em notebook que só aceita SSD SATA.",
+    atributos: [
+      { nome: "Capacidade", valor: "1 TB" },
+      { nome: "Formato", valor: "M.2 2280" },
+      { nome: "Interface", valor: "PCIe Gen4 NVMe" },
+      { nome: "Leitura", valor: "7.000 MB/s" },
+      { nome: "Gravação", valor: "6.000 MB/s" },
+    ],
+    origem: "exemplo",
+  },
+  {
+    sku: "LUM-RING-18",
+    titulo: "Ring Light 18'' com Tripé",
+    descricao:
+      "Ring light de 18 polegadas com tripé que chega a 2 metros de altura. 3 tons de luz (quente, neutra e fria) e 10 níveis de brilho. Suporte para celular incluso. Ligação por USB.",
+    atributos: [
+      { nome: "Tamanho", valor: "18 pol" },
+      { nome: "Altura máxima do tripé", valor: "2 m" },
+      { nome: "Alimentação", valor: "USB" },
+    ],
+    origem: "exemplo",
+  },
+  {
+    sku: "MOU-SF-2K",
+    titulo: "Mouse Sem Fio Silencioso 2.4G",
+    descricao: "Mouse sem fio silencioso, conexão 2.4G.",
+    atributos: [{ nome: "Conexão", valor: "2.4G" }],
+    origem: "exemplo",
+  },
+];
+
+/** Informações extras de exemplo (OPCIONAIS) — o que o seller escreveria
+ * pra completar ou corrigir o anúncio. Textos fictícios. */
+const EXTRAS_EXEMPLO: Record<string, string> = {
   "HUB-USBC-7X1":
-    "Hub USB-C 7 em 1 em alumínio. Portas: 1 HDMI 4K a 30Hz, 2 USB-A 3.0, 1 USB-C de dados, 1 USB-C de carga (Power Delivery até 100W), leitor de cartão SD e microSD. Funciona em notebook e MacBook com porta USB-C que tenha saída de vídeo. Não funciona em celular sem suporte a saída de vídeo. Cabo de 15 cm. Garantia de 12 meses.",
+    "Funciona em notebook e MacBook com porta USB-C que tenha saída de vídeo. Não funciona em celular sem suporte a saída de vídeo. Garantia de 12 meses.",
+  "MOU-SF-2K":
+    "Funciona com Windows, Mac e Linux. Usa 1 pilha AA (vem junto). DPI ajustável: 800, 1200 e 1600.",
 };
 
-export const FICHAS_ANUNCIO: FichaAnuncio[] = Object.entries(TEXTOS_FICHAS_EXEMPLO).map(
+export const FICHAS_ANUNCIO: FichaAnuncio[] = Object.entries(EXTRAS_EXEMPLO).map(
   ([sku, descricaoCompleta], i) => ({
     id: `ficha-${sku}`,
     sku,
