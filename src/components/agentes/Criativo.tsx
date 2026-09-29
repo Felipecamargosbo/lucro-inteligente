@@ -34,13 +34,14 @@ import type { RascunhoCriativo } from "@/services";
 import type {
   Anuncio,
   ConfiguracaoCriativo,
+  ConteudoPublicado,
   MarketplaceId,
   StatusSugestao,
   SugestaoCriativo,
 } from "@/types";
 import type { AlvoFicha } from "./ModalFicha";
 
-type AbaCriativo = "operacao" | "fichas" | "regras" | "historico";
+type AbaCriativo = "operacao" | "produtos" | "regras" | "historico";
 
 const COR_NOTA = {
   profit: "bg-profit-soft text-profit",
@@ -52,7 +53,8 @@ const COR_NOTA = {
  * O painel Criativo. Quatro abas:
  * - Operação: anúncios esperando conteúdo novo, com a nota do anúncio
  *   atual, o motivo (quando veio do SAC ou do Ads) e 3 opções de título;
- * - Fichas: a descrição completa de cada produto (a mesma que o SAC usa);
+ * - Produtos: o anúncio publicado de cada produto (puxado do marketplace)
+ *   e as informações extras opcionais do seller (as mesmas que o SAC usa);
  * - Regras: limite de título por canal e palavras proibidas;
  * - Histórico: o que já foi aprovado ou descartado.
  * A IA só roda quando o seller clica em "Gerar conteúdo" — nunca sozinha.
@@ -72,6 +74,7 @@ export function PainelCriativo({
   aoSalvarConfig,
   buscarAnuncio,
   repetidasPorSku,
+  buscarPublicado,
 }: {
   sugestoes: SugestaoCriativo[];
   carregando: boolean;
@@ -80,7 +83,7 @@ export function PainelCriativo({
   aoMudarRascunho: (id: string, campo: keyof RascunhoCriativo, texto: string) => void;
   aoGerar: (s: SugestaoCriativo) => void;
   aoDecidir: (s: SugestaoCriativo, status: Extract<StatusSugestao, "aprovada" | "recusada">) => void;
-  /** SKU → ficha do produto */
+  /** SKU → informações extras do seller (opcional) */
   fichas: Map<string, string>;
   /** Produtos do catálogo (um por SKU), pra aba Fichas */
   produtos: AlvoFicha[];
@@ -90,15 +93,16 @@ export function PainelCriativo({
   buscarAnuncio: (id: string | null) => Anuncio | null;
   /** SKU → quantos assuntos os clientes perguntam repetido no SAC */
   repetidasPorSku: Map<string, number>;
+  /** O anúncio publicado do SKU (puxado do marketplace; fictício até a API) */
+  buscarPublicado: (sku: string) => ConteudoPublicado | null;
 }) {
   const [aba, setAba] = useState<AbaCriativo>("operacao");
   const pendentes = sugestoes.filter((s) => s.status === "pendente");
   const decididos = sugestoes.filter((s) => s.status !== "pendente");
-  const comFicha = produtos.filter((p) => fichas.has(p.sku)).length;
 
   const abas: [AbaCriativo, string][] = [
     ["operacao", `Operação (${pendentes.length})`],
-    ["fichas", `Fichas (${comFicha} de ${produtos.length})`],
+    ["produtos", `Produtos (${produtos.length})`],
     ["regras", "Regras"],
     ["historico", `Histórico (${decididos.length})`],
   ];
@@ -167,7 +171,8 @@ export function PainelCriativo({
                 aoMudarRascunho={(campo, texto) => aoMudarRascunho(s.id, campo, texto)}
                 aoGerar={() => aoGerar(s)}
                 aoDecidir={(status) => aoDecidir(s, status)}
-                ficha={fichas.get(s.sku) ?? null}
+                extras={fichas.get(s.sku) ?? null}
+                publicado={buscarPublicado(s.sku)}
                 aoAbrirFicha={() => aoAbrirFicha({ sku: s.sku, produto: s.produto })}
                 config={config}
                 anuncio={buscarAnuncio(s.anuncioId)}
@@ -187,8 +192,13 @@ export function PainelCriativo({
         </div>
       )}
 
-      {aba === "fichas" && (
-        <AbaFichas produtos={produtos} fichas={fichas} aoAbrirFicha={aoAbrirFicha} />
+      {aba === "produtos" && (
+        <AbaProdutos
+          produtos={produtos}
+          fichas={fichas}
+          aoAbrirFicha={aoAbrirFicha}
+          buscarPublicado={buscarPublicado}
+        />
       )}
 
       {aba === "regras" && <AbaRegras config={config} aoSalvar={aoSalvarConfig} />}
@@ -212,7 +222,8 @@ function CardSugestaoCriativo({
   aoMudarRascunho,
   aoGerar,
   aoDecidir,
-  ficha,
+  extras,
+  publicado,
   aoAbrirFicha,
   config,
   anuncio,
@@ -224,30 +235,34 @@ function CardSugestaoCriativo({
   aoMudarRascunho: (campo: keyof RascunhoCriativo, texto: string) => void;
   aoGerar: () => void;
   aoDecidir: (status: Extract<StatusSugestao, "aprovada" | "recusada">) => void;
-  ficha: string | null;
+  /** Informações extras do seller (opcional) */
+  extras: string | null;
+  publicado: ConteudoPublicado | null;
   aoAbrirFicha: () => void;
   config: ConfiguracaoCriativo;
   anuncio: Anuncio | null;
   perguntasRepetidas: number;
 }) {
   const [verNota, setVerNota] = useState(false);
+  const [verPublicado, setVerPublicado] = useState(false);
   const temConteudo = sugestao.tituloSugerido !== null;
   const decidido = sugestao.status !== "pendente";
   const limite = limiteTitulo(config, sugestao.marketplaceId);
 
-  // Sem API, o "título atual" que o NEXO conhece é o nome do anúncio.
-  const tituloAtual = anuncio?.produto ?? sugestao.produto;
+  // O título de hoje: o publicado (puxado do marketplace) ou, sem ele, o
+  // nome do anúncio que o NEXO já conhece.
+  const tituloAtual = publicado?.titulo ?? anuncio?.produto ?? sugestao.produto;
   const nota = useMemo(
     () =>
       notaDoAnuncio({
         titulo: tituloAtual,
         marketplaceId: sugestao.marketplaceId,
         config,
-        temFicha: ficha !== null,
+        publicado,
         anuncio,
         perguntasRepetidas,
       }),
-    [tituloAtual, sugestao.marketplaceId, config, ficha, anuncio, perguntasRepetidas],
+    [tituloAtual, sugestao.marketplaceId, config, publicado, anuncio, perguntasRepetidas],
   );
 
   // Palavras proibidas no conteúdo novo: as do canal valem pro título; as
@@ -352,32 +367,76 @@ function CardSugestaoCriativo({
                       </span>
                     </li>
                   ))}
-                  <li className="pt-1 text-[10px] text-muted-foreground">
-                    Sem a API, o NEXO ainda não lê a descrição publicada — a nota olha o título, a
-                    ficha, a conversão do Ads e as perguntas do SAC.
-                  </li>
+                  {publicado?.origem === "exemplo" && (
+                    <li className="pt-1 text-[10px] text-muted-foreground">
+                      Anúncio de exemplo (fictício) até a API conectar — aí a nota passa a olhar o
+                      anúncio real.
+                    </li>
+                  )}
                 </ul>
               )}
             </div>
           )}
 
-          {/* Ficha do produto */}
+          {/* O que a IA vai ler: anúncio publicado + informações extras */}
           {!decidido && (
-            <div
-              className={cn(
-                "flex flex-wrap items-center gap-2 rounded-md px-3 py-2 text-xs",
-                ficha ? "bg-muted/40" : "bg-warning-soft",
+            <div className="rounded-md border text-xs">
+              <button
+                onClick={() => setVerPublicado((v) => !v)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left"
+                disabled={!publicado}
+              >
+                <FileText
+                  className={cn("size-3.5", publicado ? "text-profit" : "text-muted-foreground")}
+                />
+                <span className="min-w-0 flex-1">
+                  {publicado ? (
+                    <>
+                      Anúncio publicado puxado do marketplace
+                      {publicado.origem === "exemplo" && (
+                        <span className="text-muted-foreground"> (exemplo fictício)</span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      Anúncio publicado ainda não puxado — a IA só tem o nome do produto
+                    </span>
+                  )}
+                </span>
+                {publicado &&
+                  (verPublicado ? (
+                    <ChevronUp className="size-3.5 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="size-3.5 text-muted-foreground" />
+                  ))}
+              </button>
+              {publicado && verPublicado && (
+                <div className="space-y-1.5 border-t px-3 py-2 text-[11px]">
+                  <p>
+                    <span className="text-muted-foreground">Título: </span>
+                    {publicado.titulo}
+                  </p>
+                  <p className="leading-relaxed">
+                    <span className="text-muted-foreground">Descrição: </span>
+                    {publicado.descricao}
+                  </p>
+                  {publicado.atributos.length > 0 && (
+                    <p className="text-muted-foreground">
+                      Ficha técnica:{" "}
+                      {publicado.atributos.map((a) => `${a.nome}: ${a.valor}`).join(" · ")}
+                    </p>
+                  )}
+                </div>
               )}
-            >
-              <FileText className={cn("size-3.5", ficha ? "text-muted-foreground" : "text-warning")} />
-              <span className="min-w-0 flex-1">
-                {ficha
-                  ? "A IA vai escrever com base na ficha do produto."
-                  : "Sem ficha do produto: a IA não sabe as características e o texto sai genérico."}
-              </span>
-              <Button size="sm" variant="outline" onClick={aoAbrirFicha} className="h-7 text-[11px]">
-                {ficha ? "Ver ficha" : "Adicionar ficha"}
-              </Button>
+              <div className="flex flex-wrap items-center gap-2 border-t px-3 py-2">
+                <span className="min-w-0 flex-1 text-muted-foreground">
+                  <strong className="text-foreground">Informações extras (opcional): </strong>
+                  {extras ? <span className="line-clamp-1">{extras}</span> : "nenhuma"}
+                </span>
+                <Button size="sm" variant="outline" onClick={aoAbrirFicha} className="h-7 text-[11px]">
+                  {extras ? "Editar" : "Adicionar"}
+                </Button>
+              </div>
             </div>
           )}
 
@@ -569,62 +628,58 @@ function CardSugestaoCriativo({
 }
 
 /* ------------------------------------------------------------------ */
-/* Aba Fichas                                                          */
+/* Aba Produtos                                                        */
 /* ------------------------------------------------------------------ */
 
-function AbaFichas({
+function AbaProdutos({
   produtos,
   fichas,
   aoAbrirFicha,
+  buscarPublicado,
 }: {
   produtos: AlvoFicha[];
   fichas: Map<string, string>;
   aoAbrirFicha: (alvo: AlvoFicha) => void;
+  buscarPublicado: (sku: string) => ConteudoPublicado | null;
 }) {
-  // Quem ainda não tem ficha aparece primeiro — é o que falta fazer.
-  const ordenados = [...produtos].sort(
-    (a, b) => Number(fichas.has(a.sku)) - Number(fichas.has(b.sku)),
-  );
-
   return (
     <div>
       <p className="border-b px-4 py-3 text-[11px] leading-relaxed text-muted-foreground">
-        A ficha é a descrição completa do produto, uma por SKU. O SAC usa pra responder cliente sem
-        inventar, e o Criativo pra escrever o anúncio. Quando a API conectar, o NEXO passa a ler a
-        descrição direto do anúncio publicado.
+        O NEXO puxa de cada anúncio a descrição e a ficha técnica — é isso que o SAC usa pra
+        responder cliente e o Criativo pra reescrever o anúncio. Por enquanto são exemplos
+        fictícios; quando a API conectar, vem o anúncio real. Se faltar alguma informação ou o
+        anúncio estiver errado, use as <strong>informações extras</strong> (opcional).
       </p>
       <div className="divide-y">
-        {ordenados.map((p) => {
-          const ficha = fichas.get(p.sku);
+        {produtos.map((p) => {
+          const publicado = buscarPublicado(p.sku);
+          const extras = fichas.get(p.sku);
           return (
             <div key={p.sku} className="flex items-center gap-3 px-4 py-3">
               <FileText
-                className={cn("size-4 shrink-0", ficha ? "text-profit" : "text-muted-foreground")}
+                className={cn("size-4 shrink-0", publicado ? "text-profit" : "text-muted-foreground")}
               />
               <div className="min-w-0 flex-1">
                 <p className="flex flex-wrap items-center gap-2 text-xs font-medium">
                   {p.produto}
                   <span className="num text-[10px] font-normal text-muted-foreground">{p.sku}</span>
                 </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {publicado
+                    ? `Anúncio: descrição com ${publicado.descricao.length} caracteres · ficha técnica com ${publicado.atributos.length} ${publicado.atributos.length === 1 ? "item" : "itens"}`
+                    : "Anúncio ainda não puxado"}
+                </p>
                 <p className="truncate text-[10px] text-muted-foreground">
-                  {ficha ? ficha : "Sem ficha ainda"}
+                  Extras: {extras ?? "nenhuma"}
                 </p>
               </div>
-              <span
-                className={cn(
-                  "shrink-0 rounded px-2 py-0.5 text-[10px] font-semibold",
-                  ficha ? "bg-profit-soft text-profit" : "bg-warning-soft text-warning",
-                )}
-              >
-                {ficha ? "Com ficha" : "Sem ficha"}
-              </span>
               <Button
                 size="sm"
                 variant="outline"
                 className="h-7 shrink-0 text-[11px]"
                 onClick={() => aoAbrirFicha(p)}
               >
-                {ficha ? "Editar" : "Adicionar"}
+                {extras ? "Editar extras" : "Adicionar extras"}
               </Button>
             </div>
           );
