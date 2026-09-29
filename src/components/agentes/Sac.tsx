@@ -34,6 +34,7 @@ import {
 } from "@/lib/sac";
 import type {
   CategoriaSac,
+  ConteudoPublicado,
   ConfiguracaoSac,
   Pedido,
   SituacaoSac,
@@ -106,6 +107,7 @@ export function PainelSac({
   aoSalvarModelo,
   aoEnviarParaCriativo,
   aoAbrirFicha,
+  buscarPublicado,
 }: {
   tickets: TicketSac[];
   carregando: boolean;
@@ -123,8 +125,10 @@ export function PainelSac({
   aoSalvarRegra: (regra: string) => Promise<void>;
   aoSalvarModelo: (situacao: SituacaoSac, texto: string) => Promise<void>;
   aoEnviarParaCriativo: (g: PerguntaRepetida) => Promise<void>;
-  /** Abre a janela da ficha do produto (a mesma do Criativo) */
+  /** Abre a janela de informações extras do produto (a mesma do Criativo) */
   aoAbrirFicha: (alvo: AlvoFicha) => void;
+  /** O anúncio publicado do SKU (puxado do marketplace; fictício até a API) */
+  buscarPublicado: (sku: string) => ConteudoPublicado | null;
 }) {
   const [aba, setAba] = useState<Aba>("operacao");
   const [aviso, setAviso] = useState<Aviso | null>(null);
@@ -212,7 +216,8 @@ export function PainelSac({
           Regras ativas: <strong className="text-foreground">{regrasAtivas}</strong>
         </span>
         <span>
-          Fichas de produto: <strong className="text-foreground">{fichas.size}</strong>
+          Produtos com informações extras:{" "}
+          <strong className="text-foreground">{fichas.size}</strong>
         </span>
         <span className="italic">Ajuste em Configurações › Atendimento (SAC)</span>
       </div>
@@ -314,6 +319,7 @@ export function PainelSac({
               pedido={t.pedidoId ? buscarPedido(t.pedidoId) : null}
               config={config}
               temFicha={fichas.has(t.sku)}
+              temPublicado={buscarPublicado(t.sku) !== null}
               aoAbrirFicha={() => aoAbrirFicha({ sku: t.sku, produto: t.produto })}
               regrasAtivas={regrasAtivas}
               modelos={modelos}
@@ -498,6 +504,7 @@ function CardTicketSac({
   pedido,
   config,
   temFicha,
+  temPublicado,
   aoAbrirFicha,
   regrasAtivas,
   modelos,
@@ -510,7 +517,10 @@ function CardTicketSac({
   ticket: TicketSac;
   pedido: Pedido | null;
   config: ConfiguracaoSac;
+  /** Tem informações extras do seller */
   temFicha: boolean;
+  /** Tem o anúncio publicado (descrição + ficha técnica) */
+  temPublicado: boolean;
   aoAbrirFicha: () => void;
   regrasAtivas: number;
   modelos: Record<SituacaoSac, string>;
@@ -624,17 +634,19 @@ function CardTicketSac({
           ) : categoria === "pre-venda" && !ticket.resposta && !situacao ? (
             <div className="mt-3">
               <p className="mb-2 text-[10px] text-muted-foreground">
-                A IA vai usar: {temFicha ? "a ficha do produto ✓" : "sem ficha do produto (a resposta pode sair vaga)"}{" "}
+                A IA vai usar:{" "}
+                {temPublicado
+                  ? "a descrição e a ficha técnica do anúncio ✓"
+                  : "sem o anúncio publicado (a resposta pode sair vaga)"}
+                {temFicha ? " · suas informações extras ✓" : ""}{" "}
                 · tom {ROTULO_TOM[config.tom].toLowerCase()} · {regrasAtivas} regra
                 {regrasAtivas !== 1 ? "s" : ""} aprendida{regrasAtivas !== 1 ? "s" : ""}
               </p>
               <div className="flex flex-wrap gap-2">
-                {!temFicha && (
-                  <Button size="sm" variant="outline" onClick={aoAbrirFicha}>
-                    <FileText className="size-3.5" />
-                    Adicionar ficha deste produto
-                  </Button>
-                )}
+                <Button size="sm" variant="ghost" onClick={aoAbrirFicha}>
+                  <FileText className="size-3.5" />
+                  {temFicha ? "Editar informações extras" : "Adicionar informações extras"}
+                </Button>
                 <Button size="sm" variant="outline" onClick={aoGerar} disabled={gerando}>
                   {gerando ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
                   {gerando ? "Gerando..." : "Gerar resposta com IA"}
@@ -642,8 +654,8 @@ function CardTicketSac({
               </div>
               {!temFicha && (
                 <p className="mt-1.5 text-[10px] text-muted-foreground">
-                  Com a ficha, a IA responde com as características reais do produto. A mesma ficha
-                  aparece no Agente Criativo.
+                  Opcional: se o anúncio não explica o que o cliente perguntou, adicione aqui. As
+                  mesmas informações aparecem no Agente Criativo.
                 </p>
               )}
             </div>
