@@ -1077,17 +1077,31 @@ export interface SugestaoCriativo {
 /* ------------------------------------------------------------------ */
 
 /**
- * Informação técnica completa de um anúncio, digitada pelo próprio
- * seller. Sem API ainda, a IA não enxerga o anúncio publicado — esta
- * ficha é como o Criativo (pra reescrever título/descrição) e o SAC
- * (pra responder pergunta técnica sem inventar) "enxergam" o produto.
- * Uma por SKU; o seller pode editar a qualquer momento.
+ * "Informações extras" do produto, escritas pelo seller — OPCIONAL. O
+ * principal vem do próprio anúncio (ConteudoPublicado); aqui entra só o
+ * que o anúncio não diz ou diz errado ("serve também no modelo X", "a
+ * cor real é mais escura"). Quando as duas coisas se contradizem, a
+ * informação extra vale mais. Uma por SKU (tabela fichas_anuncio).
  */
 export interface FichaAnuncio {
   id: string;
   sku: string;
   descricaoCompleta: string;
   atualizadoEm: string; // ISO
+}
+
+/**
+ * O anúncio como está publicado no marketplace: título, descrição e ficha
+ * técnica (atributos). Com a API, o NEXO puxa isso sozinho do anúncio;
+ * até lá, vem de dados fictícios (origem "exemplo"). É a base de tudo que
+ * o SAC responde e que o Criativo reescreve — o seller não precisa colar.
+ */
+export interface ConteudoPublicado {
+  sku: string;
+  titulo: string;
+  descricao: string;
+  atributos: { nome: string; valor: string }[];
+  origem: "exemplo" | "api";
 }
 
 /**
