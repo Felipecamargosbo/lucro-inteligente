@@ -17,6 +17,7 @@ import {
   adsService,
   auditorService,
   contasService,
+  criativoConfigService,
   criativoService,
   estoqueService,
   fichasService,
@@ -30,7 +31,9 @@ import {
   promocoesService,
   sacService,
   vendasService,
+  type RascunhoCriativo,
 } from "@/services";
+import { getMarketplace } from "@/data/mock";
 import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
@@ -64,14 +67,21 @@ import {
   CONFIGURACAO_SAC_PADRAO,
   MODELOS_SAC_PADRAO,
   classificarPergunta,
+  perguntasRepetidas,
   type PerguntaRepetida,
 } from "@/lib/sac";
+import {
+  CONFIGURACAO_CRIATIVO_PADRAO,
+  limiteTitulo,
+  listaPalavrasSeller,
+} from "@/lib/criativo";
 import { Painel } from "@/components/comum/Indicadores";
 import { cn } from "@/lib/utils";
 import type {
   AcaoAds,
   AlertaEstoque,
   Anuncio,
+  ConfiguracaoCriativo,
   ConfiguracaoSac,
   MarketplaceId,
   Pedido,
@@ -94,6 +104,7 @@ import { PainelFulfillment } from "@/components/agentes/Fulfillment";
 import { PainelAds, montarAcoesAds } from "@/components/agentes/Ads";
 import { PainelAuditor } from "@/components/agentes/Auditor";
 import { PainelCriativo } from "@/components/agentes/Criativo";
+import { ModalFicha, type AlvoFicha } from "@/components/agentes/ModalFicha";
 
 export const Route = createFileRoute("/agentes")({
   head: () => ({
@@ -227,9 +238,13 @@ function Agentes() {
   const [sugestoesCriativo, setSugestoesCriativo] = useState<SugestaoCriativo[]>([]);
   const [carregandoCriativo, setCarregandoCriativo] = useState(true);
   const [gerandoCriativoId, setGerandoCriativoId] = useState<string | null>(null);
-  const [rascunhosCriativo, setRascunhosCriativo] = useState<
-    Record<string, { titulo: string; descricao: string; palavrasChave: string; bulletPoints: string }>
-  >({});
+  const [rascunhosCriativo, setRascunhosCriativo] = useState<Record<string, RascunhoCriativo>>({});
+  /** Palavras proibidas e limite de título por canal do Criativo */
+  const [configCriativo, setConfigCriativo] = useState<ConfiguracaoCriativo>(
+    CONFIGURACAO_CRIATIVO_PADRAO,
+  );
+  /** Produto com a janela da ficha aberta (a mesma no SAC e no Criativo) */
+  const [alvoFicha, setAlvoFicha] = useState<AlvoFicha | null>(null);
   const [carregando, setCarregando] = useState(true);
 
   /**
@@ -459,6 +474,8 @@ function Agentes() {
   const carregarSugestoesCriativo = useCallback(async () => {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
+
+    setConfigCriativo(await criativoConfigService.carregar(perfilId));
 
     const existentes = await criativoService.listar(perfilId);
     if (existentes.length === 0) {
@@ -873,6 +890,7 @@ function Agentes() {
       produto: g.produto,
       sku: g.sku,
       marketplaceId: g.marketplaceId,
+      origem: "sac",
       motivo: `${g.quantidade} clientes perguntaram sobre ${g.assunto} de "${g.produto}". O anúncio provavelmente não explica isso — inclua essa informação na descrição, nos bullet points ou nas fotos.`,
     });
     if (erro) {
@@ -923,10 +941,19 @@ function Agentes() {
     );
   };
 
-  /** Os quatro campos vêm juntos — só aqui sai custo de token de verdade. */
+  /** Os quatro campos vêm juntos — só aqui sai custo de token de verdade.
+   * Vai junto o contexto: canal e limite do título, ficha do produto, o
+   * motivo (SAC/Ads) e as palavras proibidas do seller. */
   const gerarConteudoCriativo = async (s: SugestaoCriativo) => {
     setGerandoCriativoId(s.id);
-    const { conteudo, erro } = await criativoService.gerarConteudo(s.produto);
+    const { conteudo, erro } = await criativoService.gerarConteudo({
+      produto: s.produto,
+      marketplace: getMarketplace(s.marketplaceId).nome,
+      limiteTitulo: limiteTitulo(configCriativo, s.marketplaceId),
+      ficha: fichas.get(s.sku) ?? null,
+      motivo: s.origem === "exemplo" ? "" : s.motivo,
+      palavrasProibidas: listaPalavrasSeller(configCriativo),
+    });
     setGerandoCriativoId(null);
     if (erro) {
       toast.error(`Não consegui gerar o conteúdo: ${erro}`);
@@ -944,6 +971,7 @@ function Agentes() {
           ? {
               ...item,
               tituloSugerido: conteudo.titulo,
+              titulosAlternativos: conteudo.titulos,
               descricaoSugerida: conteudo.descricao,
               palavrasChave: conteudo.palavrasChave,
               bulletPoints: conteudo.bulletPoints,
@@ -951,7 +979,73 @@ function Agentes() {
           : item,
       ),
     );
-    setRascunhosCriativo((atual) => ({ ...atual, [s.id]: conteudo }));
+    setRascunhosCriativo((atual) => ({
+      ...atual,
+      [s.id]: {
+        titulo: conteudo.titulo,
+        descricao: conteudo.descricao,
+        palavrasChave: conteudo.palavrasChave,
+        bulletPoints: conteudo.bulletPoints,
+      },
+    }));
+  };
+
+  /** Ads achou um anúncio com muito clique e pouca compra: manda pro
+   * Criativo com o motivo junto. Se já tem um pendente pra esse anúncio,
+   * só abre o Criativo — não duplica. */
+  const enviarAdsParaCriativo = async (acao: AcaoAds) => {
+    if (!sessao) return;
+    const jaExiste = sugestoesCriativo.some(
+      (x) => x.status === "pendente" && x.anuncioId === acao.anuncioId,
+    );
+    if (!jaExiste) {
+      const erro = await criativoService.criarSugestao(sessao.user.id, {
+        contaId: acao.contaId,
+        anuncioId: acao.anuncioId,
+        produto: acao.produto,
+        sku: acao.sku,
+        marketplaceId: acao.marketplaceId,
+        origem: "ads",
+        motivo: `O Agente de Ads viu muito clique e pouca compra: ${acao.motivo} Reescreva o título e a descrição pra convencer quem já clicou.`,
+      });
+      if (erro) {
+        toast.error(`Não consegui mandar pro Criativo: ${erro}`);
+        return;
+      }
+      toast.success("Enviado pro Agente Criativo, com o motivo junto.");
+      await carregarSugestoesCriativo();
+    }
+    setAbaAgente("criativo");
+  };
+
+  /** Salva a ficha de um SKU — chamado pelo SAC e pelo Criativo. */
+  const salvarFicha = async (sku: string, texto: string): Promise<boolean> => {
+    if (!sessao) return false;
+    const erro = await fichasService.salvar(sessao.user.id, sku, texto);
+    if (erro) {
+      toast.error(`Não consegui salvar a ficha: ${erro}`);
+      return false;
+    }
+    setFichas((atual) => {
+      const novo = new Map(atual);
+      if (texto.trim()) novo.set(sku, texto.trim());
+      else novo.delete(sku);
+      return novo;
+    });
+    toast.success(texto.trim() ? "Ficha salva. O SAC e o Criativo já usam." : "Ficha apagada.");
+    return true;
+  };
+
+  const salvarConfigCriativo = async (c: ConfiguracaoCriativo): Promise<boolean> => {
+    if (!sessao) return false;
+    const erro = await criativoConfigService.salvar(sessao.user.id, c);
+    if (erro) {
+      toast.error(`Não consegui salvar as regras: ${erro}`);
+      return false;
+    }
+    setConfigCriativo(c);
+    toast.success("Regras do Criativo salvas.");
+    return true;
   };
 
   const decidirCriativo = async (
@@ -1044,6 +1138,22 @@ function Agentes() {
   const sugestoesCriativoPendentes = sugestoesCriativo.filter(
     (s) => s.status === "pendente",
   ).length;
+
+  /** Um produto por SKU, pra aba Fichas do Criativo */
+  const produtosFicha = useMemo(() => {
+    const vistos = new Map<string, AlvoFicha>();
+    for (const a of anunciosService.listar()) {
+      if (!vistos.has(a.sku)) vistos.set(a.sku, { sku: a.sku, produto: a.produto });
+    }
+    return [...vistos.values()];
+  }, []);
+
+  /** SKU → quantos assuntos os clientes perguntam repetido no SAC */
+  const repetidasPorSku = useMemo(() => {
+    const mapa = new Map<string, number>();
+    for (const g of perguntasRepetidas(tickets)) mapa.set(g.sku, (mapa.get(g.sku) ?? 0) + 1);
+    return mapa;
+  }, [tickets]);
 
   if (!recursos.agentes) {
     return (
@@ -1148,6 +1258,7 @@ function Agentes() {
           aoSalvarRegra={(regra) => salvarRegraSac(regra, "aprendida")}
           aoSalvarModelo={salvarModeloSac}
           aoEnviarParaCriativo={enviarRepetidaParaCriativo}
+          aoAbrirFicha={setAlvoFicha}
         />
       )}
 
@@ -1176,7 +1287,7 @@ function Agentes() {
           opcoesCusto={{ aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal }}
           aoDecidirAcao={decidirAcaoAds}
           aoDispensarCandidato={dispensarAvaliacaoAds}
-          aoAbrirCriativo={() => setAbaAgente("criativo")}
+          aoAbrirCriativo={enviarAdsParaCriativo}
         />
       )}
 
@@ -1208,8 +1319,22 @@ function Agentes() {
           }
           aoGerar={gerarConteudoCriativo}
           aoDecidir={decidirCriativo}
+          fichas={fichas}
+          produtos={produtosFicha}
+          aoAbrirFicha={setAlvoFicha}
+          config={configCriativo}
+          aoSalvarConfig={salvarConfigCriativo}
+          buscarAnuncio={(id) => (id ? anunciosService.buscarPorId(id) : null)}
+          repetidasPorSku={repetidasPorSku}
         />
       )}
+
+      <ModalFicha
+        alvo={alvoFicha}
+        textoAtual={alvoFicha ? (fichas.get(alvoFicha.sku) ?? "") : ""}
+        aoFechar={() => setAlvoFicha(null)}
+        aoSalvar={salvarFicha}
+      />
     </div>
   );
 }
