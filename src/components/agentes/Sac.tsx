@@ -7,6 +7,7 @@ import {
   Brain,
   Check,
   Clock,
+  FileText,
   Loader2,
   MessageCircle,
   Package,
@@ -19,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import type { AlvoFicha } from "./ModalFicha";
 import {
   ROTULO_CATEGORIA_SAC,
   ROTULO_SITUACAO_SAC,
@@ -103,6 +105,7 @@ export function PainelSac({
   aoSalvarRegra,
   aoSalvarModelo,
   aoEnviarParaCriativo,
+  aoAbrirFicha,
 }: {
   tickets: TicketSac[];
   carregando: boolean;
@@ -120,6 +123,8 @@ export function PainelSac({
   aoSalvarRegra: (regra: string) => Promise<void>;
   aoSalvarModelo: (situacao: SituacaoSac, texto: string) => Promise<void>;
   aoEnviarParaCriativo: (g: PerguntaRepetida) => Promise<void>;
+  /** Abre a janela da ficha do produto (a mesma do Criativo) */
+  aoAbrirFicha: (alvo: AlvoFicha) => void;
 }) {
   const [aba, setAba] = useState<Aba>("operacao");
   const [aviso, setAviso] = useState<Aviso | null>(null);
@@ -309,6 +314,7 @@ export function PainelSac({
               pedido={t.pedidoId ? buscarPedido(t.pedidoId) : null}
               config={config}
               temFicha={fichas.has(t.sku)}
+              aoAbrirFicha={() => aoAbrirFicha({ sku: t.sku, produto: t.produto })}
               regrasAtivas={regrasAtivas}
               modelos={modelos}
               gerando={gerandoId === t.id}
@@ -492,6 +498,7 @@ function CardTicketSac({
   pedido,
   config,
   temFicha,
+  aoAbrirFicha,
   regrasAtivas,
   modelos,
   gerando,
@@ -504,6 +511,7 @@ function CardTicketSac({
   pedido: Pedido | null;
   config: ConfiguracaoSac;
   temFicha: boolean;
+  aoAbrirFicha: () => void;
   regrasAtivas: number;
   modelos: Record<SituacaoSac, string>;
   gerando: boolean;
@@ -620,10 +628,24 @@ function CardTicketSac({
                 · tom {ROTULO_TOM[config.tom].toLowerCase()} · {regrasAtivas} regra
                 {regrasAtivas !== 1 ? "s" : ""} aprendida{regrasAtivas !== 1 ? "s" : ""}
               </p>
-              <Button size="sm" variant="outline" onClick={aoGerar} disabled={gerando}>
-                {gerando ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                {gerando ? "Gerando..." : "Gerar resposta com IA"}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {!temFicha && (
+                  <Button size="sm" variant="outline" onClick={aoAbrirFicha}>
+                    <FileText className="size-3.5" />
+                    Adicionar ficha deste produto
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" onClick={aoGerar} disabled={gerando}>
+                  {gerando ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                  {gerando ? "Gerando..." : "Gerar resposta com IA"}
+                </Button>
+              </div>
+              {!temFicha && (
+                <p className="mt-1.5 text-[10px] text-muted-foreground">
+                  Com a ficha, a IA responde com as características reais do produto. A mesma ficha
+                  aparece no Agente Criativo.
+                </p>
+              )}
             </div>
           ) : (
             <div className="mt-3 space-y-2">
