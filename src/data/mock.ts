@@ -1802,14 +1802,28 @@ export const HISTORICO_TAXAS: HistoricoTaxaAnuncio[] = (() => {
 // quanto o caso "ainda falta preencher".
 // ---------------------------------------------------------------------------
 
-export const FICHAS_ANUNCIO: FichaAnuncio[] = ANUNCIOS.filter((a) => a.ean === null)
-  .slice(0, 4)
-  .map((a, i) => ({
-    id: `ficha-${a.sku}`,
-    sku: a.sku,
-    descricaoCompleta: `${a.produto}. Garantia de 12 meses direto com a loja. Envio em até 1 dia útil após a confirmação do pagamento.`,
+/** Fichas de exemplo — uma por SKU (antes o filtro pegava o mesmo SKU em
+ * contas diferentes e repetia a ficha do smartwatch 4 vezes). Texto
+ * fictício, no formato que o seller cola a partir do anúncio dele. */
+const TEXTOS_FICHAS_EXEMPLO: Record<string, string> = {
+  "SW-X-BLK-001":
+    "Smartwatch Series X Titanium Black. Tela AMOLED de 1,43 polegada, caixa em liga de titânio e pulseira de silicone preta (tamanho único, ajustável de 14 a 21 cm). Compatível com Android 8 ou superior e iPhone com iOS 13 ou superior, pelo aplicativo gratuito. Bateria de até 7 dias em uso normal; carregador magnético incluso. Resistência à água IP68 (chuva e lavar as mãos; não usar em sauna). Recebe notificações, mede batimentos, oxigenação e sono. Na caixa: relógio, cabo de carga magnético e manual em português. Garantia de 12 meses direto com a loja.",
+  "AU-G3-2026":
+    "Fone Bluetooth G3 com cancelamento ativo de ruído. Bluetooth 5.3, alcance de até 10 metros. Bateria de até 30 horas com o estojo (8 horas só no fone, com o cancelamento ligado). Carga USB-C. Funciona com qualquer celular com Bluetooth, Android ou iPhone. Tem microfone para chamadas e controles por toque. Na caixa: fones, estojo de carga, cabo USB-C e 3 tamanhos de ponteira de silicone. Cor preta. Garantia de 6 meses.",
+  "PWR-GAN-65W":
+    "Carregador Turbo 65W com tecnologia GaN. Duas saídas USB-C e uma USB-A. Potência máxima de 65W numa porta USB-C só; com as três portas em uso, divide a potência. Bivolt automático (110V e 220V). Carrega notebook com entrada USB-C, celular e tablet. Não acompanha cabo. Tamanho: 5,5 x 5,5 x 3 cm. Garantia de 12 meses.",
+  "HUB-USBC-7X1":
+    "Hub USB-C 7 em 1 em alumínio. Portas: 1 HDMI 4K a 30Hz, 2 USB-A 3.0, 1 USB-C de dados, 1 USB-C de carga (Power Delivery até 100W), leitor de cartão SD e microSD. Funciona em notebook e MacBook com porta USB-C que tenha saída de vídeo. Não funciona em celular sem suporte a saída de vídeo. Cabo de 15 cm. Garantia de 12 meses.",
+};
+
+export const FICHAS_ANUNCIO: FichaAnuncio[] = Object.entries(TEXTOS_FICHAS_EXEMPLO).map(
+  ([sku, descricaoCompleta], i) => ({
+    id: `ficha-${sku}`,
+    sku,
+    descricaoCompleta,
     atualizadoEm: new Date(Date.now() - (i + 1) * 5 * 86400000).toISOString(),
-  }));
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // SAC — modelos de mensagem por situação e regras aprendidas
