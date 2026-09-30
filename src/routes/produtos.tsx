@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  ajustesCustoService,
   alteracoesPrecoService,
   anunciosService,
   contasService,
@@ -24,19 +25,28 @@ import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
+import { FAIXAS_MARGEM_PADRAO } from "@/lib/finance";
 import {
-  FAIXAS_MARGEM_PADRAO,
-  limitesDePreco,
-  raioXAnuncio,
-  type LimitesPreco,
-  type RaioXAnuncio,
-} from "@/lib/finance";
-import { lerNumero, precoParaMargem, resultadoNoPreco, type OpcoesPrecificacao } from "@/lib/precificacao";
+  AJUSTE_PADRAO,
+  NOME_AFILIADOS,
+  detalharPreco,
+  lerNumero,
+  limitesComAjuste,
+  precoParaMargem,
+  resultadoNoPreco,
+  type AjusteCusto,
+  type ConfigPrecificacao,
+  type Detalhamento,
+  type Limites,
+  type ModoAds,
+} from "@/lib/precificacao";
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { DialogVincularProduto } from "@/components/comum/DialogVincularProduto";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -87,8 +97,11 @@ interface LinhaAnuncio {
   comCmv: Anuncio;
   nomeConta: string;
   margemMinima: number;
-  raio: RaioXAnuncio;
-  limites: LimitesPreco;
+  /** O que o seller ajustou no Ads e em Outros (ou o padrão, automático) */
+  ajuste: AjusteCusto;
+  /** Todos os custos no preço de hoje, já com o ajuste */
+  det: Detalhamento;
+  limites: Limites;
 }
 
 interface GrupoProduto {
@@ -106,7 +119,7 @@ type ModoEdicao = "preco" | "margem";
 const SEM_CATEGORIA = "__sem__";
 
 function Precificacao() {
-  const { atualizarConta, metasPorConta, fiscal, custoOperacionalTotal, custoOperacionalDetalhado } =
+  const { atualizarConta, metasPorConta, fiscal, custoOperacionalDetalhado } =
     useConfiguracoes();
   // Mesmo filtro de contas do topo da tela (o "Todas as contas" ao lado do
   // título, igual no Dashboard).
@@ -143,13 +156,17 @@ function Precificacao() {
 
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [carregandoProdutos, setCarregandoProdutos] = useState(true);
+  /** Ajustes de Ads e Outros, por anúncio */
+  const [ajustes, setAjustes] = useState<Map<string, AjusteCusto>>(new Map());
 
   const carregarProdutos = useCallback(async () => {
     if (!sessao) return;
-    const [lista, alteracoes] = await Promise.all([
+    const [lista, alteracoes, mapaAjustes] = await Promise.all([
       produtosService.listar(sessao.user.id),
       alteracoesPrecoService.listar(sessao.user.id),
+      ajustesCustoService.listar(sessao.user.id),
     ]);
+    setAjustes(mapaAjustes);
     // Casa cada produto real com os anúncios pelo SKU (o CMV vem do produto)
     // e reaplica os preços que o seller já mudou aqui.
     produtosService.reconciliarComAnuncios(lista);
@@ -177,9 +194,9 @@ function Precificacao() {
 
   /** As contas de cada anúncio usam a alíquota e os custos operacionais
    * das Configurações — os mesmos do resto do NEXO. */
-  const opcoesCalculo: OpcoesPrecificacao = useMemo(
-    () => ({ aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal }),
-    [fiscal, custoOperacionalTotal],
+  const cfg: ConfigPrecificacao = useMemo(
+    () => ({ aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalDetalhado }),
+    [fiscal, custoOperacionalDetalhado],
   );
 
   const categorias = useMemo(() => {
@@ -203,19 +220,15 @@ function Precificacao() {
         // O CMV mora no produto: é isso que faz mudar o custo aqui refletir
         // em todo canal de uma vez.
         const comCmv = { ...a, cmv: p.cmv };
+        const ajuste = ajustes.get(a.id) ?? AJUSTE_PADRAO;
         return {
           anuncio: a,
           comCmv,
           nomeConta: contasService.buscar(a.contaId)?.nome ?? "—",
           margemMinima,
-          raio: raioXAnuncio(comCmv, metas, a.precoAtual, {
-            aliquotaImposto: fiscal.aliquota,
-            custosOperacionais: custoOperacionalDetalhado(a.precoAtual),
-          }),
-          limites: limitesDePreco(comCmv, margemMinima, {
-            aliquotaImposto: fiscal.aliquota,
-            custosOperacionais: custoOperacionalTotal,
-          }),
+          ajuste,
+          det: detalharPreco(comCmv, a.precoAtual, ajuste, cfg),
+          limites: limitesComAjuste(comCmv, margemMinima, ajuste, cfg),
         };
       });
       const qtdAbaixo = linhas.filter((l) => l.limites.abaixoDoMinimo).length;
@@ -226,7 +239,7 @@ function Precificacao() {
         qtdAbaixo,
         situacao:
           linhas.length === 0 ? "sem-anuncio" : temPrejuizo ? "prejuizo" : qtdAbaixo > 0 ? "abaixo" : "ok",
-        piorMargem: linhas.length > 0 ? Math.min(...linhas.map((l) => l.raio.margem)) : null,
+        piorMargem: linhas.length > 0 ? Math.min(...linhas.map((l) => l.det.margem)) : null,
         vendidas: vinculados.reduce((s, a) => s + a.unidadesVendidas, 0),
       };
     });
@@ -236,9 +249,8 @@ function Precificacao() {
     semRestricaoDeConta,
     contasSelecionadas,
     metasPorConta,
-    fiscal,
-    custoOperacionalTotal,
-    custoOperacionalDetalhado,
+    ajustes,
+    cfg,
   ]);
 
   const gruposFiltrados = useMemo(() => {
@@ -292,7 +304,7 @@ function Precificacao() {
   const emPrejuizo = todasLinhas.filter((l) => l.limites.emPrejuizo).length;
   const abaixoMinimo = todasLinhas.filter((l) => l.limites.abaixoDoMinimo && !l.limites.emPrejuizo).length;
   const margemMedia =
-    todasLinhas.length > 0 ? todasLinhas.reduce((s, l) => s + l.raio.margem, 0) / todasLinhas.length : 0;
+    todasLinhas.length > 0 ? todasLinhas.reduce((s, l) => s + l.det.margem, 0) / todasLinhas.length : 0;
 
   /* ---------------------------- ações ---------------------------- */
 
@@ -371,6 +383,38 @@ function Precificacao() {
     });
   };
 
+  /** Salva o ajuste de Ads/Outros num anúncio ou em todos do produto. */
+  const salvarAjuste = async (
+    linha: LinhaAnuncio,
+    ajuste: AjusteCusto,
+    todosDoProduto: boolean,
+  ): Promise<boolean> => {
+    if (!sessao) return false;
+    const ids = todosDoProduto
+      ? anuncios.filter((a) => a.produtoId === linha.anuncio.produtoId).map((a) => a.id)
+      : [linha.anuncio.id];
+    const erro = await ajustesCustoService.salvar(sessao.user.id, ids, ajuste);
+    if (erro) {
+      toast.error(
+        erro.includes("ajustes_custo_anuncio")
+          ? "A tabela de ajustes ainda não existe — rode o SQL da parte 2 da Precificação no Supabase."
+          : `Não consegui salvar: ${erro}`,
+      );
+      return false;
+    }
+    setAjustes((atual) => {
+      const novo = new Map(atual);
+      for (const id of ids) novo.set(id, ajuste);
+      return novo;
+    });
+    toast.success(
+      todosDoProduto
+        ? `Ajuste salvo em ${ids.length} anúncio${ids.length > 1 ? "s" : ""} de ${linha.anuncio.produto}.`
+        : "Ajuste salvo neste anúncio.",
+    );
+    return true;
+  };
+
   const dispensarAnuncio = (anuncio: Anuncio) => {
     anunciosService.dispensar(anuncio.id);
     setTick((n) => n + 1);
@@ -399,18 +443,18 @@ function Precificacao() {
                   Categoria: g.produto.categoria ?? "",
                   Canal: l.anuncio.marketplaceId,
                   Conta: l.nomeConta,
-                  Preço: l.raio.precoVenda.toFixed(2),
-                  CMV: l.raio.cmv.toFixed(2),
-                  Comissão: l.raio.comissao.toFixed(2),
-                  "Taxa fixa": l.raio.taxaFixa.toFixed(2),
-                  Frete: l.raio.frete.toFixed(2),
-                  Ads: l.raio.midia.toFixed(2),
-                  Imposto: l.raio.impostos.toFixed(2),
-                  Outros: (l.raio.afiliados + l.raio.custosOperacionais).toFixed(2),
-                  Lucro: l.raio.lucroLiquido.toFixed(2),
-                  "Margem %": (l.raio.margem * 100).toFixed(1),
-                  "Preço mínimo": l.limites.precoMinimo.toFixed(2),
-                  Empate: l.limites.precoEmpate.toFixed(2),
+                  Preço: l.det.preco.toFixed(2),
+                  CMV: l.det.cmv.toFixed(2),
+                  Comissão: l.det.comissao.toFixed(2),
+                  "Taxa fixa": l.det.taxaFixa.toFixed(2),
+                  Frete: l.det.frete.toFixed(2),
+                  Ads: l.det.ads.toFixed(2),
+                  Imposto: l.det.imposto.toFixed(2),
+                  Outros: l.det.outros.toFixed(2),
+                  Lucro: l.det.lucro.toFixed(2),
+                  "Margem %": (l.det.margem * 100).toFixed(1),
+                  "Preço mínimo": l.limites.precoMinimo?.toFixed(2) ?? "",
+                  Empate: l.limites.precoEmpate?.toFixed(2) ?? "",
                 })),
               )}
             />
@@ -518,15 +562,15 @@ function Precificacao() {
               value={situacaoFiltro}
               onValueChange={(v) => setSituacaoFiltro(v as typeof situacaoFiltro)}
             >
-              <SelectTrigger className="h-8 w-48 text-xs">
+              <SelectTrigger className="h-8 w-64 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todos">Todas</SelectItem>
-                <SelectItem value="prejuizo">Com prejuízo</SelectItem>
-                <SelectItem value="abaixo">Abaixo da margem mínima</SelectItem>
-                <SelectItem value="ok">Tudo OK</SelectItem>
-                <SelectItem value="sem-anuncio">Sem anúncio</SelectItem>
+                <SelectItem value="todos">Todos os produtos</SelectItem>
+                <SelectItem value="prejuizo">Vendendo com prejuízo</SelectItem>
+                <SelectItem value="abaixo">Com lucro, mas abaixo da margem mínima</SelectItem>
+                <SelectItem value="ok">Todos acima da margem mínima</SelectItem>
+                <SelectItem value="sem-anuncio">Produto sem anúncio vinculado</SelectItem>
               </SelectContent>
             </Select>
           </Filtro>
@@ -744,7 +788,8 @@ function Precificacao() {
                             <LinhaDoAnuncio
                               key={l.anuncio.id}
                               linha={l}
-                              op={opcoesCalculo}
+                              cfg={cfg}
+                              aoSalvarAjuste={(ajuste, todos) => salvarAjuste(l, ajuste, todos)}
                               rascunho={rascunhos[l.anuncio.id] ?? { modo: "preco", texto: "" }}
                               aoMudarRascunho={(r) =>
                                 setRascunhos((atual) => ({ ...atual, [l.anuncio.id]: r }))
@@ -820,7 +865,8 @@ function Precificacao() {
             <span className="ml-auto">A margem mínima de cada conta vem das metas em Configurações.</span>
           </div>
           <p>
-            <strong>Outros</strong> = afiliados + seus custos operacionais (embalagem, etiqueta...).{" "}
+            <strong>Ads</strong> e <strong>Outros</strong>: clique no valor pra escolher o que entra na conta
+            (Ads automático, fixo, em % ou nenhum; marcar/desmarcar cada custo e somar um custo extra).{" "}
             <strong>Mínimo</strong> = menor preço que respeita a margem mínima; <strong>Empate</strong> =
             preço de lucro zero. No preço novo, comissão e imposto acompanham o preço; frete, taxa fixa
             e Ads ficam iguais aos de hoje (no Mercado Livre, cruzar os R$ 79 pode mudar o frete).
@@ -903,20 +949,22 @@ function Filtro({ rotulo, children }: { rotulo: string; children: ReactNode }) {
 
 function LinhaDoAnuncio({
   linha,
-  op,
+  cfg,
   rascunho,
   aoMudarRascunho,
   aplicando,
   aoAplicar,
+  aoSalvarAjuste,
 }: {
   linha: LinhaAnuncio;
-  op: OpcoesPrecificacao;
+  cfg: ConfigPrecificacao;
   rascunho: { modo: ModoEdicao; texto: string };
   aoMudarRascunho: (r: { modo: ModoEdicao; texto: string }) => void;
   aplicando: boolean;
   aoAplicar: (preco: number) => void;
+  aoSalvarAjuste: (ajuste: AjusteCusto, todosDoProduto: boolean) => Promise<boolean>;
 }) {
-  const { anuncio: a, comCmv, raio: r, limites, margemMinima } = linha;
+  const { anuncio: a, comCmv, det: d, limites, margemMinima, ajuste } = linha;
   const ponto = limites.emPrejuizo ? "bg-loss" : limites.abaixoDoMinimo ? "bg-warning" : "bg-profit";
   const corMargem = limites.emPrejuizo
     ? "text-loss"
@@ -933,11 +981,11 @@ function LinhaDoAnuncio({
     if (rascunho.modo === "preco") {
       precoNovo = numero > 0 ? Math.round(numero * 100) / 100 : null;
     } else {
-      precoNovo = precoParaMargem(comCmv, numero / 100, op);
+      precoNovo = precoParaMargem(comCmv, numero / 100, ajuste, cfg);
       impossivel = precoNovo === null;
     }
   }
-  const novo = precoNovo !== null ? resultadoNoPreco(comCmv, precoNovo, op) : null;
+  const novo = precoNovo !== null ? resultadoNoPreco(comCmv, precoNovo, ajuste, cfg) : null;
   const corNovo =
     novo === null
       ? ""
@@ -947,7 +995,6 @@ function LinhaDoAnuncio({
           ? "text-warning"
           : "text-profit";
   const mudou = precoNovo !== null && Math.abs(precoNovo - a.precoAtual) >= 0.01;
-  const outros = r.afiliados + r.custosOperacionais;
 
   return (
     <tr className="border-t border-border/40 text-xs transition-colors hover:bg-muted/20">
@@ -958,32 +1005,36 @@ function LinhaDoAnuncio({
           <span className="truncate text-[10px] text-muted-foreground">{linha.nomeConta}</span>
         </div>
       </td>
-      <td className="num px-2 py-2 text-right font-semibold">{formatBRL(r.precoVenda)}</td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(r.cmv)}</td>
-      <td className="num px-2 py-2 text-right text-muted-foreground" title={`${formatPercentual(a.comissaoPercentual)} do preço`}>
-        {formatBRL(r.comissao)}
-      </td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(r.taxaFixa)}</td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(r.frete)}</td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(r.midia)}</td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(r.impostos)}</td>
+      <td className="num px-2 py-2 text-right font-semibold">{formatBRL(d.preco)}</td>
+      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(d.cmv)}</td>
       <td
         className="num px-2 py-2 text-right text-muted-foreground"
-        title={[
-          `Afiliados: ${formatBRL(r.afiliados)}`,
-          ...r.custosOperacionaisDetalhe.map((c) => `${c.nome}: ${formatBRL(c.valor)}`),
-        ].join("\n")}
+        title={`${formatPercentual(a.comissaoPercentual)} do preço`}
       >
-        {formatBRL(outros)}
+        {formatBRL(d.comissao)}
       </td>
-      <td className={cn("num px-2 py-2 text-right font-bold", r.lucroLiquido < 0 ? "text-loss" : "")}>
-        {formatBRL(r.lucroLiquido)}
+      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(d.taxaFixa)}</td>
+      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(d.frete)}</td>
+      <td className="px-2 py-2 text-right">
+        <PopoverAds anuncio={a} ajuste={ajuste} valorAtual={d.ads} aoSalvar={aoSalvarAjuste} />
       </td>
-      <td className={cn("num px-2 py-2 text-right font-bold", corMargem)}>{formatPercentual(r.margem)}</td>
-      <td className="num px-2 py-2 text-right" title={`Margem mínima desta conta: ${formatPercentual(margemMinima)}`}>
-        {formatBRL(limites.precoMinimo)}
+      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(d.imposto)}</td>
+      <td className="px-2 py-2 text-right">
+        <PopoverOutros det={d} ajuste={ajuste} aoSalvar={aoSalvarAjuste} />
       </td>
-      <td className="num px-2 py-2 text-right text-loss">{formatBRL(limites.precoEmpate)}</td>
+      <td className={cn("num px-2 py-2 text-right font-bold", d.lucro < 0 ? "text-loss" : "")}>
+        {formatBRL(d.lucro)}
+      </td>
+      <td className={cn("num px-2 py-2 text-right font-bold", corMargem)}>{formatPercentual(d.margem)}</td>
+      <td
+        className="num px-2 py-2 text-right"
+        title={`Margem mínima desta conta: ${formatPercentual(margemMinima)}`}
+      >
+        {limites.precoMinimo !== null ? formatBRL(limites.precoMinimo) : "—"}
+      </td>
+      <td className="num px-2 py-2 text-right text-loss">
+        {limites.precoEmpate !== null ? formatBRL(limites.precoEmpate) : "—"}
+      </td>
 
       {/* Edição: por preço ou por margem */}
       <td className="border-l px-2 py-2">
@@ -1017,8 +1068,8 @@ function LinhaDoAnuncio({
             }}
             placeholder={
               rascunho.modo === "preco"
-                ? r.precoVenda.toFixed(2).replace(".", ",")
-                : (r.margem * 100).toFixed(1).replace(".", ",")
+                ? d.preco.toFixed(2).replace(".", ",")
+                : (d.margem * 100).toFixed(1).replace(".", ",")
             }
             className="num h-7 w-24 px-2 text-right text-xs"
           />
@@ -1030,7 +1081,9 @@ function LinhaDoAnuncio({
         ) : novo && precoNovo !== null ? (
           <div className="leading-tight">
             <p className={cn("num text-[11px] font-bold", corNovo)}>
-              {rascunho.modo === "margem" ? `Preço ${formatBRL(precoNovo)}` : `Margem ${formatPercentual(novo.margem)}`}
+              {rascunho.modo === "margem"
+                ? `Preço ${formatBRL(precoNovo)}`
+                : `Margem ${formatPercentual(novo.margem)}`}
             </p>
             <p className="num text-[10px] text-muted-foreground">
               Lucro {formatBRL(novo.lucro)}
@@ -1054,6 +1107,278 @@ function LinhaDoAnuncio({
         </Button>
       </td>
     </tr>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Clicar e editar: Ads                                                */
+/* ------------------------------------------------------------------ */
+
+const ROTULO_MODO_ADS: Record<ModoAds, string> = {
+  auto: "auto",
+  reais: "fixo",
+  percentual: "%",
+  nenhum: "fora",
+};
+
+function PopoverAds({
+  anuncio,
+  ajuste,
+  valorAtual,
+  aoSalvar,
+}: {
+  anuncio: Anuncio;
+  ajuste: AjusteCusto;
+  valorAtual: number;
+  aoSalvar: (ajuste: AjusteCusto, todosDoProduto: boolean) => Promise<boolean>;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [modo, setModo] = useState<ModoAds>(ajuste.adsModo);
+  const [texto, setTexto] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  // Toda vez que abre, começa do que está salvo.
+  useEffect(() => {
+    if (!aberto) return;
+    setModo(ajuste.adsModo);
+    setTexto(
+      ajuste.adsModo === "reais"
+        ? ajuste.adsValor.toFixed(2).replace(".", ",")
+        : ajuste.adsModo === "percentual"
+          ? (ajuste.adsValor * 100).toFixed(1).replace(".", ",")
+          : "",
+    );
+  }, [aberto, ajuste]);
+
+  const numero = lerNumero(texto);
+  const valido = modo === "auto" || modo === "nenhum" || (numero !== null && numero >= 0);
+
+  const salvar = async (todos: boolean) => {
+    if (!valido) return;
+    setSalvando(true);
+    const ok = await aoSalvar(
+      {
+        ...ajuste,
+        adsModo: modo,
+        adsValor: modo === "reais" ? numero ?? 0 : modo === "percentual" ? (numero ?? 0) / 100 : 0,
+      },
+      todos,
+    );
+    setSalvando(false);
+    if (ok) setAberto(false);
+  };
+
+  const opcoes: { id: ModoAds; titulo: string; detalhe: string }[] = [
+    {
+      id: "auto",
+      titulo: "Automático",
+      detalhe: `Média real do Ads: ${formatBRL(anuncio.custoMidiaUnitario)} por venda`,
+    },
+    { id: "reais", titulo: "Valor fixo por unidade", detalhe: "Você diz quanto reservar em R$" },
+    { id: "percentual", titulo: "% do preço", detalhe: "Acompanha o preço quando ele muda" },
+    { id: "nenhum", titulo: "Não considerar Ads", detalhe: "Fica fora da conta" },
+  ];
+
+  return (
+    <Popover open={aberto} onOpenChange={setAberto}>
+      <PopoverTrigger asChild>
+        <button
+          className="num inline-flex items-center gap-1 rounded px-1 py-0.5 text-right text-muted-foreground underline decoration-dotted underline-offset-2 transition-colors hover:bg-muted hover:text-foreground"
+          title="Clique pra escolher como o Ads entra na conta"
+        >
+          {formatBRL(valorAtual)}
+          {ajuste.adsModo !== "auto" && (
+            <span className="rounded bg-brand/15 px-1 text-[9px] font-bold text-brand">
+              {ROTULO_MODO_ADS[ajuste.adsModo]}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 space-y-3 text-xs">
+        <div>
+          <p className="font-semibold">Ads deste anúncio</p>
+          <p className="text-[10px] text-muted-foreground">Como o custo de Ads entra no lucro e na margem</p>
+        </div>
+        <div className="space-y-1.5">
+          {opcoes.map((o) => (
+            <label
+              key={o.id}
+              className={cn(
+                "flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2",
+                modo === o.id ? "border-brand bg-brand/5" : "hover:bg-muted/50",
+              )}
+            >
+              <input
+                type="radio"
+                name={`ads-${anuncio.id}`}
+                checked={modo === o.id}
+                onChange={() => {
+                  setModo(o.id);
+                  setTexto("");
+                }}
+                className="mt-0.5 accent-[var(--brand)]"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium">{o.titulo}</span>
+                <span className="block text-[10px] text-muted-foreground">{o.detalhe}</span>
+                {modo === o.id && (o.id === "reais" || o.id === "percentual") && (
+                  <span className="mt-1.5 flex items-center gap-1">
+                    <span className="text-[10px] text-muted-foreground">{o.id === "reais" ? "R$" : ""}</span>
+                    <Input
+                      autoFocus
+                      inputMode="decimal"
+                      value={texto}
+                      onChange={(e) => setTexto(e.target.value)}
+                      placeholder={o.id === "reais" ? "0,00" : "8"}
+                      className="num h-7 w-24 px-2 text-right text-xs"
+                    />
+                    <span className="text-[10px] text-muted-foreground">{o.id === "percentual" ? "% do preço" : "por unidade"}</span>
+                  </span>
+                )}
+              </span>
+            </label>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" className="h-7 text-[11px]" disabled={!valido || salvando} onClick={() => salvar(false)}>
+            {salvando && <Loader2 className="size-3.5 animate-spin" />}
+            Salvar neste anúncio
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px]"
+            disabled={!valido || salvando}
+            onClick={() => salvar(true)}
+          >
+            Em todos deste produto
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Clicar e editar: Outros                                             */
+/* ------------------------------------------------------------------ */
+
+function PopoverOutros({
+  det,
+  ajuste,
+  aoSalvar,
+}: {
+  det: Detalhamento;
+  ajuste: AjusteCusto;
+  aoSalvar: (ajuste: AjusteCusto, todosDoProduto: boolean) => Promise<boolean>;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [ignorados, setIgnorados] = useState<string[]>(ajuste.ignorados);
+  const [extra, setExtra] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    if (!aberto) return;
+    setIgnorados(ajuste.ignorados);
+    setExtra(ajuste.custoExtra > 0 ? ajuste.custoExtra.toFixed(2).replace(".", ",") : "");
+  }, [aberto, ajuste]);
+
+  // Os itens da lista (sem o custo extra, que tem campo próprio).
+  const itens = det.itensOutros.filter((i) => i.nome !== "Custo extra deste anúncio");
+  const extraNumero = extra.trim() === "" ? 0 : lerNumero(extra);
+  const valido = extraNumero !== null && extraNumero >= 0;
+  const personalizado = ajuste.ignorados.length > 0 || ajuste.custoExtra > 0;
+
+  const alternar = (nome: string) =>
+    setIgnorados((atual) => (atual.includes(nome) ? atual.filter((n) => n !== nome) : [...atual, nome]));
+
+  const salvar = async (todos: boolean) => {
+    if (!valido) return;
+    setSalvando(true);
+    const ok = await aoSalvar({ ...ajuste, ignorados, custoExtra: extraNumero ?? 0 }, todos);
+    setSalvando(false);
+    if (ok) setAberto(false);
+  };
+
+  return (
+    <Popover open={aberto} onOpenChange={setAberto}>
+      <PopoverTrigger asChild>
+        <button
+          className="num inline-flex items-center gap-1 rounded px-1 py-0.5 text-right text-muted-foreground underline decoration-dotted underline-offset-2 transition-colors hover:bg-muted hover:text-foreground"
+          title="Clique pra escolher quais custos entram na conta"
+        >
+          {formatBRL(det.outros)}
+          {personalizado && (
+            <span className="rounded bg-brand/15 px-1 text-[9px] font-bold text-brand">ajustado</span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 space-y-3 text-xs">
+        <div>
+          <p className="font-semibold">Outros custos deste anúncio</p>
+          <p className="text-[10px] text-muted-foreground">
+            Desmarque o que não vale pra este anúncio. Os custos gerais vêm de Configurações.
+          </p>
+        </div>
+        <div className="space-y-1">
+          {itens.length === 0 && (
+            <p className="text-[10px] text-muted-foreground">Nenhum custo operacional cadastrado.</p>
+          )}
+          {itens.map((i) => {
+            const marcado = !ignorados.includes(i.nome);
+            return (
+              <label
+                key={i.nome}
+                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+              >
+                <Checkbox checked={marcado} onCheckedChange={() => alternar(i.nome)} />
+                <span className={cn("flex-1", !marcado && "text-muted-foreground line-through")}>
+                  {i.nome}
+                  {i.nome === NOME_AFILIADOS && (
+                    <span className="text-[10px] text-muted-foreground"> (comissão de criador/afiliado)</span>
+                  )}
+                </span>
+                <span className={cn("num", !marcado && "text-muted-foreground line-through")}>
+                  {formatBRL(i.valor)}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        <div className="space-y-1 border-t pt-2">
+          <p className="font-medium">Custo extra só deste anúncio</p>
+          <p className="text-[10px] text-muted-foreground">
+            Ex.: embalagem especial, brinde, manual impresso. Soma com os de cima.
+          </p>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-muted-foreground">R$</span>
+            <Input
+              inputMode="decimal"
+              value={extra}
+              onChange={(e) => setExtra(e.target.value)}
+              placeholder="0,00"
+              className="num h-7 w-24 px-2 text-right text-xs"
+            />
+            <span className="text-[10px] text-muted-foreground">por unidade</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" className="h-7 text-[11px]" disabled={!valido || salvando} onClick={() => salvar(false)}>
+            {salvando && <Loader2 className="size-3.5 animate-spin" />}
+            Salvar neste anúncio
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px]"
+            disabled={!valido || salvando}
+            onClick={() => salvar(true)}
+          >
+            Em todos deste produto
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
