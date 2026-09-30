@@ -11,8 +11,8 @@
 // - Outros: marcar/desmarcar cada custo operacional (e o afiliado) e
 //   somar um custo extra só deste anúncio (ex.: embalagem especial).
 //
-// Comissão, imposto e Ads em % acompanham o preço; CMV, taxa fixa, frete,
-// afiliado, custo extra e Ads em R$ ficam iguais aos de hoje.
+// Comissão, imposto, afiliado e Ads em % acompanham o preço; CMV, taxa
+// fixa, frete, custo extra e Ads em R$ ficam iguais aos de hoje.
 
 import type { Anuncio } from "@/types";
 
@@ -82,6 +82,11 @@ function adsNoPreco(a: Anuncio, ajuste: AjusteCusto, preco: number): number {
   }
 }
 
+/** A comissão de afiliado como fração do preço de hoje (ex.: 0,08 = 8%). */
+function taxaAfiliado(a: Anuncio): number {
+  return a.precoAtual > 0 ? a.custoAfiliadoUnitario / a.precoAtual : 0;
+}
+
 /** Todos os custos do anúncio vendido a `preco`, já com os ajustes. */
 export function detalharPreco(
   a: Anuncio,
@@ -98,7 +103,8 @@ export function detalharPreco(
   if (a.custoAfiliadoUnitario > 0) {
     itensOutros.push({
       nome: NOME_AFILIADOS,
-      valor: a.custoAfiliadoUnitario,
+      // Comissão de afiliado é % do preço: acompanha quando o preço muda.
+      valor: preco * taxaAfiliado(a),
       considerado: !ajuste.ignorados.includes(NOME_AFILIADOS),
     });
   }
@@ -151,13 +157,17 @@ export function precoParaMargem(
   cfg: ConfigPrecificacao,
 ): number | null {
   const adsPercentual = ajuste.adsModo === "percentual" ? ajuste.adsValor : 0;
-  const divisor = 1 - a.comissaoPercentual - cfg.aliquotaImposto - adsPercentual - margem;
+  const afiliadoConta = a.custoAfiliadoUnitario > 0 && !ajuste.ignorados.includes(NOME_AFILIADOS);
+  const afiliadoPercentual = afiliadoConta ? taxaAfiliado(a) : 0;
+  const divisor =
+    1 - a.comissaoPercentual - cfg.aliquotaImposto - adsPercentual - afiliadoPercentual - margem;
   if (divisor <= 0) return null;
   // Tudo que não é % do preço, calculado num preço de referência.
   const fixosNo = (preco: number) => {
     const d = detalharPreco(a, preco, ajuste, cfg);
     const adsFixo = ajuste.adsModo === "percentual" ? 0 : d.ads;
-    return d.cmv + d.taxaFixa + d.frete + adsFixo + d.outros;
+    const afiliado = afiliadoConta ? preco * afiliadoPercentual : 0;
+    return d.cmv + d.taxaFixa + d.frete + adsFixo + d.outros - afiliado;
   };
   let preco = fixosNo(a.precoAtual) / divisor;
   for (let i = 0; i < 5; i++) preco = fixosNo(preco) / divisor;
