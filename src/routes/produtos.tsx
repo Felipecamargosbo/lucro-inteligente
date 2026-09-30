@@ -34,7 +34,6 @@ import {
   lerNumero,
   limitesComAjuste,
   precoParaMargem,
-  resultadoNoPreco,
   type AjusteCusto,
   type ConfigPrecificacao,
   type Detalhamento,
@@ -711,8 +710,8 @@ function Precificacao() {
                 <th className="px-2 py-2.5 text-right font-bold">Margem</th>
                 <th className="px-2 py-2.5 text-right font-bold">Mínimo</th>
                 <th className="px-2 py-2.5 text-right font-bold">Empate</th>
+                <th className="px-2 py-2.5 text-right font-bold">Preço final</th>
                 <th className="border-l px-2 py-2.5 font-bold">Novo preço ou margem</th>
-                <th className="px-2 py-2.5 font-bold">Fica assim</th>
                 <th className="px-3 py-2.5 text-right font-bold"></th>
               </tr>
             </thead>
@@ -1054,12 +1053,6 @@ function LinhaDoAnuncio({
   aoSalvarAjuste: (ajuste: AjusteCusto, todosDoProduto: boolean) => Promise<boolean>;
 }) {
   const { anuncio: a, comCmv, det: d, limites, margemMinima, ajuste } = linha;
-  const ponto = limites.emPrejuizo ? "bg-loss" : limites.abaixoDoMinimo ? "bg-warning" : "bg-profit";
-  const corMargem = limites.emPrejuizo
-    ? "text-loss"
-    : limites.abaixoDoMinimo
-      ? "text-warning"
-      : "text-profit";
 
   // O que o seller digitou vira um preço novo — direto (modo preço) ou
   // calculado a partir da margem pedida (modo margem).
@@ -1074,16 +1067,13 @@ function LinhaDoAnuncio({
       impossivel = precoNovo === null;
     }
   }
-  const novo = precoNovo !== null ? resultadoNoPreco(comCmv, precoNovo, ajuste, cfg) : null;
-  const corNovo =
-    novo === null
-      ? ""
-      : novo.lucro < 0
-        ? "text-loss"
-        : novo.margem < margemMinima
-          ? "text-warning"
-          : "text-profit";
   const mudou = precoNovo !== null && Math.abs(precoNovo - a.precoAtual) >= 0.01;
+  // Com um preço novo digitado (ou calculado pela margem), a linha inteira
+  // passa a mostrar as contas nesse preço: comissão, imposto, Ads, outros,
+  // lucro e margem acompanham. Apagou o campo, volta ao preço de hoje.
+  const v = precoNovo !== null ? detalharPreco(comCmv, precoNovo, ajuste, cfg) : d;
+  const ponto = v.lucro < 0 ? "bg-loss" : v.margem < margemMinima ? "bg-warning" : "bg-profit";
+  const corMargem = v.lucro < 0 ? "text-loss" : v.margem < margemMinima ? "text-warning" : "text-profit";
 
   return (
     <tr className="border-t border-border/40 text-xs transition-colors hover:bg-muted/20">
@@ -1109,21 +1099,21 @@ function LinhaDoAnuncio({
         className="num px-2 py-2 text-right text-muted-foreground"
         title={`${formatPercentual(a.comissaoPercentual)} do preço`}
       >
-        {formatBRL(d.comissao)}
+        {formatBRL(v.comissao)}
       </td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(d.taxaFixa)}</td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(d.frete)}</td>
+      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(v.taxaFixa)}</td>
+      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(v.frete)}</td>
       <td className="px-2 py-2 text-right">
-        <PopoverAds anuncio={a} ajuste={ajuste} valorAtual={d.ads} aoSalvar={aoSalvarAjuste} />
+        <PopoverAds anuncio={a} ajuste={ajuste} valorAtual={v.ads} aoSalvar={aoSalvarAjuste} />
       </td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(d.imposto)}</td>
+      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(v.imposto)}</td>
       <td className="px-2 py-2 text-right">
-        <PopoverOutros det={d} ajuste={ajuste} aoSalvar={aoSalvarAjuste} />
+        <PopoverOutros det={v} ajuste={ajuste} aoSalvar={aoSalvarAjuste} />
       </td>
-      <td className={cn("num px-2 py-2 text-right font-bold", d.lucro < 0 ? "text-loss" : "")}>
-        {formatBRL(d.lucro)}
+      <td className={cn("num px-2 py-2 text-right font-bold", v.lucro < 0 ? "text-loss" : "")}>
+        {formatBRL(v.lucro)}
       </td>
-      <td className={cn("num px-2 py-2 text-right font-bold", corMargem)}>{formatPercentual(d.margem)}</td>
+      <td className={cn("num px-2 py-2 text-right font-bold", corMargem)}>{formatPercentual(v.margem)}</td>
       <td
         className="num px-2 py-2 text-right"
         title={`Margem mínima desta conta: ${formatPercentual(margemMinima)}`}
@@ -1132,6 +1122,13 @@ function LinhaDoAnuncio({
       </td>
       <td className="num px-2 py-2 text-right text-loss">
         {limites.precoEmpate !== null ? formatBRL(limites.precoEmpate) : "—"}
+      </td>
+      <td className="num px-2 py-2 text-right font-bold">
+        {impossivel ? (
+          <span className="text-[10px] font-normal text-loss">Margem impossível</span>
+        ) : (
+          formatBRL(v.preco)
+        )}
       </td>
 
       {/* Edição: por preço ou por margem */}
@@ -1172,25 +1169,6 @@ function LinhaDoAnuncio({
             className="num h-7 w-24 px-2 text-right text-xs"
           />
         </div>
-      </td>
-      <td className="px-2 py-2">
-        {impossivel ? (
-          <span className="text-[10px] text-loss">Margem impossível com essas taxas</span>
-        ) : novo && precoNovo !== null ? (
-          <div className="leading-tight">
-            <p className={cn("num text-[11px] font-bold", corNovo)}>
-              {rascunho.modo === "margem"
-                ? `Preço ${formatBRL(precoNovo)}`
-                : `Margem ${formatPercentual(novo.margem)}`}
-            </p>
-            <p className="num text-[10px] text-muted-foreground">
-              Lucro {formatBRL(novo.lucro)}
-              {novo.lucro < 0 && <span className="text-loss"> · prejuízo</span>}
-            </p>
-          </div>
-        ) : (
-          <span className="text-[10px] text-muted-foreground">—</span>
-        )}
       </td>
       <td className="px-3 py-2 text-right">
         <Button
