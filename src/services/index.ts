@@ -233,9 +233,11 @@ export const anunciosService = {
  */
 export const produtosService = {
   listar: async (perfilId: string): Promise<Produto[]> => {
+    // "*" em vez de listar as colunas: assim funciona antes e depois de a
+    // coluna "categoria" existir no banco (SQL da tela Precificação).
     const { data, error } = await supabase
       .from("produtos")
-      .select("id, sku, ean, nome, cmv")
+      .select("*")
       .eq("perfil_id", perfilId)
       .eq("ativo", true)
       .order("nome");
@@ -243,7 +245,20 @@ export const produtosService = {
       console.error("produtosService.listar:", error.message);
       return [];
     }
-    return data ?? [];
+    return (data ?? []).map((p) => ({
+      id: p.id as string,
+      sku: p.sku as string,
+      ean: (p.ean as string | null) ?? null,
+      nome: p.nome as string,
+      cmv: Number(p.cmv) || 0,
+      categoria: (p.categoria as string | null | undefined) ?? null,
+    }));
+  },
+  /** Muda só a categoria do produto (vazio = sem categoria). */
+  atualizarCategoria: async (produtoId: string, categoria: string | null): Promise<string | null> => {
+    const valor = categoria && categoria.trim() ? categoria.trim() : null;
+    const { error } = await supabase.from("produtos").update({ categoria: valor }).eq("id", produtoId);
+    return error?.message ?? null;
   },
   /**
    * Casa os produtos reais com os anúncios de exemplo pelo SKU, e propaga
@@ -374,6 +389,88 @@ export const produtosService = {
     const vinculados = ANUNCIOS.filter((a) => a.produtoId === produtoId);
     const marketplaces = [...new Set(vinculados.map((a) => a.marketplaceId))];
     return { totalAnuncios: vinculados.length, marketplaces };
+  },
+};
+
+/**
+ * Mudanças de preço feitas na tela Precificação (tabela
+ * `alteracoes_preco`). Sem API ainda, o marketplace não muda sozinho: o
+ * NEXO guarda o preço novo, passa a usá-lo nas contas e o Agente de
+ * Precificação mede o "antes x depois". Com a API, é aqui que entra o
+ * envio pro marketplace.
+ */
+export interface AlteracaoPrecoRegistrada {
+  id: string;
+  anuncioId: string;
+  contaId: string | null;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  precoAntes: number;
+  precoDepois: number;
+  data: string;
+}
+
+export const alteracoesPrecoService = {
+  listar: async (perfilId: string): Promise<AlteracaoPrecoRegistrada[]> => {
+    const { data, error } = await supabase
+      .from("alteracoes_preco")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .order("criado_em", { ascending: false })
+      .limit(1000);
+    if (error) {
+      console.error("alteracoesPrecoService.listar:", error.message);
+      return [];
+    }
+    return (data ?? []).map((l) => ({
+      id: l.id as string,
+      anuncioId: l.anuncio_id as string,
+      contaId: (l.conta_id as string | null) ?? null,
+      sku: l.sku as string,
+      produto: l.produto as string,
+      marketplaceId: l.marketplace_id as MarketplaceId,
+      precoAntes: Number(l.preco_antes),
+      precoDepois: Number(l.preco_depois),
+      data: l.criado_em as string,
+    }));
+  },
+
+  /** Grava a mudança e já troca o preço do anúncio no NEXO. */
+  registrar: async (
+    perfilId: string,
+    anuncio: Anuncio,
+    precoNovo: number,
+    usuario: string,
+  ): Promise<string | null> => {
+    const precoAntes = anuncio.precoAtual;
+    const { error } = await supabase.from("alteracoes_preco").insert({
+      perfil_id: perfilId,
+      anuncio_id: anuncio.id,
+      conta_id: anuncio.contaId,
+      sku: anuncio.sku,
+      produto: anuncio.produto,
+      marketplace_id: anuncio.marketplaceId,
+      preco_antes: Math.round(precoAntes * 100) / 100,
+      preco_depois: Math.round(precoNovo * 100) / 100,
+      origem: "manual",
+    });
+    if (error) return error.message;
+    anunciosService.alterarPreco(anuncio.id, Math.round(precoNovo * 100) / 100, usuario);
+    return null;
+  },
+
+  /** Depois de recarregar a página, o anúncio volta ao preço fictício —
+   * isto reaplica o último preço que o seller salvou em cada anúncio. */
+  aplicarNosAnuncios: (alteracoes: AlteracaoPrecoRegistrada[]) => {
+    const vistos = new Set<string>();
+    // A lista vem da mais nova pra mais antiga: a primeira de cada anúncio vale.
+    for (const alt of alteracoes) {
+      if (vistos.has(alt.anuncioId)) continue;
+      vistos.add(alt.anuncioId);
+      const anuncio = ANUNCIOS.find((a) => a.id === alt.anuncioId);
+      if (anuncio) anuncio.precoAtual = alt.precoDepois;
+    }
   },
 };
 
