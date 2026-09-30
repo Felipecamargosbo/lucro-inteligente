@@ -1,13 +1,37 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Check, ChevronRight, Link2, Loader2, Pencil, RefreshCw, Trash2, X } from "lucide-react";
-import { anunciosService, contasService, produtosService } from "@/services";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Link2,
+  Loader2,
+  Pencil,
+  RefreshCw,
+  Tag,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  alteracoesPrecoService,
+  anunciosService,
+  contasService,
+  produtosService,
+} from "@/services";
+import { USUARIO_ATUAL } from "@/data/mock";
 import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
-import { FAIXAS_MARGEM_PADRAO, limitesDePreco, type LimitesPreco } from "@/lib/finance";
+import {
+  FAIXAS_MARGEM_PADRAO,
+  limitesDePreco,
+  raioXAnuncio,
+  type LimitesPreco,
+  type RaioXAnuncio,
+} from "@/lib/finance";
+import { lerNumero, precoParaMargem, resultadoNoPreco, type OpcoesPrecificacao } from "@/lib/precificacao";
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { DialogVincularProduto } from "@/components/comum/DialogVincularProduto";
@@ -32,101 +56,104 @@ import {
 import { cn } from "@/lib/utils";
 import type { Anuncio, MarketplaceId, Produto } from "@/types";
 
+// A tela continua no endereço /produtos (é o mesmo lugar da antiga tela
+// Custos), só mudou de nome e ganhou a planilha completa de preço.
 export const Route = createFileRoute("/produtos")({
   head: () => ({
     meta: [
-      { title: "Custos | NEXO" },
+      { title: "Precificação | NEXO" },
       {
         name: "description",
         content:
-          "O CMV de cada produto, cadastrado uma vez só e válido em todo marketplace vinculado.",
+          "Todos os produtos e anúncios numa planilha: custo, taxas, lucro, margem e preço novo.",
       },
-      { property: "og:title", content: "Custos | NEXO" },
+      { property: "og:title", content: "Precificação | NEXO" },
       {
         property: "og:description",
-        content: "Custo do produto cadastrado uma vez, refletido em todo anúncio vinculado.",
+        content: "Custo, taxas, lucro e margem de cada anúncio — e o preço novo por valor ou por margem.",
       },
     ],
   }),
-  component: Produtos,
+  component: Precificacao,
 });
 
-type StatusFiltro = "todos" | "vinculado" | "sem-vinculo";
+/** Resumo do produto a partir dos anúncios dele. */
+type SituacaoProduto = "ok" | "abaixo" | "prejuizo" | "sem-anuncio";
 
-/** Um anúncio do produto já com os limites de preço calculados para o canal
- * dele. O mesmo produto tem limites diferentes em cada marketplace, porque
- * comissão e frete mudam — por isso isto é uma lista, não um número só. */
-interface LimitePorCanal {
+/** Um anúncio já com todas as contas feitas no preço de hoje. */
+interface LinhaAnuncio {
   anuncio: Anuncio;
+  /** O anúncio com o CMV do produto — é o que entra nas contas */
+  comCmv: Anuncio;
   nomeConta: string;
   margemMinima: number;
+  raio: RaioXAnuncio;
   limites: LimitesPreco;
 }
 
-/** Resumo do produto a partir dos canais dele — é o que a linha fechada
- * mostra, pra dar pra bater o olho sem precisar abrir. */
-type SituacaoProduto = "ok" | "abaixo" | "prejuizo" | "sem-anuncio";
+interface GrupoProduto {
+  produto: Produto;
+  linhas: LinhaAnuncio[];
+  situacao: SituacaoProduto;
+  qtdAbaixo: number;
+  /** Menor margem entre os anúncios — pra ordenar "pior margem primeiro" */
+  piorMargem: number | null;
+  vendidas: number;
+}
 
-/**
- * Uma linha da tabela é OU um produto cadastrado (com CMV editável) OU um
- * anúncio ainda sem vínculo (com ação de vincular) — o mesmo lugar, duas
- * naturezas de linha, pra não obrigar o seller a ficar pulando de tela.
- */
-type LinhaCustos =
-  | {
-      tipo: "produto";
-      id: string;
-      produto: Produto;
-      /** Total vinculado em qualquer canal/loja — usado só nas contagens do filtro. */
-      qtd: number;
-      marketplaces: MarketplaceId[];
-      contas: string[];
-      /** Recorte pro canal/loja marcado agora — é o que a linha MOSTRA na tabela. */
-      qtdNaSelecao: number;
-      marketplacesNaSelecao: MarketplaceId[];
-      /** Limites de preço, um por anúncio dentro da seleção atual */
-      limitesPorCanal: LimitePorCanal[];
-      situacao: SituacaoProduto;
-      /** Quantos canais estão abaixo da margem mínima */
-      qtdAbaixo: number;
-    }
-  | { tipo: "pendente"; id: string; anuncio: Anuncio };
+type ModoEdicao = "preco" | "margem";
 
-function Produtos() {
-  const { atualizarConta, metasPorConta, fiscal, custoOperacionalTotal } =
+const SEM_CATEGORIA = "__sem__";
+
+function Precificacao() {
+  const { atualizarConta, metasPorConta, fiscal, custoOperacionalTotal, custoOperacionalDetalhado } =
     useConfiguracoes();
   // Mesmo filtro de contas do topo da tela (o "Todas as contas" ao lado do
-  // título, igual no Dashboard) — a tela de Custos passou a usar esse filtro
-  // global em vez de ter um seletor próprio e separado.
+  // título, igual no Dashboard).
   const { selecionadas: contasSelecionadas, todasSelecionadas: semRestricaoDeConta } =
     useSelecaoContas();
+  const { sessao } = useAuth();
+
   const [busca, setBusca] = useState("");
-  const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>("todos");
-  const [editando, setEditando] = useState<string | null>(null);
-  const [valorEdicao, setValorEdicao] = useState("");
+  const [categoriaFiltro, setCategoriaFiltro] = useState<string>("todas");
+  const [situacaoFiltro, setSituacaoFiltro] = useState<"todos" | SituacaoProduto>("todos");
+  const [agrupar, setAgrupar] = useState<"produto" | "categoria">("produto");
+  const [ordenar, setOrdenar] = useState<"nome" | "margem" | "vendas">("nome");
+  /** Produtos recolhidos (por padrão todos ficam abertos) */
+  const [fechados, setFechados] = useState<Set<string>>(new Set());
+  const [verPendentes, setVerPendentes] = useState(true);
+
+  const [editandoCmv, setEditandoCmv] = useState<string | null>(null);
+  const [valorCmv, setValorCmv] = useState("");
+  const [editandoCategoria, setEditandoCategoria] = useState<string | null>(null);
+  const [valorCategoria, setValorCategoria] = useState("");
+
+  /** O que o seller está digitando em cada anúncio: preço novo ou margem */
+  const [rascunhos, setRascunhos] = useState<Record<string, { modo: ModoEdicao; texto: string }>>({});
+  const [aplicando, setAplicando] = useState<string | null>(null);
+
   const [emVinculo, setEmVinculo] = useState<Anuncio | null>(null);
   const [emEdicaoProduto, setEmEdicaoProduto] = useState<Produto | null>(null);
   const [emExclusao, setEmExclusao] = useState<Produto | null>(null);
   const [receberAberto, setReceberAberto] = useState(false);
-  /** Produto com os canais abertos; null = todos fechados */
-  const [expandido, setExpandido] = useState<string | null>(null);
   // Os anúncios ainda vivem fora do React (src/data/mock.ts) — dependem da
   // API do marketplace, que depende do CNPJ. Este contador força a
-  // releitura deles depois de cada sincronização/edição/vínculo.
+  // releitura deles depois de cada mudança.
   const [tick, setTick] = useState(0);
 
-  const { sessao } = useAuth();
-  // Os produtos, esses já são de verdade: vêm do Supabase, um por seller.
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [carregandoProdutos, setCarregandoProdutos] = useState(true);
 
   const carregarProdutos = useCallback(async () => {
     if (!sessao) return;
-    const lista = await produtosService.listar(sessao.user.id);
-    // Casa cada produto real com os anúncios de exemplo pelo SKU — é isso
-    // que faz o resto do sistema (Vendas, Dashboard) enxergar o CMV real
-    // sem precisar saber que o catálogo agora vem do banco.
+    const [lista, alteracoes] = await Promise.all([
+      produtosService.listar(sessao.user.id),
+      alteracoesPrecoService.listar(sessao.user.id),
+    ]);
+    // Casa cada produto real com os anúncios pelo SKU (o CMV vem do produto)
+    // e reaplica os preços que o seller já mudou aqui.
     produtosService.reconciliarComAnuncios(lista);
+    alteracoesPrecoService.aplicarNosAnuncios(alteracoes);
     setProdutos(lista);
     setCarregandoProdutos(false);
     setTick((n) => n + 1);
@@ -136,134 +163,213 @@ function Produtos() {
     carregarProdutos();
   }, [carregarProdutos]);
 
-  const anuncios = useMemo(() => anunciosService.listar(), [tick]);
-  const pendentes = useMemo(() => anuncios.filter((a) => !a.produtoId), [anuncios, tick]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const anuncios = useMemo(() => anunciosService.listar().slice(), [tick]);
+  const pendentes = useMemo(
+    () =>
+      anuncios
+        .filter((a) => !a.produtoId)
+        .filter((a) => semRestricaoDeConta || contasSelecionadas.has(a.contaId))
+        // Faturamento perdido primeiro: resolver o que mais vende rende mais
+        .sort((a, b) => b.precoAtual * b.unidadesVendidas - a.precoAtual * a.unidadesVendidas),
+    [anuncios, semRestricaoDeConta, contasSelecionadas],
+  );
 
-  const vinculosDoProduto = (produtoId: string) => {
-    const vinculados = anuncios.filter((a) => a.produtoId === produtoId);
-    // "Totais": todo mundo que está vinculado, em qualquer canal/loja — usado
-    // pra decidir SE a linha aparece e pras contagens do próprio filtro (elas
-    // não podem se esconder quando você desmarca a opção que descrevem).
-    const marketplaces = [...new Set(vinculados.map((a) => a.marketplaceId))];
-    const contas = [...new Set(vinculados.map((a) => a.contaId))];
-    // "Na seleção": só o que está dentro do canal/loja marcado agora — é o
-    // que a linha MOSTRA na coluna de canal, pra não exibir Mercado Livre e
-    // Amazon quando o seller marcou só Shopee.
-    const vinculadosNaSelecao = semRestricaoDeConta
-      ? vinculados
-      : vinculados.filter((a) => contasSelecionadas.has(a.contaId));
-    const marketplacesNaSelecao = [...new Set(vinculadosNaSelecao.map((a) => a.marketplaceId))];
-    return {
-      totalAnuncios: vinculados.length,
-      marketplaces,
-      contas,
-      totalAnunciosNaSelecao: vinculadosNaSelecao.length,
-      marketplacesNaSelecao,
-      anunciosNaSelecao: vinculadosNaSelecao,
-    };
-  };
+  /** As contas de cada anúncio usam a alíquota e os custos operacionais
+   * das Configurações — os mesmos do resto do NEXO. */
+  const opcoesCalculo: OpcoesPrecificacao = useMemo(
+    () => ({ aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal }),
+    [fiscal, custoOperacionalTotal],
+  );
 
-  const totalAnuncios = anuncios.length;
-  const semVinculo = pendentes.length;
+  const categorias = useMemo(() => {
+    const unicas = new Set<string>();
+    for (const p of produtos) {
+      const c = p.categoria?.trim();
+      if (c) unicas.add(c);
+    }
+    return Array.from(unicas).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [produtos]);
 
-  // Uma linha por produto cadastrado + uma linha por anúncio pendente —
-  // tudo na mesma tabela, filtrado do mesmo jeito.
-  const linhas = useMemo<LinhaCustos[]>(() => {
-    const doProdutos: LinhaCustos[] = produtos.map((p) => {
-      const {
-        totalAnuncios: qtd,
-        marketplaces,
-        contas,
-        totalAnunciosNaSelecao,
-        marketplacesNaSelecao,
-        anunciosNaSelecao,
-      } = vinculosDoProduto(p.id);
-
-      // O CMV mora no produto, não no anúncio: é isso que faz mudar o custo
-      // aqui refletir em todo canal de uma vez.
-      const limitesPorCanal: LimitePorCanal[] = anunciosNaSelecao.map((a) => {
+  const grupos = useMemo<GrupoProduto[]>(() => {
+    return produtos.map((p) => {
+      const vinculados = anuncios.filter((a) => a.produtoId === p.id);
+      const naSelecao = semRestricaoDeConta
+        ? vinculados
+        : vinculados.filter((a) => contasSelecionadas.has(a.contaId));
+      const linhas: LinhaAnuncio[] = naSelecao.map((a) => {
         const metas = metasPorConta[a.contaId] ?? null;
         const margemMinima = metas?.margemMinima ?? FAIXAS_MARGEM_PADRAO.margemMinima;
+        // O CMV mora no produto: é isso que faz mudar o custo aqui refletir
+        // em todo canal de uma vez.
+        const comCmv = { ...a, cmv: p.cmv };
         return {
           anuncio: a,
+          comCmv,
           nomeConta: contasService.buscar(a.contaId)?.nome ?? "—",
           margemMinima,
-          limites: limitesDePreco({ ...a, cmv: p.cmv }, margemMinima, {
+          raio: raioXAnuncio(comCmv, metas, a.precoAtual, {
+            aliquotaImposto: fiscal.aliquota,
+            custosOperacionais: custoOperacionalDetalhado(a.precoAtual),
+          }),
+          limites: limitesDePreco(comCmv, margemMinima, {
             aliquotaImposto: fiscal.aliquota,
             custosOperacionais: custoOperacionalTotal,
           }),
         };
       });
-
-      const qtdAbaixo = limitesPorCanal.filter((l) => l.limites.abaixoDoMinimo).length;
-      const temPrejuizo = limitesPorCanal.some((l) => l.limites.emPrejuizo);
-      const situacao: SituacaoProduto =
-        limitesPorCanal.length === 0
-          ? "sem-anuncio"
-          : temPrejuizo
-            ? "prejuizo"
-            : qtdAbaixo > 0
-              ? "abaixo"
-              : "ok";
-
+      const qtdAbaixo = linhas.filter((l) => l.limites.abaixoDoMinimo).length;
+      const temPrejuizo = linhas.some((l) => l.limites.emPrejuizo);
       return {
-        tipo: "produto",
-        id: p.id,
         produto: p,
-        qtd,
-        marketplaces,
-        contas,
-        qtdNaSelecao: totalAnunciosNaSelecao,
-        marketplacesNaSelecao,
-        limitesPorCanal,
-        situacao,
+        linhas,
         qtdAbaixo,
+        situacao:
+          linhas.length === 0 ? "sem-anuncio" : temPrejuizo ? "prejuizo" : qtdAbaixo > 0 ? "abaixo" : "ok",
+        piorMargem: linhas.length > 0 ? Math.min(...linhas.map((l) => l.raio.margem)) : null,
+        vendidas: vinculados.reduce((s, a) => s + a.unidadesVendidas, 0),
       };
     });
-    const doPendentes: LinhaCustos[] = pendentes
-      // Faturamento perdido primeiro: resolver o que mais vende rende mais
-      .slice()
-      .sort((a, b) => b.precoAtual * b.unidadesVendidas - a.precoAtual * a.unidadesVendidas)
-      .map((a) => ({ tipo: "pendente", id: a.id, anuncio: a }));
-    return [...doProdutos, ...doPendentes];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    tick,
     produtos,
-    pendentes,
-    contasSelecionadas,
+    anuncios,
     semRestricaoDeConta,
+    contasSelecionadas,
     metasPorConta,
     fiscal,
     custoOperacionalTotal,
+    custoOperacionalDetalhado,
   ]);
 
-  const linhasFiltradas = useMemo(() => {
+  const gruposFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    return linhas.filter((l) => {
-      if (statusFiltro === "vinculado" && l.tipo !== "produto") return false;
-      if (statusFiltro === "sem-vinculo" && l.tipo !== "pendente") return false;
-
-      if (!semRestricaoDeConta) {
-        const contas = l.tipo === "produto" ? l.contas : [l.anuncio.contaId];
-        if (!contas.some((c) => contasSelecionadas.has(c))) return false;
-      }
-
+    const lista = grupos.filter((g) => {
+      // Com um canal/conta marcado lá em cima, some o produto sem anúncio nele.
+      if (!semRestricaoDeConta && g.linhas.length === 0) return false;
+      if (situacaoFiltro !== "todos" && g.situacao !== situacaoFiltro) return false;
+      if (categoriaFiltro === SEM_CATEGORIA && g.produto.categoria) return false;
+      if (
+        categoriaFiltro !== "todas" &&
+        categoriaFiltro !== SEM_CATEGORIA &&
+        g.produto.categoria !== categoriaFiltro
+      )
+        return false;
       if (termo) {
-        const alvo =
-          l.tipo === "produto"
-            ? `${l.produto.nome} ${l.produto.sku} ${l.produto.ean ?? ""}`
-            : `${l.anuncio.produto} ${l.anuncio.sku}`;
-        if (!alvo.toLowerCase().includes(termo)) return false;
+        const alvo = `${g.produto.nome} ${g.produto.sku} ${g.produto.ean ?? ""}`.toLowerCase();
+        if (!alvo.includes(termo)) return false;
       }
       return true;
     });
-  }, [linhas, statusFiltro, contasSelecionadas, semRestricaoDeConta, busca]);
+    return lista.sort((a, b) => {
+      if (ordenar === "margem") {
+        // Pior margem primeiro; produto sem anúncio vai pro fim.
+        if (a.piorMargem === null) return 1;
+        if (b.piorMargem === null) return -1;
+        return a.piorMargem - b.piorMargem;
+      }
+      if (ordenar === "vendas") return b.vendidas - a.vendidas;
+      return a.produto.nome.localeCompare(b.produto.nome, "pt-BR");
+    });
+  }, [grupos, busca, situacaoFiltro, categoriaFiltro, ordenar, semRestricaoDeConta]);
 
-  /** Quantos produtos têm pelo menos um canal fora da margem mínima */
-  const produtosForaDaMeta = linhas.filter(
-    (l) => l.tipo === "produto" && (l.situacao === "abaixo" || l.situacao === "prejuizo"),
-  ).length;
+  /** Agrupado por categoria: uma faixa por categoria, "Sem categoria" no fim. */
+  const secoes = useMemo(() => {
+    if (agrupar === "produto") return [{ titulo: null as string | null, itens: gruposFiltrados }];
+    const mapa = new Map<string, GrupoProduto[]>();
+    for (const g of gruposFiltrados) {
+      const chave = g.produto.categoria?.trim() || "Sem categoria";
+      mapa.set(chave, [...(mapa.get(chave) ?? []), g]);
+    }
+    return [...mapa.entries()]
+      .sort(([a], [b]) =>
+        a === "Sem categoria" ? 1 : b === "Sem categoria" ? -1 : a.localeCompare(b, "pt-BR"),
+      )
+      .map(([titulo, itens]) => ({ titulo: titulo as string | null, itens }));
+  }, [agrupar, gruposFiltrados]);
+
+  // Resumo do topo — só anúncios vinculados, dentro do filtro de conta.
+  const todasLinhas = grupos.flatMap((g) => g.linhas);
+  const emPrejuizo = todasLinhas.filter((l) => l.limites.emPrejuizo).length;
+  const abaixoMinimo = todasLinhas.filter((l) => l.limites.abaixoDoMinimo && !l.limites.emPrejuizo).length;
+  const margemMedia =
+    todasLinhas.length > 0 ? todasLinhas.reduce((s, l) => s + l.raio.margem, 0) / todasLinhas.length : 0;
+
+  /* ---------------------------- ações ---------------------------- */
+
+  const alternarProduto = (id: string) =>
+    setFechados((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(id)) novo.delete(id);
+      else novo.add(id);
+      return novo;
+    });
+
+  const salvarCmv = async (produto: Produto) => {
+    const novoCmv = lerNumero(valorCmv);
+    setEditandoCmv(null);
+    if (novoCmv === null || novoCmv < 0) {
+      toast.error("CMV inválido.");
+      return;
+    }
+    const { erro } = await produtosService.atualizarCmv(produto.id, novoCmv);
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      return;
+    }
+    await carregarProdutos();
+    const qtd = produtosService.cobertura(produto.id).totalAnuncios;
+    toast.success(
+      qtd > 0
+        ? `CMV de "${produto.nome}" atualizado — refletido em ${qtd} anúncio(s).`
+        : `CMV de "${produto.nome}" atualizado.`,
+    );
+  };
+
+  const salvarCategoria = async (produto: Produto) => {
+    const categoria = valorCategoria.trim() || null;
+    setEditandoCategoria(null);
+    if ((produto.categoria ?? null) === categoria) return;
+    const erro = await produtosService.atualizarCategoria(produto.id, categoria);
+    if (erro) {
+      toast.error(
+        erro.includes("categoria")
+          ? "O campo de categoria ainda não existe no banco — rode o SQL da tela Precificação no Supabase."
+          : `Não consegui salvar: ${erro}`,
+      );
+      return;
+    }
+    await carregarProdutos();
+    toast.success(
+      categoria ? `"${produto.nome}" agora está em "${categoria}".` : `"${produto.nome}" ficou sem categoria.`,
+    );
+  };
+
+  const aplicarPreco = async (linha: LinhaAnuncio, precoNovo: number) => {
+    if (!sessao) return;
+    const a = linha.anuncio;
+    const antes = a.precoAtual;
+    setAplicando(a.id);
+    const erro = await alteracoesPrecoService.registrar(sessao.user.id, a, precoNovo, USUARIO_ATUAL.nome);
+    setAplicando(null);
+    if (erro) {
+      toast.error(
+        erro.includes("alteracoes_preco")
+          ? "A tabela de mudanças de preço ainda não existe — rode o SQL da tela Precificação no Supabase."
+          : `Não consegui salvar o preço: ${erro}`,
+      );
+      return;
+    }
+    setRascunhos((atual) => {
+      const novo = { ...atual };
+      delete novo[a.id];
+      return novo;
+    });
+    setTick((n) => n + 1);
+    toast.success(`${a.produto} (${linha.nomeConta}): de ${formatBRL(antes)} para ${formatBRL(precoNovo)}.`, {
+      description:
+        "Salvo no NEXO. Sem a API do marketplace ainda, altere também o preço lá no anúncio.",
+    });
+  };
 
   const dispensarAnuncio = (anuncio: Anuncio) => {
     anunciosService.dispensar(anuncio.id);
@@ -271,43 +377,13 @@ function Produtos() {
     toast(`"${anuncio.produto}" descartado — não aparece mais na fila.`);
   };
 
-  const iniciarEdicao = (produto: Produto) => {
-    setEditando(produto.id);
-    setValorEdicao(produto.cmv.toFixed(2));
-  };
-
-  const salvarCmv = async (produto: Produto) => {
-    const novoCmv = Number(valorEdicao.replace(",", ".")) || 0;
-    setEditando(null);
-    const { erro } = await produtosService.atualizarCmv(produto.id, novoCmv);
-    if (erro) {
-      toast.error(`Não consegui salvar: ${erro}`);
-      return;
-    }
-    await carregarProdutos();
-    const { totalAnuncios: qtd } = vinculosDoProduto(produto.id);
-    toast.success(
-      qtd > 0
-        ? `CMV de "${produto.nome}" atualizado — refletido em ${qtd} anúncio(s) vinculado(s).`
-        : `CMV de "${produto.nome}" atualizado.`,
-    );
-  };
-
-  const BOTOES_STATUS: { id: StatusFiltro; rotulo: string; qtd: number }[] = [
-    { id: "todos", rotulo: "Todos", qtd: linhas.length },
-    {
-      id: "vinculado",
-      rotulo: "Com vínculo",
-      qtd: linhas.filter((l) => l.tipo === "produto").length,
-    },
-    { id: "sem-vinculo", rotulo: "Sem vínculo", qtd: semVinculo },
-  ];
+  const COLUNAS = 16;
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-6">
+    <div className="mx-auto max-w-[1600px] space-y-6">
       <Painel
-        titulo="Custos"
-        descricao="O CMV mora aqui — uma vez só. Mudar o custo de um produto atualiza na hora todo anúncio vinculado a ele, em qualquer marketplace"
+        titulo="Precificação"
+        descricao="Todos os produtos e anúncios numa planilha: custo, taxas, lucro e margem — e o preço novo, por valor ou por margem"
         acoes={
           <div className="flex items-center gap-2">
             <Button size="sm" onClick={() => setReceberAberto(true)}>
@@ -315,329 +391,440 @@ function Produtos() {
               Receber anúncios
             </Button>
             <ExportarDados
-              nomeArquivo="custos"
-              linhas={produtos.map((p) => {
-                const { totalAnuncios: qtd, marketplaces } = vinculosDoProduto(p.id);
-                return {
-                  SKU: p.sku,
-                  EAN: p.ean ?? "—",
-                  Produto: p.nome,
-                  CMV: p.cmv.toFixed(2),
-                  "Anúncios vinculados": qtd,
-                  Marketplaces: marketplaces.join(", ") || "—",
-                };
-              })}
+              nomeArquivo="precificacao"
+              linhas={grupos.flatMap((g) =>
+                g.linhas.map((l) => ({
+                  Produto: g.produto.nome,
+                  SKU: g.produto.sku,
+                  Categoria: g.produto.categoria ?? "",
+                  Canal: l.anuncio.marketplaceId,
+                  Conta: l.nomeConta,
+                  Preço: l.raio.precoVenda.toFixed(2),
+                  CMV: l.raio.cmv.toFixed(2),
+                  Comissão: l.raio.comissao.toFixed(2),
+                  "Taxa fixa": l.raio.taxaFixa.toFixed(2),
+                  Frete: l.raio.frete.toFixed(2),
+                  Ads: l.raio.midia.toFixed(2),
+                  Imposto: l.raio.impostos.toFixed(2),
+                  Outros: (l.raio.afiliados + l.raio.custosOperacionais).toFixed(2),
+                  Lucro: l.raio.lucroLiquido.toFixed(2),
+                  "Margem %": (l.raio.margem * 100).toFixed(1),
+                  "Preço mínimo": l.limites.precoMinimo.toFixed(2),
+                  Empate: l.limites.precoEmpate.toFixed(2),
+                })),
+              )}
             />
           </div>
         }
       >
-        <div className="grid gap-3 border-b p-4 sm:grid-cols-4">
-          <div className="rounded-lg bg-muted px-3 py-2">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Produtos cadastrados
-            </p>
-            <p className="num text-lg font-bold">{formatNumero(produtos.length)}</p>
-          </div>
-          <div className="rounded-lg bg-muted px-3 py-2">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Anúncios vinculados a um produto
-            </p>
-            <p className="num text-lg font-bold">
-              {formatNumero(totalAnuncios - semVinculo)} de {formatNumero(totalAnuncios)}
-            </p>
-          </div>
-          <div className="rounded-lg bg-muted px-3 py-2">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Anúncios sem vínculo
-            </p>
-            <p className={`num text-lg font-bold ${semVinculo > 0 ? "text-loss" : ""}`}>
-              {formatNumero(semVinculo)}
-            </p>
-          </div>
-          <div className="rounded-lg bg-muted px-3 py-2">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Produtos fora da margem mínima
-            </p>
-            <p className={`num text-lg font-bold ${produtosForaDaMeta > 0 ? "text-warning" : ""}`}>
-              {formatNumero(produtosForaDaMeta)}
-            </p>
-          </div>
+        {/* Resumo */}
+        <div className="grid gap-3 border-b p-4 sm:grid-cols-2 lg:grid-cols-5">
+          <Resumo rotulo="Produtos cadastrados" valor={formatNumero(produtos.length)} />
+          <Resumo rotulo="Anúncios na planilha" valor={formatNumero(todasLinhas.length)} />
+          <Resumo
+            rotulo="Anúncios com prejuízo"
+            valor={formatNumero(emPrejuizo)}
+            cor={emPrejuizo > 0 ? "text-loss" : undefined}
+          />
+          <Resumo
+            rotulo="Abaixo da margem mínima"
+            valor={formatNumero(abaixoMinimo)}
+            cor={abaixoMinimo > 0 ? "text-warning" : undefined}
+          />
+          <Resumo rotulo="Margem média dos anúncios" valor={formatPercentual(margemMedia)} />
         </div>
 
-        {/* Busca + Vínculo com CMV — o filtro de canal/loja já fica lá em
-            cima, do lado do nome da tela de Custos. Cada um com sua etiqueta,
-            pra nunca ficar ambíguo o que "Todos" significa (todos os quê?). */}
+        {/* Anúncios sem produto vinculado */}
+        {pendentes.length > 0 && (
+          <div className="border-b">
+            <button
+              onClick={() => setVerPendentes((v) => !v)}
+              className="flex w-full items-center gap-2 bg-loss-soft/30 px-4 py-2.5 text-left"
+            >
+              {verPendentes ? (
+                <ChevronDown className="size-3.5 text-loss" />
+              ) : (
+                <ChevronRight className="size-3.5 text-loss" />
+              )}
+              <span className="text-xs font-semibold text-loss">
+                {formatNumero(pendentes.length)} anúncio{pendentes.length > 1 ? "s" : ""} sem produto
+                vinculado
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                — sem CMV não dá pra calcular lucro. Vincule a um produto ou crie um novo.
+              </span>
+            </button>
+            {verPendentes && (
+              <div className="divide-y">
+                {pendentes.map((a) => (
+                  <div key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
+                    <div className="min-w-[200px] flex-1">
+                      <p className="truncate text-xs font-medium">{a.produto}</p>
+                      <p className="num text-[10px] text-muted-foreground">{a.sku}</p>
+                    </div>
+                    <SeloMarketplace id={a.marketplaceId} />
+                    <span className="text-[10px] text-muted-foreground">
+                      {contasService.buscar(a.contaId)?.nome ?? "—"} · {formatBRL(a.precoAtual)} ·{" "}
+                      {formatNumero(a.unidadesVendidas)} vendidos
+                    </span>
+                    <div className="ml-auto flex items-center gap-1.5">
+                      <button
+                        onClick={() => dispensarAnuncio(a)}
+                        title="Descartar este anúncio (não vincula nem mostra de novo)"
+                        className="text-muted-foreground transition-colors hover:text-loss"
+                      >
+                        <X className="size-4" />
+                      </button>
+                      <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setEmVinculo(a)}>
+                        <Link2 className="size-3.5" />
+                        Vincular
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Filtros */}
         <div className="flex flex-wrap items-end gap-3 border-b p-4">
-          <div>
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Buscar
-            </p>
+          <Filtro rotulo="Buscar">
             <Input
-              placeholder="SKU, EAN ou nome"
+              placeholder="Nome, SKU ou EAN"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               className="h-8 w-48 text-xs"
             />
-          </div>
-
-          <div>
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Vínculo com CMV
-            </p>
-            <Select value={statusFiltro} onValueChange={(v) => setStatusFiltro(v as StatusFiltro)}>
-              <SelectTrigger className="h-8 w-48 text-xs">
-                <SelectValue placeholder="Vínculo" />
+          </Filtro>
+          <Filtro rotulo="Categoria">
+            <Select value={categoriaFiltro} onValueChange={setCategoriaFiltro}>
+              <SelectTrigger className="h-8 w-44 text-xs">
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {BOTOES_STATUS.map((b) => (
-                  <SelectItem key={b.id} value={b.id}>
-                    {b.rotulo} ({formatNumero(b.qtd)})
+                <SelectItem value="todas">Todas</SelectItem>
+                {categorias.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
                   </SelectItem>
                 ))}
+                <SelectItem value={SEM_CATEGORIA}>Sem categoria</SelectItem>
               </SelectContent>
             </Select>
+          </Filtro>
+          <Filtro rotulo="Situação">
+            <Select
+              value={situacaoFiltro}
+              onValueChange={(v) => setSituacaoFiltro(v as typeof situacaoFiltro)}
+            >
+              <SelectTrigger className="h-8 w-48 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todas</SelectItem>
+                <SelectItem value="prejuizo">Com prejuízo</SelectItem>
+                <SelectItem value="abaixo">Abaixo da margem mínima</SelectItem>
+                <SelectItem value="ok">Tudo OK</SelectItem>
+                <SelectItem value="sem-anuncio">Sem anúncio</SelectItem>
+              </SelectContent>
+            </Select>
+          </Filtro>
+          <Filtro rotulo="Ordenar por">
+            <Select value={ordenar} onValueChange={(v) => setOrdenar(v as typeof ordenar)}>
+              <SelectTrigger className="h-8 w-48 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="nome">Nome (A-Z)</SelectItem>
+                <SelectItem value="margem">Pior margem primeiro</SelectItem>
+                <SelectItem value="vendas">Mais vendidos primeiro</SelectItem>
+              </SelectContent>
+            </Select>
+          </Filtro>
+          <Filtro rotulo="Agrupar por">
+            <Select value={agrupar} onValueChange={(v) => setAgrupar(v as typeof agrupar)}>
+              <SelectTrigger className="h-8 w-36 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="produto">Produto</SelectItem>
+                <SelectItem value="categoria">Categoria</SelectItem>
+              </SelectContent>
+            </Select>
+          </Filtro>
+          <div className="ml-auto flex gap-2">
+            <Button size="sm" variant="ghost" className="h-8 text-[11px]" onClick={() => setFechados(new Set())}>
+              Abrir tudo
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-[11px]"
+              onClick={() => setFechados(new Set(produtos.map((p) => p.id)))}
+            >
+              Recolher tudo
+            </Button>
           </div>
         </div>
 
+        {/* A planilha */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1080px] text-left">
+          <table className="w-full min-w-[1500px] text-left">
             <thead>
-              <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-bold">Produto / SKU</th>
-                <th className="px-4 py-3 font-bold">EAN</th>
-                <th className="px-4 py-3 text-right font-bold">CMV</th>
-                <th className="px-4 py-3 font-bold">Canal / vínculo</th>
-                <th className="px-4 py-3 font-bold">Situação</th>
-                <th className="px-4 py-3 text-right font-bold">Ação</th>
+              <tr className="border-b bg-muted/50 text-[9px] uppercase tracking-wide text-muted-foreground">
+                <th className="px-3 py-2.5 font-bold">Canal / conta</th>
+                <th className="px-2 py-2.5 text-right font-bold">Preço</th>
+                <th className="px-2 py-2.5 text-right font-bold">CMV</th>
+                <th className="px-2 py-2.5 text-right font-bold">Comissão</th>
+                <th className="px-2 py-2.5 text-right font-bold">Taxa fixa</th>
+                <th className="px-2 py-2.5 text-right font-bold">Frete</th>
+                <th className="px-2 py-2.5 text-right font-bold">Ads</th>
+                <th className="px-2 py-2.5 text-right font-bold">Imposto</th>
+                <th className="px-2 py-2.5 text-right font-bold">Outros</th>
+                <th className="px-2 py-2.5 text-right font-bold">Lucro</th>
+                <th className="px-2 py-2.5 text-right font-bold">Margem</th>
+                <th className="px-2 py-2.5 text-right font-bold">Mínimo</th>
+                <th className="px-2 py-2.5 text-right font-bold">Empate</th>
+                <th className="border-l px-2 py-2.5 font-bold">Novo preço ou margem</th>
+                <th className="px-2 py-2.5 font-bold">Fica assim</th>
+                <th className="px-3 py-2.5 text-right font-bold"></th>
               </tr>
             </thead>
-            <tbody className="divide-y">
-              {linhasFiltradas.map((linha) => {
-                if (linha.tipo === "produto") {
-                  const p = linha.produto;
-                  const emEdicao = editando === p.id;
-                  const aberto = expandido === p.id;
-                  const podeAbrir = linha.limitesPorCanal.length > 0;
-                  return [
-                    <tr
-                      key={`p-${linha.id}`}
-                      onClick={() => podeAbrir && setExpandido(aberto ? null : p.id)}
-                      className={cn(
-                        "transition-colors hover:bg-muted/40",
-                        podeAbrir && "cursor-pointer",
-                        aberto && "bg-muted/30",
-                      )}
-                    >
-                      <td className="max-w-[260px] px-4 py-3">
-                        <p className="truncate text-xs font-medium">{p.nome}</p>
-                        <p className="num text-[10px] text-muted-foreground">{p.sku}</p>
-                      </td>
-                      <td className="num px-4 py-3 text-xs text-muted-foreground">
-                        {p.ean ?? "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                        {emEdicao ? (
-                          <div className="flex items-center justify-end gap-1">
-                            <Input
-                              autoFocus
-                              inputMode="decimal"
-                              value={valorEdicao}
-                              onChange={(e) => setValorEdicao(e.target.value)}
-                              onKeyDown={(e) => e.key === "Enter" && salvarCmv(p)}
-                              className="num h-7 w-24 px-2 text-right text-xs"
-                            />
-                            <button
-                              onClick={() => salvarCmv(p)}
-                              title="Salvar CMV"
-                              className="text-profit transition-colors hover:text-profit/80"
-                            >
-                              <Check className="size-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => iniciarEdicao(p)}
-                            className="num inline-flex items-center gap-1.5 text-xs font-semibold transition-colors hover:text-brand"
-                          >
-                            {formatBRL(p.cmv)}
-                            <Pencil className="size-3" />
-                          </button>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {linha.qtdNaSelecao > 0 ? (
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {linha.marketplacesNaSelecao.map((m) => (
-                              <SeloMarketplace key={m} id={m} />
-                            ))}
-                            <span className="text-[10px] text-muted-foreground">
-                              ({formatNumero(linha.qtdNaSelecao)} anúncio
-                              {linha.qtdNaSelecao > 1 ? "s" : ""})
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                            Nenhum anúncio vinculado ainda
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <SeloSituacao situacao={linha.situacao} qtdAbaixo={linha.qtdAbaixo} />
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEmEdicaoProduto(p);
-                            }}
-                            title="Editar produto"
-                            className="text-muted-foreground transition-colors hover:text-brand"
-                          >
-                            <Pencil className="size-3.5" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEmExclusao(p);
-                            }}
-                            title="Excluir produto"
-                            className="text-muted-foreground transition-colors hover:text-loss"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                          {podeAbrir ? (
-                            <ChevronRight
-                              className={cn(
-                                "size-4 text-muted-foreground transition-transform",
-                                aberto && "rotate-90",
-                              )}
-                            />
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground">—</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>,
-
-                    aberto ? (
-                      <tr key={`d-${linha.id}`} className="bg-background/60">
-                        <td colSpan={6} className="p-0">
-                          <TabelaLimites itens={linha.limitesPorCanal} />
-                        </td>
-                      </tr>
-                    ) : null,
-                  ];
-                }
-
-                const a = linha.anuncio;
-                const conta = contasService.buscar(a.contaId);
-                return (
-                  <tr
-                    key={`a-${linha.id}`}
-                    className="bg-loss-soft/20 transition-colors hover:bg-loss-soft/30"
-                  >
-                    <td className="max-w-[260px] px-4 py-3">
-                      <p className="truncate text-xs font-medium">{a.produto}</p>
-                      <p className="num text-[10px] text-muted-foreground">{a.sku}</p>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">—</td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="inline-flex items-center gap-1.5 rounded bg-loss-soft px-2 py-1 text-[10px] font-semibold text-loss">
-                        sem vínculo
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <SeloMarketplace id={a.marketplaceId} />
-                        <span className="text-[10px] text-muted-foreground">
-                          {conta?.nome ?? "—"} · {formatBRL(a.precoAtual)} ·{" "}
-                          {formatNumero(a.unidadesVendidas)} un.
+            <tbody>
+              {secoes.map((secao) => (
+                <Fragment key={secao.titulo ?? "todos"}>
+                  {secao.titulo && (
+                    <tr className="border-y bg-brand/10">
+                      <td colSpan={COLUNAS} className="px-3 py-2">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-bold">
+                          <Tag className="size-3.5 text-brand" />
+                          {secao.titulo}
                         </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-[10px] text-muted-foreground">
-                        Sem CMV, não dá pra calcular
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => dispensarAnuncio(a)}
-                          title="Descartar este anúncio (não vincula nem mostra de novo)"
-                          className="text-muted-foreground transition-colors hover:text-loss"
-                        >
-                          <X className="size-4" />
-                        </button>
-                        <Button size="sm" variant="outline" onClick={() => setEmVinculo(a)}>
-                          <Link2 className="size-3.5" />
-                          Vincular
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                        <span className="ml-2 text-[10px] text-muted-foreground">
+                          {secao.itens.length} produto{secao.itens.length > 1 ? "s" : ""}
+                        </span>
+                      </td>
+                    </tr>
+                  )}
+                  {secao.itens.map((g) => {
+                    const p = g.produto;
+                    const aberto = !fechados.has(p.id);
+                    return (
+                      <Fragment key={p.id}>
+                        {/* Linha do produto */}
+                        <tr className="border-t-2 border-border bg-muted/30">
+                          <td colSpan={COLUNAS} className="px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                              <button
+                                onClick={() => alternarProduto(p.id)}
+                                className="flex min-w-0 items-center gap-1.5 text-left"
+                                title={aberto ? "Recolher" : "Abrir"}
+                              >
+                                {aberto ? (
+                                  <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+                                ) : (
+                                  <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+                                )}
+                                <span className="truncate text-xs font-bold">{p.nome}</span>
+                              </button>
+                              <span className="num text-[10px] text-muted-foreground">
+                                SKU {p.sku}
+                                {p.ean ? ` · EAN ${p.ean}` : ""}
+                              </span>
+
+                              {/* Categoria */}
+                              {editandoCategoria === p.id ? (
+                                <span className="flex items-center gap-1">
+                                  <Input
+                                    autoFocus
+                                    list="categorias-precificacao"
+                                    value={valorCategoria}
+                                    onChange={(e) => setValorCategoria(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") salvarCategoria(p);
+                                      if (e.key === "Escape") setEditandoCategoria(null);
+                                    }}
+                                    placeholder="Ex.: Relógios"
+                                    className="h-7 w-40 text-xs"
+                                  />
+                                  <button onClick={() => salvarCategoria(p)} className="text-profit" title="Salvar">
+                                    <Check className="size-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => setEditandoCategoria(null)}
+                                    className="text-muted-foreground"
+                                    title="Cancelar"
+                                  >
+                                    <X className="size-3.5" />
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setEditandoCategoria(p.id);
+                                    setValorCategoria(p.categoria ?? "");
+                                  }}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold transition-colors",
+                                    p.categoria
+                                      ? "bg-brand/10 text-brand hover:bg-brand/20"
+                                      : "border border-dashed text-muted-foreground hover:text-foreground",
+                                  )}
+                                  title="Mudar a categoria"
+                                >
+                                  <Tag className="size-3" />
+                                  {p.categoria ?? "Pôr categoria"}
+                                </button>
+                              )}
+
+                              {/* CMV */}
+                              <span className="flex items-center gap-1.5 text-[11px]">
+                                <span className="text-muted-foreground">CMV</span>
+                                {editandoCmv === p.id ? (
+                                  <span className="flex items-center gap-1">
+                                    <Input
+                                      autoFocus
+                                      inputMode="decimal"
+                                      value={valorCmv}
+                                      onChange={(e) => setValorCmv(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") salvarCmv(p);
+                                        if (e.key === "Escape") setEditandoCmv(null);
+                                      }}
+                                      className="num h-7 w-24 px-2 text-right text-xs"
+                                    />
+                                    <button onClick={() => salvarCmv(p)} className="text-profit" title="Salvar CMV">
+                                      <Check className="size-3.5" />
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setEditandoCmv(p.id);
+                                      setValorCmv(p.cmv.toFixed(2).replace(".", ","));
+                                    }}
+                                    className="num inline-flex items-center gap-1 font-bold transition-colors hover:text-brand"
+                                    title="Mudar o CMV (vale pra todos os anúncios deste produto)"
+                                  >
+                                    {formatBRL(p.cmv)}
+                                    <Pencil className="size-3" />
+                                  </button>
+                                )}
+                              </span>
+
+                              <SeloSituacao situacao={g.situacao} qtdAbaixo={g.qtdAbaixo} />
+                              <span className="text-[10px] text-muted-foreground">
+                                {g.linhas.length} anúncio{g.linhas.length === 1 ? "" : "s"}
+                              </span>
+
+                              <span className="ml-auto flex items-center gap-2">
+                                <button
+                                  onClick={() => setEmEdicaoProduto(p)}
+                                  title="Editar produto"
+                                  className="text-muted-foreground transition-colors hover:text-brand"
+                                >
+                                  <Pencil className="size-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => setEmExclusao(p)}
+                                  title="Excluir produto"
+                                  className="text-muted-foreground transition-colors hover:text-loss"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Anúncios do produto */}
+                        {aberto &&
+                          g.linhas.map((l) => (
+                            <LinhaDoAnuncio
+                              key={l.anuncio.id}
+                              linha={l}
+                              op={opcoesCalculo}
+                              rascunho={rascunhos[l.anuncio.id] ?? { modo: "preco", texto: "" }}
+                              aoMudarRascunho={(r) =>
+                                setRascunhos((atual) => ({ ...atual, [l.anuncio.id]: r }))
+                              }
+                              aplicando={aplicando === l.anuncio.id}
+                              aoAplicar={(preco) => aplicarPreco(l, preco)}
+                            />
+                          ))}
+                        {aberto && g.linhas.length === 0 && (
+                          <tr>
+                            <td colSpan={COLUNAS} className="px-8 py-2 text-[10px] text-muted-foreground">
+                              Nenhum anúncio vinculado a este produto ainda.
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </Fragment>
+              ))}
+
               {carregandoProdutos && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center">
+                  <td colSpan={COLUNAS} className="px-4 py-12 text-center">
                     <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                       <Loader2 className="size-3.5 animate-spin" />
-                      Carregando seu catálogo...
+                      Carregando seus produtos...
                     </span>
                   </td>
                 </tr>
               )}
-              {!carregandoProdutos &&
-                linhasFiltradas.length === 0 &&
-                produtos.length === 0 &&
-                busca === "" &&
-                statusFiltro === "todos" && (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-14 text-center">
-                      <p className="text-xs text-muted-foreground">
-                        Nenhum produto cadastrado ainda. Receba os anúncios do marketplace e
-                        vincule o CMV de cada um.
-                      </p>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="mt-3"
-                        onClick={() => setReceberAberto(true)}
-                      >
-                        <RefreshCw className="size-3.5" />
-                        Receber anúncios
-                      </Button>
-                    </td>
-                  </tr>
-                )}
-              {!carregandoProdutos &&
-                linhasFiltradas.length === 0 &&
-                !(produtos.length === 0 && busca === "" && statusFiltro === "todos") && (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-xs text-muted-foreground">
-                      Nada encontrado com esses filtros.
-                    </td>
-                  </tr>
-                )}
+              {!carregandoProdutos && produtos.length === 0 && (
+                <tr>
+                  <td colSpan={COLUNAS} className="px-4 py-14 text-center">
+                    <p className="text-xs text-muted-foreground">
+                      Nenhum produto cadastrado ainda. Receba os anúncios do marketplace e vincule o
+                      CMV de cada um.
+                    </p>
+                    <Button size="sm" variant="outline" className="mt-3" onClick={() => setReceberAberto(true)}>
+                      <RefreshCw className="size-3.5" />
+                      Receber anúncios
+                    </Button>
+                  </td>
+                </tr>
+              )}
+              {!carregandoProdutos && produtos.length > 0 && gruposFiltrados.length === 0 && (
+                <tr>
+                  <td colSpan={COLUNAS} className="px-4 py-12 text-center text-xs text-muted-foreground">
+                    Nada encontrado com esses filtros.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
+          <datalist id="categorias-precificacao">
+            {categorias.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
         </div>
 
-        <div className="flex flex-wrap gap-4 border-t px-4 py-3 text-[10px] text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-profit" /> Acima da margem mínima
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-warning" /> Abaixo da mínima, ainda com lucro
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-loss" /> Abaixo do empate — prejuízo
-          </span>
-          <span className="ml-auto">
-            A margem mínima de cada canal vem das metas em Configurações.
-          </span>
+        <div className="space-y-1.5 border-t px-4 py-3 text-[10px] text-muted-foreground">
+          <div className="flex flex-wrap gap-4">
+            <span className="flex items-center gap-1.5">
+              <span className="size-2 rounded-full bg-profit" /> Acima da margem mínima
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="size-2 rounded-full bg-warning" /> Abaixo da mínima, ainda com lucro
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="size-2 rounded-full bg-loss" /> Abaixo do empate — prejuízo
+            </span>
+            <span className="ml-auto">A margem mínima de cada conta vem das metas em Configurações.</span>
+          </div>
+          <p>
+            <strong>Outros</strong> = afiliados + seus custos operacionais (embalagem, etiqueta...).{" "}
+            <strong>Mínimo</strong> = menor preço que respeita a margem mínima; <strong>Empate</strong> =
+            preço de lucro zero. No preço novo, comissão e imposto acompanham o preço; frete, taxa fixa
+            e Ads ficam iguais aos de hoje (no Mercado Livre, cruzar os R$ 79 pode mudar o frete).
+          </p>
         </div>
       </Painel>
 
@@ -647,8 +834,6 @@ function Produtos() {
           aoFechar={() => setEmVinculo(null)}
           aoConcluir={() => {
             setEmVinculo(null);
-            // O diálogo pode ter criado um produto novo (não só vinculado
-            // um já existente) — recarrega do banco pra pegar esse caso.
             carregarProdutos();
           }}
         />
@@ -657,6 +842,7 @@ function Produtos() {
       {emEdicaoProduto && (
         <DialogEditarProduto
           produto={emEdicaoProduto}
+          categorias={categorias}
           aoFechar={() => setEmEdicaoProduto(null)}
           aoSalvar={() => {
             setEmEdicaoProduto(null);
@@ -668,7 +854,7 @@ function Produtos() {
       {emExclusao && (
         <DialogConfirmarExclusao
           produto={emExclusao}
-          qtdAnuncios={vinculosDoProduto(emExclusao.id).totalAnuncios}
+          qtdAnuncios={produtosService.cobertura(emExclusao.id).totalAnuncios}
           aoFechar={() => setEmExclusao(null)}
           aoExcluir={() => {
             setEmExclusao(null);
@@ -688,6 +874,186 @@ function Produtos() {
         />
       )}
     </div>
+  );
+}
+
+function Resumo({ rotulo, valor, cor }: { rotulo: string; valor: string; cor?: string }) {
+  return (
+    <div className="rounded-lg bg-muted px-3 py-2">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{rotulo}</p>
+      <p className={cn("num text-lg font-bold", cor)}>{valor}</p>
+    </div>
+  );
+}
+
+function Filtro({ rotulo, children }: { rotulo: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {rotulo}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Uma linha de anúncio                                                */
+/* ------------------------------------------------------------------ */
+
+function LinhaDoAnuncio({
+  linha,
+  op,
+  rascunho,
+  aoMudarRascunho,
+  aplicando,
+  aoAplicar,
+}: {
+  linha: LinhaAnuncio;
+  op: OpcoesPrecificacao;
+  rascunho: { modo: ModoEdicao; texto: string };
+  aoMudarRascunho: (r: { modo: ModoEdicao; texto: string }) => void;
+  aplicando: boolean;
+  aoAplicar: (preco: number) => void;
+}) {
+  const { anuncio: a, comCmv, raio: r, limites, margemMinima } = linha;
+  const ponto = limites.emPrejuizo ? "bg-loss" : limites.abaixoDoMinimo ? "bg-warning" : "bg-profit";
+  const corMargem = limites.emPrejuizo
+    ? "text-loss"
+    : limites.abaixoDoMinimo
+      ? "text-warning"
+      : "text-profit";
+
+  // O que o seller digitou vira um preço novo — direto (modo preço) ou
+  // calculado a partir da margem pedida (modo margem).
+  const numero = lerNumero(rascunho.texto);
+  let precoNovo: number | null = null;
+  let impossivel = false;
+  if (numero !== null && rascunho.texto.trim() !== "") {
+    if (rascunho.modo === "preco") {
+      precoNovo = numero > 0 ? Math.round(numero * 100) / 100 : null;
+    } else {
+      precoNovo = precoParaMargem(comCmv, numero / 100, op);
+      impossivel = precoNovo === null;
+    }
+  }
+  const novo = precoNovo !== null ? resultadoNoPreco(comCmv, precoNovo, op) : null;
+  const corNovo =
+    novo === null
+      ? ""
+      : novo.lucro < 0
+        ? "text-loss"
+        : novo.margem < margemMinima
+          ? "text-warning"
+          : "text-profit";
+  const mudou = precoNovo !== null && Math.abs(precoNovo - a.precoAtual) >= 0.01;
+  const outros = r.afiliados + r.custosOperacionais;
+
+  return (
+    <tr className="border-t border-border/40 text-xs transition-colors hover:bg-muted/20">
+      <td className="px-3 py-2">
+        <div className="flex items-center gap-2 pl-5">
+          <span className={cn("size-1.5 shrink-0 rounded-full", ponto)} />
+          <SeloMarketplace id={a.marketplaceId} />
+          <span className="truncate text-[10px] text-muted-foreground">{linha.nomeConta}</span>
+        </div>
+      </td>
+      <td className="num px-2 py-2 text-right font-semibold">{formatBRL(r.precoVenda)}</td>
+      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(r.cmv)}</td>
+      <td className="num px-2 py-2 text-right text-muted-foreground" title={`${formatPercentual(a.comissaoPercentual)} do preço`}>
+        {formatBRL(r.comissao)}
+      </td>
+      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(r.taxaFixa)}</td>
+      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(r.frete)}</td>
+      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(r.midia)}</td>
+      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(r.impostos)}</td>
+      <td
+        className="num px-2 py-2 text-right text-muted-foreground"
+        title={[
+          `Afiliados: ${formatBRL(r.afiliados)}`,
+          ...r.custosOperacionaisDetalhe.map((c) => `${c.nome}: ${formatBRL(c.valor)}`),
+        ].join("\n")}
+      >
+        {formatBRL(outros)}
+      </td>
+      <td className={cn("num px-2 py-2 text-right font-bold", r.lucroLiquido < 0 ? "text-loss" : "")}>
+        {formatBRL(r.lucroLiquido)}
+      </td>
+      <td className={cn("num px-2 py-2 text-right font-bold", corMargem)}>{formatPercentual(r.margem)}</td>
+      <td className="num px-2 py-2 text-right" title={`Margem mínima desta conta: ${formatPercentual(margemMinima)}`}>
+        {formatBRL(limites.precoMinimo)}
+      </td>
+      <td className="num px-2 py-2 text-right text-loss">{formatBRL(limites.precoEmpate)}</td>
+
+      {/* Edição: por preço ou por margem */}
+      <td className="border-l px-2 py-2">
+        <div className="flex items-center gap-1">
+          <div className="flex rounded-md bg-muted p-0.5">
+            {(
+              [
+                ["preco", "R$"],
+                ["margem", "%"],
+              ] as const
+            ).map(([modo, rotulo]) => (
+              <button
+                key={modo}
+                onClick={() => aoMudarRascunho({ modo, texto: "" })}
+                title={modo === "preco" ? "Digitar o preço novo" : "Digitar a margem que você quer"}
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[10px] font-bold",
+                  rascunho.modo === modo ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+                )}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
+          <Input
+            inputMode="decimal"
+            value={rascunho.texto}
+            onChange={(e) => aoMudarRascunho({ ...rascunho, texto: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && mudou && precoNovo !== null) aoAplicar(precoNovo);
+            }}
+            placeholder={
+              rascunho.modo === "preco"
+                ? r.precoVenda.toFixed(2).replace(".", ",")
+                : (r.margem * 100).toFixed(1).replace(".", ",")
+            }
+            className="num h-7 w-24 px-2 text-right text-xs"
+          />
+        </div>
+      </td>
+      <td className="px-2 py-2">
+        {impossivel ? (
+          <span className="text-[10px] text-loss">Margem impossível com essas taxas</span>
+        ) : novo && precoNovo !== null ? (
+          <div className="leading-tight">
+            <p className={cn("num text-[11px] font-bold", corNovo)}>
+              {rascunho.modo === "margem" ? `Preço ${formatBRL(precoNovo)}` : `Margem ${formatPercentual(novo.margem)}`}
+            </p>
+            <p className="num text-[10px] text-muted-foreground">
+              Lucro {formatBRL(novo.lucro)}
+              {novo.lucro < 0 && <span className="text-loss"> · prejuízo</span>}
+            </p>
+          </div>
+        ) : (
+          <span className="text-[10px] text-muted-foreground">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right">
+        <Button
+          size="sm"
+          variant={mudou ? "default" : "outline"}
+          className="h-7 text-[11px]"
+          disabled={!mudou || aplicando}
+          onClick={() => precoNovo !== null && aoAplicar(precoNovo)}
+        >
+          {aplicando ? <Loader2 className="size-3.5 animate-spin" /> : null}
+          Aplicar
+        </Button>
+      </td>
+    </tr>
   );
 }
 
@@ -711,13 +1077,17 @@ type ModoRecebimento = "todos" | "especifico";
  */
 function DialogEditarProduto({
   produto,
+  categorias,
   aoFechar,
   aoSalvar,
 }: {
   produto: Produto;
+  /** Categorias que o seller já usa — aparecem como sugestão */
+  categorias: string[];
   aoFechar: () => void;
   aoSalvar: (produto: Produto) => void;
 }) {
+  const [categoria, setCategoria] = useState(produto.categoria ?? "");
   const [sku, setSku] = useState(produto.sku);
   const [nome, setNome] = useState(produto.nome);
   const [ean, setEan] = useState(produto.ean ?? "");
@@ -739,6 +1109,10 @@ function DialogEditarProduto({
     if (erro) {
       toast.error(erro);
       return;
+    }
+    if ((produto.categoria ?? "") !== categoria.trim()) {
+      const erroCategoria = await produtosService.atualizarCategoria(produto.id, categoria);
+      if (erroCategoria) toast.error(`Salvei o produto, mas não a categoria: ${erroCategoria}`);
     }
     if (atualizado) {
       toast.success(`"${atualizado.nome}" atualizado.`);
@@ -775,6 +1149,22 @@ function DialogEditarProduto({
               className="mt-1"
               disabled={salvando}
             />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Categoria (opcional)</Label>
+            <Input
+              list="categorias-editar-produto"
+              value={categoria}
+              onChange={(e) => setCategoria(e.target.value)}
+              placeholder="Ex.: Relógios"
+              className="mt-1"
+              disabled={salvando}
+            />
+            <datalist id="categorias-editar-produto">
+              {categorias.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -939,7 +1329,7 @@ function DialogReceberAnuncios({
         <DialogHeader>
           <DialogTitle>Receber anúncios</DialogTitle>
           <DialogDescription>
-            Puxa os anúncios do marketplace para a tela de Custos — o que chegar sem CMV
+            Puxa os anúncios do marketplace para a tela de Precificação — o que chegar sem CMV
             cai em "sem vínculo", esperando você informar o custo.
           </DialogDescription>
         </DialogHeader>
@@ -1067,79 +1457,5 @@ function SeloSituacao({
       <span className={cn("size-1.5 shrink-0 rounded-full", cor)} />
       {texto}
     </span>
-  );
-}
-
-/**
- * Os limites canal a canal. O mesmo produto tem preço mínimo diferente em
- * cada marketplace — 20% de margem no Mercado Livre não é o mesmo preço que
- * 20% na Shopee, porque a comissão e o frete são outros.
- */
-function TabelaLimites({ itens }: { itens: LimitePorCanal[] }) {
-  return (
-    <div className="overflow-x-auto border-t bg-muted/20">
-      <table className="w-full min-w-[820px] text-left">
-        <thead>
-          <tr className="text-[9px] uppercase tracking-wide text-muted-foreground">
-            <th className="px-6 py-2 font-bold">Canal / conta</th>
-            <th className="px-4 py-2 text-right font-bold">Preço hoje</th>
-            <th className="px-4 py-2 text-right font-bold">Margem hoje</th>
-            <th className="px-4 py-2 text-right font-bold">Preço mínimo</th>
-            <th className="px-4 py-2 text-right font-bold">Empate</th>
-          </tr>
-        </thead>
-        <tbody>
-          {itens.map(({ anuncio, nomeConta, margemMinima, limites }) => {
-            const cor = limites.emPrejuizo
-              ? "text-loss"
-              : limites.abaixoDoMinimo
-                ? "text-warning"
-                : "text-profit";
-            const ponto = limites.emPrejuizo
-              ? "bg-loss"
-              : limites.abaixoDoMinimo
-                ? "bg-warning"
-                : "bg-profit";
-            return (
-              <tr key={anuncio.id} className="border-t border-border/40">
-                <td className="px-6 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className={cn("size-1.5 shrink-0 rounded-full", ponto)} />
-                    <SeloMarketplace id={anuncio.marketplaceId} />
-                    <span className="text-[10px] text-muted-foreground">{nomeConta}</span>
-                  </div>
-                  {limites.faltaParaMinimo > 0 && (
-                    <p className="mt-1 pl-[14px] text-[10px] text-muted-foreground">
-                      Precisa subir {formatBRL(limites.faltaParaMinimo)} para voltar aos{" "}
-                      {formatPercentual(margemMinima)}
-                    </p>
-                  )}
-                </td>
-                <td className="num px-4 py-2.5 text-right text-xs">
-                  {formatBRL(anuncio.precoAtual)}
-                </td>
-                <td className={cn("num px-4 py-2.5 text-right text-xs font-semibold", cor)}>
-                  {formatPercentual(limites.margemAtual)}
-                </td>
-                <td
-                  className={cn(
-                    "num px-4 py-2.5 text-right text-xs font-bold",
-                    limites.abaixoDoMinimo && "text-warning",
-                  )}
-                >
-                  {formatBRL(limites.precoMinimo)}
-                  <span className="ml-1 text-[9px] font-normal text-muted-foreground">
-                    ({formatPercentual(margemMinima)})
-                  </span>
-                </td>
-                <td className="num px-4 py-2.5 text-right text-xs text-loss">
-                  {formatBRL(limites.precoEmpate)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
   );
 }
