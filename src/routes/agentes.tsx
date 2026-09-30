@@ -12,6 +12,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import {
+  alteracoesPrecoService,
   anunciosService,
   adsService,
   auditorService,
@@ -31,6 +32,7 @@ import {
   promocoesService,
   sacService,
   vendasService,
+  type AlteracaoPrecoRegistrada,
   type RascunhoCriativo,
 } from "@/services";
 import { getMarketplace } from "@/data/mock";
@@ -248,6 +250,9 @@ function Agentes() {
   /** Produto com a janela da ficha aberta (a mesma no SAC e no Criativo) */
   const [alvoFicha, setAlvoFicha] = useState<AlvoFicha | null>(null);
   const [carregando, setCarregando] = useState(true);
+  /** Mudanças de preço feitas na tela Precificação — entram no "antes x
+   * depois" do Agente de Precificação junto com as sugestões aprovadas. */
+  const [alteracoesManuais, setAlteracoesManuais] = useState<AlteracaoPrecoRegistrada[]>([]);
 
   /**
    * A varredura do agente. Hoje roda quando a tela abre; quando houver
@@ -262,8 +267,14 @@ function Agentes() {
     // Garante que o CMV dos produtos reais já está espalhado pros
     // anúncios de exemplo, mesmo que o seller nunca tenha passado pela
     // tela de Custos nesta sessão — senão o agente avalia sem custo.
-    const produtos = await produtosService.listar(perfilId);
+    const [produtos, alteracoes] = await Promise.all([
+      produtosService.listar(perfilId),
+      alteracoesPrecoService.listar(perfilId),
+    ]);
     produtosService.reconciliarComAnuncios(produtos);
+    // Os preços que o seller mudou na tela Precificação valem aqui também.
+    alteracoesPrecoService.aplicarNosAnuncios(alteracoes);
+    setAlteracoesManuais(alteracoes);
 
     // Frentes 1 e 2: subir (vende rápido e o estoque vai acabar) e baixar
     // (parado, com corte que cresce com o tempo parado e o dinheiro preso).
@@ -711,10 +722,24 @@ function Agentes() {
         data: e.decididoEm!,
         exemplo: false,
       }));
-    return [...aprovadasReais, ...mudancasPrecoService.exemplos()]
+    const manuais = alteracoesManuais
+      .filter((m) => semRestricaoDeConta || (m.contaId !== null && contasSelecionadas.has(m.contaId)))
+      .map((m) => ({
+        id: m.id,
+        anuncioId: m.anuncioId,
+        sku: m.sku,
+        produto: m.produto,
+        marketplaceId: m.marketplaceId,
+        contaId: m.contaId ?? "",
+        precoAntes: m.precoAntes,
+        precoDepois: m.precoDepois,
+        data: m.data,
+        exemplo: false,
+      }));
+    return [...aprovadasReais, ...manuais, ...mudancasPrecoService.exemplos()]
       .map((m) => avaliarMudancaPreco(m, pedidos))
       .sort((a, b) => a.diasDesde - b.diasDesde);
-  }, [eventosNaSelecao]);
+  }, [eventosNaSelecao, alteracoesManuais, semRestricaoDeConta, contasSelecionadas]);
 
   const decidir = async (evento: EventoAgente, status: StatusSugestao) => {
     if (status !== "aprovada" && status !== "recusada") return;
