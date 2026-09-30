@@ -241,6 +241,16 @@ function Precificacao() {
     return Array.from(unicas).sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [produtos]);
 
+  /** Quantos produtos em cada categoria (e sem categoria) — aparece na lista do filtro */
+  const contagemCategorias = useMemo(() => {
+    const mapa = new Map<string, number>();
+    for (const p of produtos) {
+      const chave = p.categoria?.trim() || SEM_CATEGORIA;
+      mapa.set(chave, (mapa.get(chave) ?? 0) + 1);
+    }
+    return mapa;
+  }, [produtos]);
+
   const grupos = useMemo<GrupoProduto[]>(() => {
     return produtos.map((p) => {
       const vinculados = anuncios.filter((a) => a.produtoId === p.id);
@@ -276,7 +286,8 @@ function Precificacao() {
         melhorMargem: linhas.length > 0 ? Math.max(...linhas.map((l) => l.det.margem)) : null,
         menorLucro: linhas.length > 0 ? Math.min(...linhas.map((l) => l.det.lucro)) : null,
         maiorLucro: linhas.length > 0 ? Math.max(...linhas.map((l) => l.det.lucro)) : null,
-        vendidas: vinculados.reduce((s, a) => s + a.unidadesVendidas, 0),
+        // Soma só os anúncios que aparecem (respeita o filtro de conta lá de cima).
+        vendidas: naSelecao.reduce((s, a) => s + a.unidadesVendidas, 0),
       };
     });
   }, [
@@ -336,12 +347,14 @@ function Precificacao() {
       }
     });
     // Dentro de cada produto, os anúncios seguem a mesma ordem quando ela
-    // é por margem ou lucro.
+    // é por margem, lucro ou vendas.
     const ordemLinhas: Partial<Record<Ordenacao, (x: LinhaAnuncio, y: LinhaAnuncio) => number>> = {
       "margem-maior": (x, y) => y.det.margem - x.det.margem,
       "margem-menor": (x, y) => x.det.margem - y.det.margem,
       "lucro-maior": (x, y) => y.det.lucro - x.det.lucro,
       "lucro-menor": (x, y) => x.det.lucro - y.det.lucro,
+      "vendas-mais": (x, y) => y.anuncio.unidadesVendidas - x.anuncio.unidadesVendidas,
+      "vendas-menos": (x, y) => x.anuncio.unidadesVendidas - y.anuncio.unidadesVendidas,
     };
     const ordemDasLinhas = ordemLinhas[ordenar as Ordenacao];
     return ordemDasLinhas
@@ -499,7 +512,7 @@ function Precificacao() {
     toast(`"${anuncio.produto}" descartado — não aparece mais na fila.`);
   };
 
-  const COLUNAS = 16;
+  const COLUNAS = 17;
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-6">
@@ -620,20 +633,12 @@ function Precificacao() {
             />
           </Filtro>
           <Filtro rotulo="Categoria">
-            <Select value={categoriaFiltro} onValueChange={setCategoriaFiltro}>
-              <SelectTrigger className="h-8 w-44 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todas">Todas</SelectItem>
-                {categorias.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-                <SelectItem value={SEM_CATEGORIA}>Sem categoria</SelectItem>
-              </SelectContent>
-            </Select>
+            <FiltroCategoria
+              valor={categoriaFiltro}
+              aoMudar={setCategoriaFiltro}
+              categorias={categorias}
+              contagem={contagemCategorias}
+            />
           </Filtro>
           <Filtro rotulo="Situação">
             <Select
@@ -698,6 +703,9 @@ function Precificacao() {
             <thead>
               <tr className="border-b bg-muted/50 text-[9px] uppercase tracking-wide text-muted-foreground">
                 <th className="px-3 py-2.5 font-bold">Canal / conta</th>
+                <th className="px-2 py-2.5 text-right font-bold" title="Unidades vendidas no período">
+                  Vendidos
+                </th>
                 <th className="px-2 py-2.5 text-right font-bold">Preço</th>
                 <th className="px-2 py-2.5 text-right font-bold">CMV</th>
                 <th className="px-2 py-2.5 text-right font-bold">Comissão</th>
@@ -839,7 +847,9 @@ function Precificacao() {
 
                               <SeloSituacao situacao={g.situacao} qtdAbaixo={g.qtdAbaixo} />
                               <span className="text-[10px] text-muted-foreground">
-                                {g.linhas.length} anúncio{g.linhas.length === 1 ? "" : "s"}
+                                {g.linhas.length} anúncio{g.linhas.length === 1 ? "" : "s"} ·{" "}
+                                <strong className="num text-foreground">{formatNumero(g.vendidas)}</strong>{" "}
+                                vendido{g.vendidas === 1 ? "" : "s"}
                               </span>
 
                               <span className="ml-auto flex items-center gap-2">
@@ -1008,6 +1018,89 @@ function Precificacao() {
   );
 }
 
+/**
+ * Filtro de categoria com busca: com muitas categorias, a lista rola e dá
+ * pra digitar pra achar. Mostra quantos produtos tem em cada uma.
+ */
+function FiltroCategoria({
+  valor,
+  aoMudar,
+  categorias,
+  contagem,
+}: {
+  valor: string;
+  aoMudar: (v: string) => void;
+  categorias: string[];
+  contagem: Map<string, number>;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [busca, setBusca] = useState("");
+  const termo = busca.trim().toLowerCase();
+  const filtradas = termo ? categorias.filter((c) => c.toLowerCase().includes(termo)) : categorias;
+  const rotulo =
+    valor === "todas" ? "Todas" : valor === SEM_CATEGORIA ? "Sem categoria" : valor;
+
+  const escolher = (v: string) => {
+    aoMudar(v);
+    setAberto(false);
+    setBusca("");
+  };
+
+  const Opcao = ({ id, texto, qtd }: { id: string; texto: string; qtd?: number }) => (
+    <button
+      onClick={() => escolher(id)}
+      className={cn(
+        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted",
+        valor === id && "bg-muted font-semibold",
+      )}
+    >
+      <span className="min-w-0 flex-1 truncate">{texto}</span>
+      {qtd !== undefined && <span className="num text-[10px] text-muted-foreground">{qtd}</span>}
+      {valor === id && <Check className="size-3.5 shrink-0" />}
+    </button>
+  );
+
+  return (
+    <Popover
+      open={aberto}
+      onOpenChange={(v) => {
+        setAberto(v);
+        if (!v) setBusca("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button className="flex h-8 w-44 items-center justify-between gap-2 rounded-md border bg-transparent px-3 text-xs">
+          <span className="truncate">{rotulo}</span>
+          <ChevronDown className="size-3.5 shrink-0 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 p-2">
+        <Input
+          autoFocus
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar categoria..."
+          className="mb-2 h-8 text-xs"
+        />
+        <div className="max-h-64 space-y-0.5 overflow-y-auto">
+          {!termo && <Opcao id="todas" texto="Todas" />}
+          {filtradas.map((c) => (
+            <Opcao key={c} id={c} texto={c} qtd={contagem.get(c) ?? 0} />
+          ))}
+          {!termo && (
+            <Opcao id={SEM_CATEGORIA} texto="Sem categoria" qtd={contagem.get(SEM_CATEGORIA) ?? 0} />
+          )}
+          {termo && filtradas.length === 0 && (
+            <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+              Nenhuma categoria com "{busca.trim()}".
+            </p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function Resumo({ rotulo, valor, cor }: { rotulo: string; valor: string; cor?: string }) {
   return (
     <div className="rounded-lg bg-muted px-3 py-2">
@@ -1083,6 +1176,9 @@ function LinhaDoAnuncio({
           <SeloMarketplace id={a.marketplaceId} />
           <span className="truncate text-[10px] text-muted-foreground">{linha.nomeConta}</span>
         </div>
+      </td>
+      <td className="num px-2 py-2 text-right" title="Unidades vendidas no período">
+        {formatNumero(a.unidadesVendidas)}
       </td>
       <td
         className={cn("num px-2 py-2 text-right font-semibold", alteracaoPreco && COR_ALTERADO)}
