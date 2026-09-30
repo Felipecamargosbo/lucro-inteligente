@@ -32,6 +32,7 @@ import {
 } from "@/data/mock";
 import { CONFIGURACAO_SAC_PADRAO, MODELOS_SAC_PADRAO } from "@/lib/sac";
 import { CONFIGURACAO_CRIATIVO_PADRAO, LIMITES_TITULO_PADRAO } from "@/lib/criativo";
+import type { AjusteCusto, ModoAds } from "@/lib/precificacao";
 import type {
   AcaoAds,
   AgenteId,
@@ -471,6 +472,55 @@ export const alteracoesPrecoService = {
       const anuncio = ANUNCIOS.find((a) => a.id === alt.anuncioId);
       if (anuncio) anuncio.precoAtual = alt.precoDepois;
     }
+  },
+};
+
+/** O que o seller ajustou nas colunas Ads e Outros da tela Precificação,
+ * anúncio por anúncio (tabela `ajustes_custo_anuncio`). */
+export const ajustesCustoService = {
+  /** Mapa id do anúncio → ajuste. Anúncio fora do mapa = tudo automático. */
+  listar: async (perfilId: string): Promise<Map<string, AjusteCusto>> => {
+    const mapa = new Map<string, AjusteCusto>();
+    const { data, error } = await supabase
+      .from("ajustes_custo_anuncio")
+      .select("*")
+      .eq("perfil_id", perfilId);
+    if (error) {
+      console.error("ajustesCustoService.listar:", error.message);
+      return mapa;
+    }
+    for (const l of data ?? []) {
+      mapa.set(l.anuncio_id as string, {
+        adsModo: (l.ads_modo as ModoAds) ?? "auto",
+        adsValor: Number(l.ads_valor) || 0,
+        ignorados: Array.isArray(l.ignorados) ? (l.ignorados as string[]) : [],
+        custoExtra: Number(l.custo_extra) || 0,
+      });
+    }
+    return mapa;
+  },
+
+  /** Grava o mesmo ajuste em um ou vários anúncios (ex.: "todos os
+   * anúncios deste produto"). */
+  salvar: async (
+    perfilId: string,
+    anuncioIds: string[],
+    ajuste: AjusteCusto,
+  ): Promise<string | null> => {
+    const agora = new Date().toISOString();
+    const { error } = await supabase.from("ajustes_custo_anuncio").upsert(
+      anuncioIds.map((id) => ({
+        perfil_id: perfilId,
+        anuncio_id: id,
+        ads_modo: ajuste.adsModo,
+        ads_valor: ajuste.adsValor,
+        ignorados: ajuste.ignorados,
+        custo_extra: ajuste.custoExtra,
+        atualizado_em: agora,
+      })),
+      { onConflict: "perfil_id,anuncio_id" },
+    );
+    return error?.message ?? null;
   },
 };
 
