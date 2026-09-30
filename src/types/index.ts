@@ -318,6 +318,9 @@ export interface Produto {
   ean: string | null;
   nome: string;
   cmv: number;
+  /** Categoria escolhida pelo seller ("Relógios", "Áudio"...) pra separar e
+   * filtrar a tela Precificação. null/ausente = sem categoria. */
+  categoria?: string | null;
 }
 
 /** Números brutos de Ads de um anúncio — o resto (ROAS, ACOS, CTR, CPC) é
