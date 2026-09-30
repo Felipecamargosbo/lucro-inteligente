@@ -49,11 +49,11 @@ export const MENU: ItemMenu[] = [
     usaFiltroContas: true,
   },
   {
-    titulo: "Custos",
+    titulo: "Precificação",
     url: "/produtos",
     icone: Package,
     grupo: "Análise",
-    descricao: "O CMV de cada produto, cadastrado uma vez só",
+    descricao: "Custo, taxas, lucro e margem de cada anúncio — e o preço novo",
     usaPeriodo: false,
     // Mesmo filtro global de canal/loja do Dashboard, na mesma posição —
     // ao lado do título, lá na barra de cima.
