@@ -19,6 +19,7 @@ import {
   anunciosService,
   contasService,
   produtosService,
+  type AlteracaoPrecoRegistrada,
 } from "@/services";
 import { USUARIO_ATUAL } from "@/data/mock";
 import { useAuth } from "@/context/auth";
@@ -109,10 +110,35 @@ interface GrupoProduto {
   linhas: LinhaAnuncio[];
   situacao: SituacaoProduto;
   qtdAbaixo: number;
-  /** Menor margem entre os anúncios — pra ordenar "pior margem primeiro" */
+  /** Menor e maior margem entre os anúncios — pra ordenar por margem */
   piorMargem: number | null;
+  melhorMargem: number | null;
+  /** Menor e maior lucro por unidade entre os anúncios */
+  menorLucro: number | null;
+  maiorLucro: number | null;
   vendidas: number;
 }
+
+type Ordenacao =
+  | "nome-az"
+  | "nome-za"
+  | "margem-maior"
+  | "margem-menor"
+  | "lucro-maior"
+  | "lucro-menor"
+  | "vendas-mais"
+  | "vendas-menos";
+
+const OPCOES_ORDENAR: { id: Ordenacao; rotulo: string }[] = [
+  { id: "nome-az", rotulo: "Nome (A-Z)" },
+  { id: "nome-za", rotulo: "Nome (Z-A)" },
+  { id: "margem-maior", rotulo: "Margem: maior primeiro" },
+  { id: "margem-menor", rotulo: "Margem: menor primeiro (prejuízo no topo)" },
+  { id: "lucro-maior", rotulo: "Lucro: maior primeiro" },
+  { id: "lucro-menor", rotulo: "Lucro: menor primeiro" },
+  { id: "vendas-mais", rotulo: "Mais vendidos primeiro" },
+  { id: "vendas-menos", rotulo: "Menos vendidos primeiro" },
+];
 
 type ModoEdicao = "preco" | "margem";
 
@@ -131,7 +157,7 @@ function Precificacao() {
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>("todas");
   const [situacaoFiltro, setSituacaoFiltro] = useState<"todos" | SituacaoProduto>("todos");
   const [agrupar, setAgrupar] = useState<"produto" | "categoria">("produto");
-  const [ordenar, setOrdenar] = useState<"nome" | "margem" | "vendas">("nome");
+  const [ordenar, setOrdenar] = useState<Ordenacao>("nome-az");
   /** Produtos recolhidos (por padrão todos ficam abertos) */
   const [fechados, setFechados] = useState<Set<string>>(new Set());
   const [verPendentes, setVerPendentes] = useState(true);
@@ -158,6 +184,10 @@ function Precificacao() {
   const [carregandoProdutos, setCarregandoProdutos] = useState(true);
   /** Ajustes de Ads e Outros, por anúncio */
   const [ajustes, setAjustes] = useState<Map<string, AjusteCusto>>(new Map());
+  /** Última mudança de preço feita aqui, por anúncio — o preço fica colorido */
+  const [precosAlterados, setPrecosAlterados] = useState<Map<string, AlteracaoPrecoRegistrada>>(
+    new Map(),
+  );
 
   const carregarProdutos = useCallback(async () => {
     if (!sessao) return;
@@ -167,6 +197,10 @@ function Precificacao() {
       ajustesCustoService.listar(sessao.user.id),
     ]);
     setAjustes(mapaAjustes);
+    const ultimas = new Map<string, AlteracaoPrecoRegistrada>();
+    // A lista vem da mais nova pra mais antiga: a primeira de cada anúncio vale.
+    for (const alt of alteracoes) if (!ultimas.has(alt.anuncioId)) ultimas.set(alt.anuncioId, alt);
+    setPrecosAlterados(ultimas);
     // Casa cada produto real com os anúncios pelo SKU (o CMV vem do produto)
     // e reaplica os preços que o seller já mudou aqui.
     produtosService.reconciliarComAnuncios(lista);
@@ -240,6 +274,9 @@ function Precificacao() {
         situacao:
           linhas.length === 0 ? "sem-anuncio" : temPrejuizo ? "prejuizo" : qtdAbaixo > 0 ? "abaixo" : "ok",
         piorMargem: linhas.length > 0 ? Math.min(...linhas.map((l) => l.det.margem)) : null,
+        melhorMargem: linhas.length > 0 ? Math.max(...linhas.map((l) => l.det.margem)) : null,
+        menorLucro: linhas.length > 0 ? Math.min(...linhas.map((l) => l.det.lucro)) : null,
+        maiorLucro: linhas.length > 0 ? Math.max(...linhas.map((l) => l.det.lucro)) : null,
         vendidas: vinculados.reduce((s, a) => s + a.unidadesVendidas, 0),
       };
     });
@@ -272,16 +309,45 @@ function Precificacao() {
       }
       return true;
     });
-    return lista.sort((a, b) => {
-      if (ordenar === "margem") {
-        // Pior margem primeiro; produto sem anúncio vai pro fim.
-        if (a.piorMargem === null) return 1;
-        if (b.piorMargem === null) return -1;
-        return a.piorMargem - b.piorMargem;
+    // Compara dois números; produto sem anúncio (null) vai sempre pro fim.
+    const porNumero = (x: number | null, y: number | null, crescente: boolean) => {
+      if (x === null && y === null) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
+      return crescente ? x - y : y - x;
+    };
+    const ordenada = lista.sort((a, b) => {
+      switch (ordenar) {
+        case "nome-za":
+          return b.produto.nome.localeCompare(a.produto.nome, "pt-BR");
+        case "margem-maior":
+          return porNumero(a.melhorMargem, b.melhorMargem, false);
+        case "margem-menor":
+          return porNumero(a.piorMargem, b.piorMargem, true);
+        case "lucro-maior":
+          return porNumero(a.maiorLucro, b.maiorLucro, false);
+        case "lucro-menor":
+          return porNumero(a.menorLucro, b.menorLucro, true);
+        case "vendas-mais":
+          return b.vendidas - a.vendidas;
+        case "vendas-menos":
+          return a.vendidas - b.vendidas;
+        default:
+          return a.produto.nome.localeCompare(b.produto.nome, "pt-BR");
       }
-      if (ordenar === "vendas") return b.vendidas - a.vendidas;
-      return a.produto.nome.localeCompare(b.produto.nome, "pt-BR");
     });
+    // Dentro de cada produto, os anúncios seguem a mesma ordem quando ela
+    // é por margem ou lucro.
+    const ordemLinhas: Partial<Record<Ordenacao, (x: LinhaAnuncio, y: LinhaAnuncio) => number>> = {
+      "margem-maior": (x, y) => y.det.margem - x.det.margem,
+      "margem-menor": (x, y) => x.det.margem - y.det.margem,
+      "lucro-maior": (x, y) => y.det.lucro - x.det.lucro,
+      "lucro-menor": (x, y) => x.det.lucro - y.det.lucro,
+    };
+    const ordemDasLinhas = ordemLinhas[ordenar as Ordenacao];
+    return ordemDasLinhas
+      ? ordenada.map((g) => ({ ...g, linhas: [...g.linhas].sort(ordemDasLinhas) }))
+      : ordenada;
   }, [grupos, busca, situacaoFiltro, categoriaFiltro, ordenar, semRestricaoDeConta]);
 
   /** Agrupado por categoria: uma faixa por categoria, "Sem categoria" no fim. */
@@ -376,6 +442,19 @@ function Precificacao() {
       delete novo[a.id];
       return novo;
     });
+    setPrecosAlterados((atual) =>
+      new Map(atual).set(a.id, {
+        id: `local-${Date.now()}`,
+        anuncioId: a.id,
+        contaId: a.contaId,
+        sku: a.sku,
+        produto: a.produto,
+        marketplaceId: a.marketplaceId,
+        precoAntes: antes,
+        precoDepois: precoNovo,
+        data: new Date().toISOString(),
+      }),
+    );
     setTick((n) => n + 1);
     toast.success(`${a.produto} (${linha.nomeConta}): de ${formatBRL(antes)} para ${formatBRL(precoNovo)}.`, {
       description:
@@ -575,14 +654,16 @@ function Precificacao() {
             </Select>
           </Filtro>
           <Filtro rotulo="Ordenar por">
-            <Select value={ordenar} onValueChange={(v) => setOrdenar(v as typeof ordenar)}>
-              <SelectTrigger className="h-8 w-48 text-xs">
+            <Select value={ordenar} onValueChange={(v) => setOrdenar(v as Ordenacao)}>
+              <SelectTrigger className="h-8 w-56 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="nome">Nome (A-Z)</SelectItem>
-                <SelectItem value="margem">Pior margem primeiro</SelectItem>
-                <SelectItem value="vendas">Mais vendidos primeiro</SelectItem>
+                {OPCOES_ORDENAR.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>
+                    {o.rotulo}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </Filtro>
@@ -789,6 +870,7 @@ function Precificacao() {
                               key={l.anuncio.id}
                               linha={l}
                               cfg={cfg}
+                              alteracaoPreco={precosAlterados.get(l.anuncio.id) ?? null}
                               aoSalvarAjuste={(ajuste, todos) => salvarAjuste(l, ajuste, todos)}
                               rascunho={rascunhos[l.anuncio.id] ?? { modo: "preco", texto: "" }}
                               aoMudarRascunho={(r) =>
@@ -861,6 +943,10 @@ function Precificacao() {
             </span>
             <span className="flex items-center gap-1.5">
               <span className="size-2 rounded-full bg-loss" /> Abaixo do empate — prejuízo
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="font-semibold text-brand">R$ 0,00</span> Valor que você mudou (preço
+              aplicado aqui, Ads ou Outros)
             </span>
             <span className="ml-auto">A margem mínima de cada conta vem das metas em Configurações.</span>
           </div>
@@ -955,9 +1041,12 @@ function LinhaDoAnuncio({
   aplicando,
   aoAplicar,
   aoSalvarAjuste,
+  alteracaoPreco,
 }: {
   linha: LinhaAnuncio;
   cfg: ConfigPrecificacao;
+  /** Última mudança de preço feita nesta tela (null = preço original) */
+  alteracaoPreco: AlteracaoPrecoRegistrada | null;
   rascunho: { modo: ModoEdicao; texto: string };
   aoMudarRascunho: (r: { modo: ModoEdicao; texto: string }) => void;
   aplicando: boolean;
@@ -1005,7 +1094,16 @@ function LinhaDoAnuncio({
           <span className="truncate text-[10px] text-muted-foreground">{linha.nomeConta}</span>
         </div>
       </td>
-      <td className="num px-2 py-2 text-right font-semibold">{formatBRL(d.preco)}</td>
+      <td
+        className={cn("num px-2 py-2 text-right font-semibold", alteracaoPreco && COR_ALTERADO)}
+        title={
+          alteracaoPreco
+            ? `Preço mudado aqui em ${new Date(alteracaoPreco.data).toLocaleDateString("pt-BR")}: de ${formatBRL(alteracaoPreco.precoAntes)} para ${formatBRL(alteracaoPreco.precoDepois)}. Sem API ainda, confira se mudou também no marketplace.`
+            : undefined
+        }
+      >
+        {formatBRL(d.preco)}
+      </td>
       <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(d.cmv)}</td>
       <td
         className="num px-2 py-2 text-right text-muted-foreground"
@@ -1115,11 +1213,19 @@ function LinhaDoAnuncio({
 /* ------------------------------------------------------------------ */
 
 const ROTULO_MODO_ADS: Record<ModoAds, string> = {
-  auto: "auto",
-  reais: "fixo",
-  percentual: "%",
-  nenhum: "fora",
+  auto: "automático",
+  reais: "em valor fixo por unidade",
+  percentual: "em % do preço",
+  nenhum: "fora da conta",
 };
+
+/** Valor que o seller mudou (preço aplicado aqui, Ads ou Outros ajustados)
+ * aparece nesta cor — sem etiqueta do lado, pra não bagunçar a coluna. */
+const COR_ALTERADO = "font-semibold text-brand";
+
+/** Célula clicável: sem sublinhado, só um fundo leve ao passar o mouse. */
+const BOTAO_EDITAVEL =
+  "num inline-flex items-center rounded px-1.5 py-0.5 text-right transition-colors hover:bg-muted cursor-pointer";
 
 function PopoverAds({
   anuncio,
@@ -1183,15 +1289,17 @@ function PopoverAds({
     <Popover open={aberto} onOpenChange={setAberto}>
       <PopoverTrigger asChild>
         <button
-          className="num inline-flex items-center gap-1 rounded px-1 py-0.5 text-right text-muted-foreground underline decoration-dotted underline-offset-2 transition-colors hover:bg-muted hover:text-foreground"
-          title="Clique pra escolher como o Ads entra na conta"
+          className={cn(
+            BOTAO_EDITAVEL,
+            ajuste.adsModo !== "auto" ? COR_ALTERADO : "text-muted-foreground hover:text-foreground",
+          )}
+          title={
+            ajuste.adsModo === "auto"
+              ? "Ads automático (média real). Clique pra mudar."
+              : `Ads ${ROTULO_MODO_ADS[ajuste.adsModo]}. Clique pra mudar.`
+          }
         >
           {formatBRL(valorAtual)}
-          {ajuste.adsModo !== "auto" && (
-            <span className="rounded bg-brand/15 px-1 text-[9px] font-bold text-brand">
-              {ROTULO_MODO_ADS[ajuste.adsModo]}
-            </span>
-          )}
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 space-y-3 text-xs">
@@ -1304,13 +1412,17 @@ function PopoverOutros({
     <Popover open={aberto} onOpenChange={setAberto}>
       <PopoverTrigger asChild>
         <button
-          className="num inline-flex items-center gap-1 rounded px-1 py-0.5 text-right text-muted-foreground underline decoration-dotted underline-offset-2 transition-colors hover:bg-muted hover:text-foreground"
-          title="Clique pra escolher quais custos entram na conta"
+          className={cn(
+            BOTAO_EDITAVEL,
+            personalizado ? COR_ALTERADO : "text-muted-foreground hover:text-foreground",
+          )}
+          title={
+            personalizado
+              ? "Você ajustou o que entra aqui. Clique pra ver ou mudar."
+              : "Clique pra escolher quais custos entram na conta"
+          }
         >
           {formatBRL(det.outros)}
-          {personalizado && (
-            <span className="rounded bg-brand/15 px-1 text-[9px] font-bold text-brand">ajustado</span>
-          )}
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 space-y-3 text-xs">
