@@ -277,7 +277,10 @@ export const produtosService = {
       } else if (a.produtoId && !produtos.some((p) => p.id === a.produtoId)) {
         // Produto antigo (do mock) que não existe mais no catálogo real:
         // volta para "sem vínculo" em vez de mentir um CMV que já não vale.
+        // (Antes só tirava o vínculo e deixava o CMV antigo — por isso os
+        // agentes nunca mostravam anúncio "sem custo".)
         a.produtoId = null;
+        a.cmv = null;
       }
     }
   },
