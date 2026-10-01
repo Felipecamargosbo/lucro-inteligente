@@ -94,13 +94,17 @@ function lado(x: AnaliseRoasAnuncio): LadoRealocacaoAds {
 export function montarAcoesAds(analises: AnaliseRoasAnuncio[]): AcaoAdsNova[] {
   const novas: AcaoAdsNova[] = [];
 
+  // Realocação vira DUAS ações separadas, uma por anúncio: reduzir a verba
+  // de quem está no prejuízo e aumentar a de quem está saudável. Cada aviso
+  // fala de um SKU só, e cada um é aprovado ou recusado por conta própria.
   const realocacoes = sugerirRealocacaoAds(analises);
   const emRealocacao = new Set<string>();
+  const jaAumentar = new Set<string>();
   for (const { fonte, destino } of realocacoes) {
     emRealocacao.add(fonte.anuncio.id);
     emRealocacao.add(destino.anuncio.id);
     novas.push({
-      chave: `realocacao:${fonte.anuncio.id}->${destino.anuncio.id}`,
+      chave: `realocacao-reduzir:${fonte.anuncio.id}`,
       acao: {
         contaId: fonte.anuncio.contaId,
         anuncioId: fonte.anuncio.id,
@@ -108,8 +112,27 @@ export function montarAcoesAds(analises: AnaliseRoasAnuncio[]): AcaoAdsNova[] {
         produto: fonte.anuncio.produto,
         marketplaceId: fonte.anuncio.marketplaceId,
         semaforo: "vermelho",
-        motivo: `${fonte.anuncio.produto} (curva C) está abaixo do ROAS mínimo há ${fonte.diasSeguidosAbaixo} dias seguidos e gastou ${formatBRL(fonte.investimento)} em 14 dias. ${destino.anuncio.produto} (curva A) está com ROAS ${fmtRoas(destino.roasAtual)}, bem acima do mínimo de ${fmtRoas(destino.contribuicao.roasMinimo)}. Vale mover a verba de um pro outro.`,
-        detalhe: { tipo: "realocacao", fonte: lado(fonte), destino: lado(destino) },
+        motivo: `Curva C, com ROAS ${fmtRoas(fonte.roasAtual)} abaixo do mínimo de ${fmtRoas(fonte.contribuicao.roasMinimo)} há ${fonte.diasSeguidosAbaixo} dias seguidos. Gastou ${formatBRL(fonte.investimento)} em Ads nos últimos 14 dias vendendo no prejuízo. Reduza a verba de Ads deste anúncio.`,
+        detalhe: { tipo: "realocacao", fonte: lado(fonte), destino: lado(destino), lado: "reduzir" },
+      },
+    });
+    if (jaAumentar.has(destino.anuncio.id)) continue;
+    jaAumentar.add(destino.anuncio.id);
+    const estoque =
+      destino.coberturaEstoqueDias !== null
+        ? ` Tem estoque pra ${formatNumero(Math.round(destino.coberturaEstoqueDias))} dias.`
+        : "";
+    novas.push({
+      chave: `realocacao-aumentar:${destino.anuncio.id}`,
+      acao: {
+        contaId: destino.anuncio.contaId,
+        anuncioId: destino.anuncio.id,
+        sku: destino.anuncio.sku,
+        produto: destino.anuncio.produto,
+        marketplaceId: destino.anuncio.marketplaceId,
+        semaforo: "verde",
+        motivo: `Curva A, com ROAS ${fmtRoas(destino.roasAtual)}, bem acima do mínimo de ${fmtRoas(destino.contribuicao.roasMinimo)}.${estoque} Vale colocar mais verba de Ads neste anúncio — por exemplo, a que sair dos anúncios no prejuízo.`,
+        detalhe: { tipo: "realocacao", fonte: lado(fonte), destino: lado(destino), lado: "aumentar" },
       },
     });
   }
@@ -363,7 +386,11 @@ function CardAcaoAds({
   const d = acao.detalhe;
   const titulo =
     d.tipo === "realocacao"
-      ? "Mover verba de Ads"
+      ? d.lado === "reduzir"
+        ? "Reduzir a verba de Ads"
+        : d.lado === "aumentar"
+          ? "Aumentar a verba de Ads"
+          : "Mover verba de Ads"
       : d.tipo === "anuncio_cansado"
         ? "Anúncio cansado"
         : d.direcao === "subir"
@@ -371,7 +398,11 @@ function CardAcaoAds({
           : "Baixar o ROAS objetivo";
   const Icone =
     d.tipo === "realocacao"
-      ? ArrowRightLeft
+      ? d.lado === "reduzir"
+        ? ArrowDownRight
+        : d.lado === "aumentar"
+          ? ArrowUpRight
+          : ArrowRightLeft
       : d.tipo === "anuncio_cansado"
         ? MousePointerClick
         : d.direcao === "subir"
@@ -430,14 +461,22 @@ function CardAcaoAds({
         </div>
       )}
 
-      {d.tipo === "realocacao" && (
-        <div className="grid gap-2">
+      {d.tipo === "realocacao" && d.lado === "reduzir" && (
+        <div className="space-y-2">
           <LadoRealocacao titulo="Reduzir" lado={d.fonte} cor="loss" />
+          <p className="text-[10px] leading-relaxed text-muted-foreground">
+            <strong>Como fazer:</strong> no Ads do marketplace, suba o ROAS objetivo deste anúncio
+            (a plataforma passa a gastar menos nele) ou pause o Ads dele.
+          </p>
+        </div>
+      )}
+
+      {d.tipo === "realocacao" && d.lado === "aumentar" && (
+        <div className="space-y-2">
           <LadoRealocacao titulo="Aumentar" lado={d.destino} cor="profit" />
           <p className="text-[10px] leading-relaxed text-muted-foreground">
-            <strong>Como fazer:</strong> no Ads do marketplace, suba o ROAS objetivo do anúncio
-            que está no prejuízo (pra plataforma gastar menos nele) e baixe o do anúncio
-            saudável (pra ele aparecer mais).
+            <strong>Como fazer:</strong> no Ads do marketplace, baixe o ROAS objetivo deste anúncio
+            ou aumente o orçamento dele (a plataforma passa a mostrar mais).
           </p>
         </div>
       )}
