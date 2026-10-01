@@ -231,6 +231,14 @@ function Precificacao() {
     [anuncios, semRestricaoDeConta, contasSelecionadas],
   );
 
+  // A busca também procura nos anúncios sem produto vinculado — e abre a
+  // faixa vermelha sozinha quando acha algum lá.
+  const termoBusca = busca.trim().toLowerCase();
+  const pendentesVisiveis = termoBusca
+    ? pendentes.filter((a) => `${a.produto} ${a.sku}`.toLowerCase().includes(termoBusca))
+    : pendentes;
+  const pendentesAbertos = verPendentes || (termoBusca !== "" && pendentesVisiveis.length > 0);
+
   /** As contas de cada anúncio usam a alíquota e os custos operacionais
    * das Configurações — os mesmos do resto do NEXO. */
   const cfg: ConfigPrecificacao = useMemo(
@@ -641,29 +649,29 @@ function Precificacao() {
           <Resumo rotulo="Margem média dos anúncios" valor={formatPercentual(margemMedia)} />
         </div>
 
-        {/* Anúncios sem produto vinculado */}
-        {pendentes.length > 0 && (
+        {/* Anúncios sem produto vinculado (a busca também procura aqui) */}
+        {pendentes.length > 0 && (!termoBusca || pendentesVisiveis.length > 0) && (
           <div className="border-b">
             <button
               onClick={() => setVerPendentes((v) => !v)}
               className="flex w-full items-center gap-2 bg-loss-soft/30 px-4 py-2.5 text-left"
             >
-              {verPendentes ? (
+              {pendentesAbertos ? (
                 <ChevronDown className="size-3.5 text-loss" />
               ) : (
                 <ChevronRight className="size-3.5 text-loss" />
               )}
               <span className="text-xs font-semibold text-loss">
-                {formatNumero(pendentes.length)} anúncio{pendentes.length > 1 ? "s" : ""} sem produto
-                vinculado
+                {formatNumero(pendentesVisiveis.length)} anúncio{pendentesVisiveis.length > 1 ? "s" : ""}{" "}
+                sem produto vinculado{termoBusca ? ` com "${busca.trim()}"` : ""}
               </span>
               <span className="text-[10px] text-muted-foreground">
                 — sem CMV não dá pra calcular lucro. Vincule a um produto ou crie um novo.
               </span>
             </button>
-            {verPendentes && (
+            {pendentesAbertos && (
               <div className="divide-y">
-                {pendentes.map((a) => (
+                {pendentesVisiveis.map((a) => (
                   <div key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
                     <div className="min-w-[200px] flex-1">
                       <p className="truncate text-xs font-medium">{a.produto}</p>
@@ -1031,7 +1039,17 @@ function Precificacao() {
               {!carregandoProdutos && produtos.length > 0 && gruposFiltrados.length === 0 && (
                 <tr>
                   <td colSpan={COLUNAS} className="px-4 py-12 text-center text-xs text-muted-foreground">
-                    Nada encontrado com esses filtros.
+                    {termoBusca && pendentesVisiveis.length > 0 ? (
+                      <>
+                        Nenhum <strong>produto cadastrado</strong> com "{busca.trim()}". Mas achei{" "}
+                        {pendentesVisiveis.length} anúncio{pendentesVisiveis.length > 1 ? "s" : ""} sem
+                        produto vinculado com esse nome — {pendentesVisiveis.length > 1 ? "estão" : "está"} na
+                        faixa vermelha lá em cima. Clique em <strong>Vincular</strong> pra criar o produto e
+                        colocar o CMV.
+                      </>
+                    ) : (
+                      "Nada encontrado com esses filtros."
+                    )}
                   </td>
                 </tr>
               )}
