@@ -166,7 +166,7 @@ export function MenuLateral({
               </span>
             </p>
             <p className="truncate text-[10px] uppercase tracking-widest text-sidebar-muted">
-              Rentabilidade
+              CENTRAL DO SELLER
             </p>
           </div>
         )}
