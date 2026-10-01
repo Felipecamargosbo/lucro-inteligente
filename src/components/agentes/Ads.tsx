@@ -431,10 +431,10 @@ function CardAcaoAds({
       )}
 
       {d.tipo === "realocacao" && (
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2">
           <LadoRealocacao titulo="Reduzir" lado={d.fonte} cor="loss" />
           <LadoRealocacao titulo="Aumentar" lado={d.destino} cor="profit" />
-          <p className="text-[10px] leading-relaxed text-muted-foreground sm:col-span-2">
+          <p className="text-[10px] leading-relaxed text-muted-foreground">
             <strong>Como fazer:</strong> no Ads do marketplace, suba o ROAS objetivo do anúncio
             que está no prejuízo (pra plataforma gastar menos nele) e baixe o do anúncio
             saudável (pra ele aparecer mais).
