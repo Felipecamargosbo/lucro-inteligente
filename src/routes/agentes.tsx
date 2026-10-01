@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   Bot,
   Boxes,
+  RefreshCw,
   MessageCircle,
   ShieldCheck,
   Target,
@@ -80,6 +81,7 @@ import {
 } from "@/lib/criativo";
 import { montarComparativos, montarTop3, type AgenteTop } from "@/lib/gestor";
 import { Painel } from "@/components/comum/Indicadores";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
   AcaoAds,
@@ -109,6 +111,17 @@ import { PainelAds, montarAcoesAds } from "@/components/agentes/Ads";
 import { PainelAuditor } from "@/components/agentes/Auditor";
 import { PainelCriativo } from "@/components/agentes/Criativo";
 import { ModalFicha, type AlvoFicha } from "@/components/agentes/ModalFicha";
+
+/** As abas da tela de Agentes. */
+type AbaAgente =
+  | "analista"
+  | "precificacao"
+  | "sac"
+  | "estoque"
+  | "fulfillment"
+  | "ads"
+  | "auditor"
+  | "criativo";
 
 export const Route = createFileRoute("/agentes")({
   head: () => ({
@@ -204,16 +217,7 @@ function Agentes() {
   const { selecionadas: contasSelecionadas, todasSelecionadas: semRestricaoDeConta } =
     useSelecaoContas();
   const { sessao, recursos } = useAuth();
-  const [abaAgente, setAbaAgente] = useState<
-    | "analista"
-    | "precificacao"
-    | "sac"
-    | "estoque"
-    | "fulfillment"
-    | "ads"
-    | "auditor"
-    | "criativo"
-  >("analista");
+  const [abaAgente, setAbaAgente] = useState<AbaAgente>("analista");
   const [eventos, setEventos] = useState<EventoAgente[]>([]);
   const [insights, setInsights] = useState<InsightAnalista[]>([]);
   const [tickets, setTickets] = useState<TicketSac[]>([]);
@@ -673,25 +677,79 @@ function Agentes() {
     setCarregandoAuditor(false);
   }, [sessao, recursos.agentes]);
 
+  /** Agente que não conseguiu carregar → mensagem do erro. Sem isso, um
+   * erro no meio do caminho deixava a tela girando pra sempre. */
+  const [errosCarregar, setErrosCarregar] = useState<Partial<Record<AbaAgente, string>>>({});
+
+  /**
+   * Roda a carga de um agente com proteção: se der erro, ou se passar de
+   * 30 segundos sem responder, para o "carregando" e mostra a mensagem com
+   * o botão "Tentar de novo" — em vez de ficar girando sem fim.
+   */
+  const executarCarga = useCallback(
+    async (aba: AbaAgente, carregar: () => Promise<void>, pararCarregando: () => void) => {
+      setErrosCarregar((atual) => {
+        const novo = { ...atual };
+        delete novo[aba];
+        return novo;
+      });
+      try {
+        await Promise.race([
+          carregar(),
+          new Promise<never>((_, rejeitar) =>
+            setTimeout(() => rejeitar(new Error("demorou mais de 30 segundos para responder")), 30000),
+          ),
+        ]);
+      } catch (erro) {
+        console.error(`Não consegui carregar o agente ${aba}:`, erro);
+        pararCarregando();
+        setErrosCarregar((atual) => ({
+          ...atual,
+          [aba]: erro instanceof Error ? erro.message : "erro desconhecido",
+        }));
+      }
+    },
+    [],
+  );
+
+  /** Cada aba: como carregar e como parar o "carregando" dela. */
+  const cargas = useMemo(
+    () =>
+      ({
+        analista: [carregarInsights, () => setCarregandoInsights(false)],
+        precificacao: [carregarEventos, () => setCarregando(false)],
+        sac: [carregarTickets, () => setCarregandoTickets(false)],
+        estoque: [carregarAlertasEstoque, () => setCarregandoEstoque(false)],
+        fulfillment: [carregarAlertasFulfillment, () => setCarregandoFulfillment(false)],
+        ads: [carregarAvaliacoesAds, () => setCarregandoAds(false)],
+        auditor: [carregarAuditor, () => setCarregandoAuditor(false)],
+        criativo: [carregarSugestoesCriativo, () => setCarregandoCriativo(false)],
+      }) satisfies Record<AbaAgente, [() => Promise<void>, () => void]>,
+    [
+      carregarEventos,
+      carregarInsights,
+      carregarTickets,
+      carregarAlertasEstoque,
+      carregarAlertasFulfillment,
+      carregarAvaliacoesAds,
+      carregarAuditor,
+      carregarSugestoesCriativo,
+    ],
+  );
+
+  const tentarDeNovo = (aba: AbaAgente) => {
+    const [carregar, pararCarregando] = cargas[aba];
+    executarCarga(aba, carregar, pararCarregando);
+  };
+
   useEffect(() => {
-    carregarEventos();
-    carregarInsights();
-    carregarTickets();
-    carregarAlertasEstoque();
-    carregarAlertasFulfillment();
-    carregarAvaliacoesAds();
-    carregarAuditor();
-    carregarSugestoesCriativo();
-  }, [
-    carregarEventos,
-    carregarInsights,
-    carregarTickets,
-    carregarAlertasEstoque,
-    carregarAlertasFulfillment,
-    carregarAvaliacoesAds,
-    carregarAuditor,
-    carregarSugestoesCriativo,
-  ]);
+    for (const [aba, [carregar, pararCarregando]] of Object.entries(cargas) as [
+      AbaAgente,
+      [() => Promise<void>, () => void],
+    ][]) {
+      executarCarga(aba, carregar, pararCarregando);
+    }
+  }, [cargas, executarCarga]);
 
   // O filtro de canal ("Todas as contas") só recorta o que aparece — não
   // muda o que o agente já gravou. Assim trocar o filtro não refaz a
@@ -1280,7 +1338,23 @@ function Agentes() {
         ))}
       </div>
 
-      {abaAgente === "analista" && (
+      {errosCarregar[abaAgente] && (
+        <Painel titulo="Não consegui carregar" descricao="Este agente não abriu desta vez">
+          <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+            <p className="max-w-md text-xs text-muted-foreground">
+              Deu um problema ao carregar este agente ({errosCarregar[abaAgente]}). Os outros
+              agentes continuam funcionando. Se o erro continuar depois de tentar de novo, me
+              mande um print desta tela.
+            </p>
+            <Button size="sm" onClick={() => tentarDeNovo(abaAgente)}>
+              <RefreshCw className="size-3.5" />
+              Tentar de novo
+            </Button>
+          </div>
+        </Painel>
+      )}
+
+      {!errosCarregar[abaAgente] && abaAgente === "analista" && (
         <PainelAnalista
           insights={insights}
           carregando={carregandoInsights}
@@ -1292,7 +1366,7 @@ function Agentes() {
         />
       )}
 
-      {abaAgente === "precificacao" && (
+      {!errosCarregar[abaAgente] && abaAgente === "precificacao" && (
         <PainelPrecificacao
           pendentes={pendentes}
           decididos={decididos}
@@ -1305,7 +1379,7 @@ function Agentes() {
         />
       )}
 
-      {abaAgente === "sac" && (
+      {!errosCarregar[abaAgente] && abaAgente === "sac" && (
         <PainelSac
           tickets={tickets}
           carregando={carregandoTickets}
@@ -1328,7 +1402,7 @@ function Agentes() {
         />
       )}
 
-      {abaAgente === "estoque" && (
+      {!errosCarregar[abaAgente] && abaAgente === "estoque" && (
         <PainelEstoque
           alertas={alertasEstoque}
           carregando={carregandoEstoque}
@@ -1336,7 +1410,7 @@ function Agentes() {
         />
       )}
 
-      {abaAgente === "fulfillment" && (
+      {!errosCarregar[abaAgente] && abaAgente === "fulfillment" && (
         <PainelFulfillment
           alertas={alertasFulfillment}
           carregando={carregandoFulfillment}
@@ -1344,7 +1418,7 @@ function Agentes() {
         />
       )}
 
-      {abaAgente === "ads" && (
+      {!errosCarregar[abaAgente] && abaAgente === "ads" && (
         <PainelAds
           analises={analisesAdsNaSelecao}
           acoes={acoesAdsNaSelecao}
@@ -1357,7 +1431,7 @@ function Agentes() {
         />
       )}
 
-      {abaAgente === "auditor" && (
+      {!errosCarregar[abaAgente] && abaAgente === "auditor" && (
         <PainelAuditor
           ocorrencias={ocorrenciasAuditorNaSelecao}
           carregando={carregandoAuditor}
@@ -1365,7 +1439,7 @@ function Agentes() {
         />
       )}
 
-      {abaAgente === "criativo" && (
+      {!errosCarregar[abaAgente] && abaAgente === "criativo" && (
         <PainelCriativo
           sugestoes={sugestoesCriativo}
           carregando={carregandoCriativo}
