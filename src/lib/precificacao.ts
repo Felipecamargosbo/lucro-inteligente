@@ -14,7 +14,7 @@
 // Comissão, imposto, afiliado e Ads em % acompanham o preço; CMV, taxa
 // fixa, frete, custo extra e Ads em R$ ficam iguais aos de hoje.
 
-import type { Anuncio } from "@/types";
+import type { Anuncio, MarketplaceId } from "@/types";
 
 export type ModoAds = "auto" | "reais" | "percentual" | "nenhum";
 
@@ -40,11 +40,55 @@ export const AJUSTE_PADRAO: AjusteCusto = {
 /** Nome usado pro custo de afiliado na lista de "Outros". */
 export const NOME_AFILIADOS = "Afiliados";
 
+/**
+ * Uma faixa de preço de um canal: até quanto vale e quanto cobra de taxa
+ * fixa e de frete nela. null = "usa o valor do próprio anúncio".
+ * A última faixa tem `ate: null` (de lá pra cima).
+ */
+export interface FaixaPreco {
+  ate: number | null;
+  taxaFixa: number | null;
+  frete: number | null;
+}
+
+export type FaixasPorCanal = Partial<Record<MarketplaceId, FaixaPreco[]>>;
+
 export interface ConfigPrecificacao {
   /** Alíquota das configurações (0-1) */
   aliquotaImposto: number;
   /** Custos operacionais do seller pra um dado preço, item a item */
   custosOperacionais: (preco: number) => { nome: string; valor: number }[];
+  /** Regras de taxa fixa e frete por faixa de preço, por canal (opcional) */
+  faixas?: FaixasPorCanal;
+}
+
+/** Em qual faixa o preço cai (índice). -1 = canal sem faixas. */
+export function indiceFaixa(faixas: FaixaPreco[] | undefined, preco: number): number {
+  if (!faixas || faixas.length === 0) return -1;
+  const i = faixas.findIndex((f) => f.ate === null || preco <= f.ate);
+  return i === -1 ? faixas.length - 1 : i;
+}
+
+/**
+ * Taxa fixa e frete pra vender a `preco`. Enquanto o preço fica na MESMA
+ * faixa do preço de hoje, valem os valores do próprio anúncio (são os reais,
+ * vindos do marketplace). Quando o preço cruza pra outra faixa, valem os
+ * valores que o seller cadastrou pra ela (ex.: abaixo de R$ 79 no Mercado
+ * Livre entra a taxa fixa e sai o frete grátis).
+ */
+function taxaEFrete(
+  a: Anuncio,
+  preco: number,
+  cfg: ConfigPrecificacao,
+  forcarFaixa?: number,
+): { taxaFixa: number; frete: number } {
+  const faixas = cfg.faixas?.[a.marketplaceId];
+  const i = forcarFaixa ?? indiceFaixa(faixas, preco);
+  if (!faixas || i < 0 || i === indiceFaixa(faixas, a.precoAtual)) {
+    return { taxaFixa: a.taxaFixa, frete: a.freteUnitario };
+  }
+  const f = faixas[i]!;
+  return { taxaFixa: f.taxaFixa ?? a.taxaFixa, frete: f.frete ?? a.freteUnitario };
 }
 
 export interface ItemOutros {
@@ -93,8 +137,11 @@ export function detalharPreco(
   preco: number,
   ajuste: AjusteCusto,
   cfg: ConfigPrecificacao,
+  /** Só pro cálculo de preço pela margem: força uma faixa específica */
+  forcarFaixa?: number,
 ): Detalhamento {
   const cmv = a.cmv ?? 0;
+  const { taxaFixa, frete } = taxaEFrete(a, preco, cfg, forcarFaixa);
   const comissao = preco * a.comissaoPercentual;
   const imposto = preco * cfg.aliquotaImposto;
   const ads = adsNoPreco(a, ajuste, preco);
@@ -116,13 +163,13 @@ export function detalharPreco(
   }
   const outros = itensOutros.filter((i) => i.considerado).reduce((s, i) => s + i.valor, 0);
 
-  const lucro = preco - cmv - comissao - a.taxaFixa - a.freteUnitario - ads - imposto - outros;
+  const lucro = preco - cmv - comissao - taxaFixa - frete - ads - imposto - outros;
   return {
     preco,
     cmv,
     comissao,
-    taxaFixa: a.taxaFixa,
-    frete: a.freteUnitario,
+    taxaFixa,
+    frete,
     ads,
     imposto,
     itensOutros,
@@ -162,16 +209,31 @@ export function precoParaMargem(
   const divisor =
     1 - a.comissaoPercentual - cfg.aliquotaImposto - adsPercentual - afiliadoPercentual - margem;
   if (divisor <= 0) return null;
-  // Tudo que não é % do preço, calculado num preço de referência.
-  const fixosNo = (preco: number) => {
-    const d = detalharPreco(a, preco, ajuste, cfg);
-    const adsFixo = ajuste.adsModo === "percentual" ? 0 : d.ads;
-    const afiliado = afiliadoConta ? preco * afiliadoPercentual : 0;
-    return d.cmv + d.taxaFixa + d.frete + adsFixo + d.outros - afiliado;
+  // Tudo que não é % do preço, calculado num preço de referência — com a
+  // taxa fixa e o frete de uma faixa específica (ou os do anúncio).
+  const resolver = (faixa?: number) => {
+    const fixosNo = (preco: number) => {
+      const d = detalharPreco(a, preco, ajuste, cfg, faixa);
+      const adsFixo = ajuste.adsModo === "percentual" ? 0 : d.ads;
+      const afiliado = afiliadoConta ? preco * afiliadoPercentual : 0;
+      return d.cmv + d.taxaFixa + d.frete + adsFixo + d.outros - afiliado;
+    };
+    let preco = fixosNo(a.precoAtual) / divisor;
+    for (let i = 0; i < 5; i++) preco = fixosNo(preco) / divisor;
+    return Math.round(preco * 100) / 100;
   };
-  let preco = fixosNo(a.precoAtual) / divisor;
-  for (let i = 0; i < 5; i++) preco = fixosNo(preco) / divisor;
-  return Math.round(preco * 100) / 100;
+
+  const faixas = cfg.faixas?.[a.marketplaceId];
+  if (!faixas || faixas.length === 0) return resolver();
+  // Com faixas: calcula o preço supondo cada faixa e fica com os que caem
+  // de verdade dentro da faixa suposta. Se mais de um serve, o menor preço
+  // (o mais barato que ainda entrega a margem).
+  const validos: number[] = [];
+  for (let i = 0; i < faixas.length; i++) {
+    const p = resolver(i);
+    if (indiceFaixa(faixas, p) === i) validos.push(p);
+  }
+  return validos.length > 0 ? Math.min(...validos) : resolver();
 }
 
 export interface Limites {
