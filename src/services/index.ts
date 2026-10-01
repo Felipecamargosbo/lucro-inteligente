@@ -565,6 +565,32 @@ export const faixasPrecoService = {
   },
 };
 
+/** Preferências do seller salvas na conta (tabela `preferencias_usuario`).
+ * Hoje: o tema escuro/claro, pra valer em qualquer computador ou celular. */
+export const preferenciasService = {
+  /** null = ainda não escolheu (ou a tabela não existe) — fica o do navegador. */
+  carregarTema: async (perfilId: string): Promise<"escuro" | "claro" | null> => {
+    const { data, error } = await supabase
+      .from("preferencias_usuario")
+      .select("tema")
+      .eq("perfil_id", perfilId)
+      .maybeSingle();
+    if (error) {
+      console.error("preferenciasService.carregarTema:", error.message);
+      return null;
+    }
+    return data?.tema === "claro" ? "claro" : data?.tema === "escuro" ? "escuro" : null;
+  },
+
+  salvarTema: async (perfilId: string, tema: "escuro" | "claro"): Promise<string | null> => {
+    const { error } = await supabase.from("preferencias_usuario").upsert(
+      { perfil_id: perfilId, tema, atualizado_em: new Date().toISOString() },
+      { onConflict: "perfil_id" },
+    );
+    return error?.message ?? null;
+  },
+};
+
 export const promocoesService = {
   listar: () => PROMOCOES,
 };
