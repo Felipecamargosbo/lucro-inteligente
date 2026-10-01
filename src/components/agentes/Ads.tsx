@@ -17,6 +17,7 @@ import {
   ArrowRightLeft,
   ArrowUpRight,
   Check,
+  Eye,
   Clock,
   Loader2,
   MousePointerClick,
@@ -384,18 +385,27 @@ function CardAcaoAds({
         <Icone className="size-3.5 text-muted-foreground" />
         <span className="text-xs font-semibold">{titulo}</span>
         {acao.marketplaceId && <SeloMarketplace id={acao.marketplaceId} />}
-        {aoDecidir === null && (
-          <span
-            className={cn(
-              "ml-auto rounded px-2 py-0.5 text-[10px] font-semibold",
-              acao.status === "aprovada"
-                ? "bg-profit-soft text-profit"
-                : "bg-muted text-muted-foreground",
-            )}
-          >
-            {acao.status === "aprovada" ? "Aprovada" : "Recusada"}
-          </span>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {aoDecidir === null && (
+            <span
+              className={cn(
+                "rounded px-2 py-0.5 text-[10px] font-semibold",
+                acao.status === "aprovada"
+                  ? "bg-profit-soft text-profit"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              {acao.status === "aprovada" ? "Aprovada" : "Recusada"}
+            </span>
+          )}
+          {/* Canto superior direito, com borda — pra ficar claro que é botão. */}
+          {aoVerDetalhe && (
+            <Button size="sm" variant="outline" className="h-7 rounded-full px-3 text-[11px]" onClick={aoVerDetalhe}>
+              <Eye className="size-3.5" />
+              Ver detalhes
+            </Button>
+          )}
+        </div>
       </div>
 
       {d.tipo !== "realocacao" && (
@@ -446,11 +456,6 @@ function CardAcaoAds({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        {aoVerDetalhe && (
-          <Button size="sm" variant="ghost" onClick={aoVerDetalhe}>
-            Ver detalhes do anúncio
-          </Button>
-        )}
         {d.tipo === "anuncio_cansado" && (
           <Button size="sm" variant="outline" onClick={() => aoAbrirCriativo(acao)}>
             <Wand2 className="size-3.5" />
