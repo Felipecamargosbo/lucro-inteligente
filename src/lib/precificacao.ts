@@ -270,3 +270,29 @@ export function lerNumero(texto: string): number | null {
   const n = Number(normalizado);
   return Number.isFinite(n) ? n : null;
 }
+
+/**
+ * Uma cópia do anúncio com os ajustes de Ads e "Outros" da tela
+ * Precificação já embutidos — é o que os agentes recebem, pra que lucro e
+ * margem batam com a Precificação em todo lugar.
+ *
+ * Como os agentes só conhecem os campos do anúncio:
+ * - Ads → vai pro custo de Ads por unidade (em % é calculado no preço de hoje);
+ * - Outros → afiliado desmarcado sai, custo extra entra, e os custos
+ *   operacionais desmarcados (no preço de hoje) são descontados — tudo
+ *   somado no campo de afiliado, que os agentes já tratam como custo fixo
+ *   por unidade.
+ */
+export function anuncioComAjuste(a: Anuncio, ajuste: AjusteCusto, cfg: ConfigPrecificacao): Anuncio {
+  const ads = adsNoPreco(a, ajuste, a.precoAtual);
+  const afiliado = ajuste.ignorados.includes(NOME_AFILIADOS) ? 0 : a.custoAfiliadoUnitario;
+  const operacionaisFora = cfg
+    .custosOperacionais(a.precoAtual)
+    .filter((c) => ajuste.ignorados.includes(c.nome))
+    .reduce((soma, c) => soma + c.valor, 0);
+  return {
+    ...a,
+    custoMidiaUnitario: ads,
+    custoAfiliadoUnitario: afiliado + ajuste.custoExtra - operacionaisFora,
+  };
+}
