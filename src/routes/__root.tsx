@@ -19,6 +19,7 @@ import { AuthProvider, useAuth } from "@/context/auth";
 import { Login } from "@/components/Auth/Login";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { SCRIPT_TEMA_INICIAL } from "@/lib/tema";
 
 function NotFoundComponent() {
   return (
@@ -112,11 +113,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" suppressHydrationWarning>
       <head>
         {/* Ícone fixo, fora do HeadContent: não deve ser recalculado a cada troca de rota. */}
         <link rel="icon" href="/favicon.ico" type="image/x-icon" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        {/* Aplica o tema claro antes da página aparecer (sem piscar escuro). */}
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA_INICIAL }} />
         <HeadContent />
       </head>
       <body>
