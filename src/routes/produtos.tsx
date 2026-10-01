@@ -16,6 +16,7 @@ import {
 import {
   ajustesCustoService,
   alteracoesPrecoService,
+  faixasPrecoService,
   anunciosService,
   contasService,
   produtosService,
@@ -36,6 +37,8 @@ import {
   precoParaMargem,
   type AjusteCusto,
   type ConfigPrecificacao,
+  type FaixaPreco,
+  type FaixasPorCanal,
   type Detalhamento,
   type Limites,
   type ModoAds,
@@ -178,6 +181,12 @@ function Precificacao() {
   const [carregandoProdutos, setCarregandoProdutos] = useState(true);
   /** Ajustes de Ads e Outros, por anúncio */
   const [ajustes, setAjustes] = useState<Map<string, AjusteCusto>>(new Map());
+  /** Regras de taxa fixa e frete por faixa de preço, por canal */
+  const [faixas, setFaixas] = useState<FaixasPorCanal>({});
+  const [faixasAberto, setFaixasAberto] = useState(false);
+  /** Margem digitada na linha do produto, pra preencher em todos os canais */
+  const [margemTodos, setMargemTodos] = useState<Record<string, string>>({});
+  const [aplicandoTodos, setAplicandoTodos] = useState<string | null>(null);
   /** Última mudança de preço feita aqui, por anúncio — o preço fica colorido */
   const [precosAlterados, setPrecosAlterados] = useState<Map<string, AlteracaoPrecoRegistrada>>(
     new Map(),
@@ -185,12 +194,14 @@ function Precificacao() {
 
   const carregarProdutos = useCallback(async () => {
     if (!sessao) return;
-    const [lista, alteracoes, mapaAjustes] = await Promise.all([
+    const [lista, alteracoes, mapaAjustes, regrasFaixas] = await Promise.all([
       produtosService.listar(sessao.user.id),
       alteracoesPrecoService.listar(sessao.user.id),
       ajustesCustoService.listar(sessao.user.id),
+      faixasPrecoService.listar(sessao.user.id),
     ]);
     setAjustes(mapaAjustes);
+    setFaixas(regrasFaixas);
     const ultimas = new Map<string, AlteracaoPrecoRegistrada>();
     // A lista vem da mais nova pra mais antiga: a primeira de cada anúncio vale.
     for (const alt of alteracoes) if (!ultimas.has(alt.anuncioId)) ultimas.set(alt.anuncioId, alt);
@@ -223,8 +234,8 @@ function Precificacao() {
   /** As contas de cada anúncio usam a alíquota e os custos operacionais
    * das Configurações — os mesmos do resto do NEXO. */
   const cfg: ConfigPrecificacao = useMemo(
-    () => ({ aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalDetalhado }),
-    [fiscal, custoOperacionalDetalhado],
+    () => ({ aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalDetalhado, faixas }),
+    [fiscal, custoOperacionalDetalhado, faixas],
   );
 
   const categorias = useMemo(() => {
@@ -421,8 +432,13 @@ function Precificacao() {
     );
   };
 
-  const aplicarPreco = async (linha: LinhaAnuncio, precoNovo: number) => {
-    if (!sessao) return;
+  const aplicarPreco = async (
+    linha: LinhaAnuncio,
+    precoNovo: number,
+    /** true = sem aviso a cada anúncio (usado no "Aplicar em todos") */
+    silencioso = false,
+  ): Promise<boolean> => {
+    if (!sessao) return false;
     const a = linha.anuncio;
     const antes = a.precoAtual;
     setAplicando(a.id);
@@ -434,7 +450,7 @@ function Precificacao() {
           ? "A tabela de mudanças de preço ainda não existe — rode o SQL da tela Precificação no Supabase."
           : `Não consegui salvar o preço: ${erro}`,
       );
-      return;
+      return false;
     }
     setRascunhos((atual) => {
       const novo = { ...atual };
@@ -455,10 +471,76 @@ function Precificacao() {
       }),
     );
     setTick((n) => n + 1);
-    toast.success(`${a.produto} (${linha.nomeConta}): de ${formatBRL(antes)} para ${formatBRL(precoNovo)}.`, {
-      description:
-        "Salvo no NEXO. Sem a API do marketplace ainda, altere também o preço lá no anúncio.",
+    if (!silencioso) {
+      toast.success(`${a.produto} (${linha.nomeConta}): de ${formatBRL(antes)} para ${formatBRL(precoNovo)}.`, {
+        description:
+          "Salvo no NEXO. Sem a API do marketplace ainda, altere também o preço lá no anúncio.",
+      });
+    }
+    return true;
+  };
+
+  /** Margem do produto → preenche o campo "%" de todos os anúncios dele
+   * (cada canal calcula o próprio preço). Nada é salvo até Aplicar. */
+  const preencherMargemTodos = (g: GrupoProduto) => {
+    const texto = (margemTodos[g.produto.id] ?? "").trim();
+    if (lerNumero(texto) === null) {
+      toast.error("Digite a margem, por exemplo 25.");
+      return;
+    }
+    setRascunhos((atual) => {
+      const novo = { ...atual };
+      for (const l of g.linhas) novo[l.anuncio.id] = { modo: "margem", texto };
+      return novo;
     });
+  };
+
+  /** O preço que o campo de um anúncio está pedindo (null = nada válido). */
+  const precoDoRascunho = (l: LinhaAnuncio): number | null => {
+    const r = rascunhos[l.anuncio.id];
+    if (!r || !r.texto.trim()) return null;
+    const n = lerNumero(r.texto);
+    if (n === null) return null;
+    const preco =
+      r.modo === "preco" ? (n > 0 ? Math.round(n * 100) / 100 : null) : precoParaMargem(l.comCmv, n / 100, l.ajuste, cfg);
+    return preco !== null && Math.abs(preco - l.anuncio.precoAtual) >= 0.01 ? preco : null;
+  };
+
+  /** Aplica de uma vez todos os anúncios do produto que têm preço novo. */
+  const aplicarTodos = async (g: GrupoProduto) => {
+    const prontos = g.linhas
+      .map((l) => ({ l, preco: precoDoRascunho(l) }))
+      .filter((x): x is { l: LinhaAnuncio; preco: number } => x.preco !== null);
+    if (prontos.length === 0) return;
+    setAplicandoTodos(g.produto.id);
+    let ok = 0;
+    for (const { l, preco } of prontos) {
+      if (await aplicarPreco(l, preco, true)) ok++;
+    }
+    setAplicandoTodos(null);
+    if (ok > 0) {
+      toast.success(`${g.produto.nome}: preço novo aplicado em ${ok} anúncio${ok > 1 ? "s" : ""}.`, {
+        description:
+          "Salvo no NEXO. Sem a API do marketplace ainda, altere também os preços lá nos anúncios.",
+      });
+    }
+  };
+
+  /** Salva as faixas de preço de um canal. */
+  const salvarFaixas = async (marketplaceId: MarketplaceId, lista: FaixaPreco[]): Promise<boolean> => {
+    if (!sessao) return false;
+    const erro = await faixasPrecoService.salvar(sessao.user.id, marketplaceId, lista);
+    if (erro) {
+      toast.error(
+        erro.includes("faixas_preco_canal")
+          ? "A tabela de faixas ainda não existe — rode o SQL da parte 8 da Precificação no Supabase."
+          : `Não consegui salvar: ${erro}`,
+      );
+      return false;
+    }
+    setFaixas((atual) => ({ ...atual, [marketplaceId]: lista }));
+    toast.success("Faixas de preço salvas. A simulação de preço já usa.");
+    return true;
   };
 
   /** Salva o ajuste de Ads/Outros num anúncio ou em todos do produto. */
@@ -508,6 +590,9 @@ function Precificacao() {
         descricao="Todos os produtos e anúncios numa planilha: custo, taxas, lucro e margem — e o preço novo, por valor ou por margem"
         acoes={
           <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setFaixasAberto(true)}>
+              Taxa e frete por faixa
+            </Button>
             <Button size="sm" onClick={() => setReceberAberto(true)}>
               <RefreshCw className="size-3.5" />
               Receber anúncios
@@ -833,6 +918,42 @@ function Precificacao() {
                                 {g.linhas.length} anúncio{g.linhas.length === 1 ? "" : "s"}
                               </span>
 
+                              {g.linhas.length > 1 && (
+                                <span className="flex items-center gap-1.5">
+                                  <span className="text-[10px] text-muted-foreground">Margem em todos os canais</span>
+                                  <Input
+                                    inputMode="decimal"
+                                    value={margemTodos[p.id] ?? ""}
+                                    onChange={(e) =>
+                                      setMargemTodos((atual) => ({ ...atual, [p.id]: e.target.value }))
+                                    }
+                                    onKeyDown={(e) => e.key === "Enter" && preencherMargemTodos(g)}
+                                    placeholder="25"
+                                    className="num h-7 w-16 px-2 text-right text-xs"
+                                  />
+                                  <span className="text-[10px] text-muted-foreground">%</span>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-[11px]"
+                                    onClick={() => preencherMargemTodos(g)}
+                                  >
+                                    Preencher
+                                  </Button>
+                                  {g.linhas.some((l) => precoDoRascunho(l) !== null) && (
+                                    <Button
+                                      size="sm"
+                                      className="h-7 text-[11px]"
+                                      disabled={aplicandoTodos === p.id}
+                                      onClick={() => aplicarTodos(g)}
+                                    >
+                                      {aplicandoTodos === p.id && <Loader2 className="size-3.5 animate-spin" />}
+                                      Aplicar em todos ({g.linhas.filter((l) => precoDoRascunho(l) !== null).length})
+                                    </Button>
+                                  )}
+                                </span>
+                              )}
+
                               <span className="ml-auto flex items-center gap-2">
                                 <button
                                   onClick={() => setEmEdicaoProduto(p)}
@@ -983,6 +1104,10 @@ function Precificacao() {
             carregarProdutos();
           }}
         />
+      )}
+
+      {faixasAberto && (
+        <DialogFaixas faixas={faixas} aoFechar={() => setFaixasAberto(false)} aoSalvar={salvarFaixas} />
       )}
 
       {receberAberto && (
@@ -1946,5 +2071,218 @@ function SeloSituacao({
       <span className={cn("size-1.5 shrink-0 rounded-full", cor)} />
       {texto}
     </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Taxa fixa e frete por faixa de preço                                */
+/* ------------------------------------------------------------------ */
+
+/** Referência do Mercado Livre (tabelas de mercado de 2026 — confira no
+ * seu painel em "Custos de vender"): abaixo de R$ 79 entra o custo fixo
+ * por unidade e o frete grátis não é seu; de R$ 79 pra cima o custo fixo
+ * some e o frete fica o do anúncio. */
+const REFERENCIA_MERCADO_LIVRE: FaixaPreco[] = [
+  { ate: 28.99, taxaFixa: 6.25, frete: 0 },
+  { ate: 49.99, taxaFixa: 6.5, frete: 0 },
+  { ate: 78.99, taxaFixa: 6.75, frete: 0 },
+  { ate: null, taxaFixa: 0, frete: null },
+];
+
+interface FaixaEditavel {
+  ate: string;
+  taxaFixa: string;
+  frete: string;
+}
+
+const paraTexto = (n: number | null) => (n === null ? "" : n.toFixed(2).replace(".", ","));
+
+function DialogFaixas({
+  faixas,
+  aoFechar,
+  aoSalvar,
+}: {
+  faixas: FaixasPorCanal;
+  aoFechar: () => void;
+  aoSalvar: (marketplaceId: MarketplaceId, faixas: FaixaPreco[]) => Promise<boolean>;
+}) {
+  const canais = OPCOES_MARKETPLACE.filter((o) => o.id !== "todos") as { id: MarketplaceId; nome: string }[];
+  const [canal, setCanal] = useState<MarketplaceId>("mercado-livre");
+  const [linhas, setLinhas] = useState<FaixaEditavel[]>([]);
+  const [salvando, setSalvando] = useState(false);
+
+  // Troca de canal → carrega as faixas salvas dele.
+  useEffect(() => {
+    const salvas = faixas[canal as MarketplaceId] ?? [];
+    setLinhas(
+      salvas.map((f) => ({ ate: paraTexto(f.ate), taxaFixa: paraTexto(f.taxaFixa), frete: paraTexto(f.frete) })),
+    );
+  }, [canal, faixas]);
+
+  const mudar = (i: number, campo: keyof FaixaEditavel, valor: string) =>
+    setLinhas((atual) => atual.map((l, j) => (j === i ? { ...l, [campo]: valor } : l)));
+
+  const usarReferencia = () =>
+    setLinhas(
+      REFERENCIA_MERCADO_LIVRE.map((f) => ({
+        ate: paraTexto(f.ate),
+        taxaFixa: paraTexto(f.taxaFixa),
+        frete: paraTexto(f.frete),
+      })),
+    );
+
+  const salvar = async () => {
+    // Converte, ordena pelo "até" e garante que a última faixa vai até o infinito.
+    const convertidas: FaixaPreco[] = linhas
+      .map((l, i) => ({
+        ate: i === linhas.length - 1 ? null : lerNumero(l.ate),
+        taxaFixa: l.taxaFixa.trim() ? lerNumero(l.taxaFixa) : null,
+        frete: l.frete.trim() ? lerNumero(l.frete) : null,
+      }))
+      .sort((x, y) => (x.ate ?? Infinity) - (y.ate ?? Infinity));
+    if (convertidas.slice(0, -1).some((f) => f.ate === null || f.ate <= 0)) {
+      toast.error("Preencha o \"até R$\" de todas as faixas, menos a última.");
+      return;
+    }
+    setSalvando(true);
+    const ok = await aoSalvar(canal, convertidas);
+    setSalvando(false);
+    if (ok) aoFechar();
+  };
+
+  return (
+    <Dialog open onOpenChange={aoFechar}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Taxa fixa e frete por faixa de preço</DialogTitle>
+          <DialogDescription>
+            Quando o preço novo cruza pra outra faixa, a Precificação usa a taxa fixa e o frete
+            daquela faixa. Na mesma faixa do preço de hoje, valem os valores do próprio anúncio.
+            Campo vazio = usa o valor do anúncio. Quando a API conectar, o marketplace informa os
+            valores exatos e esta tabela deixa de ser necessária.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={canal} onValueChange={(v) => setCanal(v as MarketplaceId)}>
+              <SelectTrigger className="h-8 w-48 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {canais.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.nome}
+                    {faixas[c.id]?.length ? " ✓" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {canal === "mercado-livre" && (
+              <Button size="sm" variant="outline" className="h-8 text-[11px]" onClick={usarReferencia}>
+                Preencher com a referência do Mercado Livre
+              </Button>
+            )}
+          </div>
+
+          {linhas.length === 0 ? (
+            <p className="rounded-md bg-muted/50 px-3 py-4 text-center text-xs text-muted-foreground">
+              Sem faixas neste canal: a taxa fixa e o frete ficam sempre os do anúncio.
+            </p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  <th className="py-1.5 text-left font-semibold">Preço</th>
+                  <th className="py-1.5 text-left font-semibold">Taxa fixa (R$)</th>
+                  <th className="py-1.5 text-left font-semibold">Frete (R$)</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {linhas.map((l, i) => {
+                  const ultima = i === linhas.length - 1;
+                  const anterior = i > 0 ? linhas[i - 1]!.ate : "";
+                  return (
+                    <tr key={i} className="border-t">
+                      <td className="py-1.5 pr-2">
+                        {ultima ? (
+                          <span className="text-muted-foreground">
+                            {anterior ? `Acima de R$ ${anterior}` : "Qualquer preço"}
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <span className="text-muted-foreground">Até R$</span>
+                            <Input
+                              inputMode="decimal"
+                              value={l.ate}
+                              onChange={(e) => mudar(i, "ate", e.target.value)}
+                              className="num h-7 w-24 px-2 text-right text-xs"
+                            />
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-1.5 pr-2">
+                        <Input
+                          inputMode="decimal"
+                          value={l.taxaFixa}
+                          onChange={(e) => mudar(i, "taxaFixa", e.target.value)}
+                          placeholder="do anúncio"
+                          className="num h-7 w-28 px-2 text-right text-xs"
+                        />
+                      </td>
+                      <td className="py-1.5 pr-2">
+                        <Input
+                          inputMode="decimal"
+                          value={l.frete}
+                          onChange={(e) => mudar(i, "frete", e.target.value)}
+                          placeholder="do anúncio"
+                          className="num h-7 w-28 px-2 text-right text-xs"
+                        />
+                      </td>
+                      <td className="py-1.5 text-right">
+                        <button
+                          onClick={() => setLinhas((atual) => atual.filter((_, j) => j !== i))}
+                          className="text-muted-foreground hover:text-loss"
+                          title="Tirar esta faixa"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-[11px]"
+            onClick={() => setLinhas((atual) => [{ ate: "", taxaFixa: "", frete: "" }, ...atual])}
+          >
+            + Adicionar faixa
+          </Button>
+          {canal === "mercado-livre" && (
+            <p className="text-[10px] leading-relaxed text-muted-foreground">
+              A referência usa valores de tabelas de mercado de 2026. O Mercado Livre muda esses
+              valores de tempos em tempos e eles podem variar por conta e categoria — confira em
+              "Custos de vender" no seu painel e corrija aqui.
+            </p>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={aoFechar} disabled={salvando}>
+            Cancelar
+          </Button>
+          <Button onClick={salvar} disabled={salvando}>
+            {salvando ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            Salvar faixas do canal
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
