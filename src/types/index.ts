@@ -1,1488 +1,1252 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
-import { toast } from "sonner";
-import {
-  Bot,
-  Boxes,
-  RefreshCw,
-  MessageCircle,
-  ShieldCheck,
-  Target,
-  TrendingDown,
-  Wand2,
-  Warehouse,
-} from "lucide-react";
-import {
-  alteracoesPrecoService,
-  anunciosService,
-  adsService,
-  auditorService,
-  contasService,
-  criativoConfigService,
-  criativoService,
-  conteudoPublicadoService,
-  estoqueService,
-  fichasService,
-  modelosSacService,
-  regrasSacService,
-  sacConfigService,
-  eventosAgenteService,
-  fulfillmentService,
-  mudancasPrecoService,
-  produtosService,
-  promocoesService,
-  sacService,
-  vendasService,
-  type AlteracaoPrecoRegistrada,
-  type RascunhoCriativo,
-} from "@/services";
-import { getMarketplace } from "@/data/mock";
-import { useAuth } from "@/context/auth";
-import { useConfiguracoes } from "@/context/configuracoes";
-import { useSelecaoContas } from "@/context/selecao-contas";
-import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
-import {
-  avaliarCampanhas,
-  avaliarMudancaPreco,
-  chaveSugestaoPreco,
-  precosPorCanal,
-  situacaoEstoquePorSku,
-  sugerirPrecos,
-  analisarFulfillment,
-  analisarReposicaoEstoque,
-  analisarRoasAnuncios,
-  chaveAlertaEstoque,
-  mesclarAlertasEstoque,
-  auditarCobrancas,
-  auditarCobrancasFull,
-  auditarMudancasTaxa,
-  mesclarOcorrenciasAuditor,
-  diagnosticarCurvaAbc,
-  diagnosticarDadoFaltando,
-  diagnosticarQuedaMargem,
-  diagnosticarSaudeContas,
-  FAIXAS_MARGEM_PADRAO,
-  montarResumoDiario,
-  sugerirAnunciosParaAds,
-  type AnaliseRoasAnuncio,
-} from "@/lib/finance";
-import {
-  CONFIGURACAO_SAC_PADRAO,
-  MODELOS_SAC_PADRAO,
-  classificarPergunta,
-  perguntasRepetidas,
-  type PerguntaRepetida,
-} from "@/lib/sac";
-import {
-  CONFIGURACAO_CRIATIVO_PADRAO,
-  limiteTitulo,
-  listaPalavrasSeller,
-  montarInformacoesProduto,
-} from "@/lib/criativo";
-import { montarComparativos, montarTop3, type AgenteTop } from "@/lib/gestor";
-import { Painel } from "@/components/comum/Indicadores";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import type {
-  AcaoAds,
-  AlertaEstoque,
-  Anuncio,
-  ConfiguracaoCriativo,
-  ConfiguracaoSac,
-  MarketplaceId,
-  Pedido,
-  RegraSac,
-  SituacaoSac,
-  OcorrenciaAuditor,
-  StatusOcorrenciaAuditor,
-  EventoAds,
-  EventoAgente,
-  InsightAnalista,
-  StatusSugestao,
-  SugestaoCriativo,
-  TicketSac,
-} from "@/types";
-import { PainelPrecificacao } from "@/components/agentes/Precificacao";
-import { PainelAnalista } from "@/components/agentes/Gestor";
-import { PainelSac } from "@/components/agentes/Sac";
-import { PainelEstoque } from "@/components/agentes/Estoque";
-import { PainelFulfillment } from "@/components/agentes/Fulfillment";
-import { PainelAds, montarAcoesAds } from "@/components/agentes/Ads";
-import { PainelAuditor } from "@/components/agentes/Auditor";
-import { PainelCriativo } from "@/components/agentes/Criativo";
-import { ModalFicha, type AlvoFicha } from "@/components/agentes/ModalFicha";
+// Tipos centrais do domínio. Preparados para receber dados reais das APIs
+// dos marketplaces no futuro (mesmo formato, origem diferente).
 
-/** As abas da tela de Agentes. */
-type AbaAgente =
-  | "analista"
-  | "precificacao"
-  | "sac"
-  | "estoque"
-  | "fulfillment"
-  | "ads"
-  | "auditor"
-  | "criativo";
+export type MarketplaceId =
+  | "mercado-livre"
+  | "shopee"
+  | "amazon"
+  | "magalu"
+  | "tiktok-shop"
+  | "shein";
 
-export const Route = createFileRoute("/agentes")({
-  head: () => ({
-    meta: [
-      { title: "Agentes | NEXO" },
-      {
-        name: "description",
-        content:
-          "O que os agentes decidiram, por quê, e o que está esperando a sua aprovação.",
-      },
-      { property: "og:title", content: "Agentes | NEXO" },
-    ],
-  }),
-  component: Agentes,
-});
+export type StatusConexaoMarketplace =
+  | "conectado"
+  | "token-expirando"
+  | "desconectado";
 
-
-/** Perguntas comuns de cliente de marketplace, só pra semear os
- * primeiros tickets de exemplo — fictícias até a API de mensagens
- * conectar. */
-const PERGUNTAS_FICTICIAS = [
-  "Esse produto tem garantia? Por quanto tempo?",
-  "Qual o prazo de entrega pro meu CEP?",
-  "Vocês têm em outra cor ou modelo?",
-  "Posso trocar se não servir ou não gostar?",
-];
-
-/** Marca da leva de exemplos do Bloco 6 — cria só uma vez por seller. */
-const LOTE_EXEMPLOS_SAC = "bloco6";
+/** Nível/medalha da conta no canal, quando o marketplace expõe esse conceito. */
+export type NivelReputacao =
+  | "excelente"
+  | "bom"
+  | "regular"
+  | "em-risco"
+  | "sem-dados";
 
 /**
- * Exemplos de cada tipo de mensagem (FICTÍCIOS, até a API de mensagens
- * conectar): dois de pós-venda (um pedido já despachado, outro não), uma
- * reclamação e três perguntas repetidas sobre o mesmo produto.
+ * Saúde operacional da conta no canal. Não fala de lucro: fala de a conta
+ * continuar existindo (perder medalha derruba exposição e frete grátis).
  */
-function montarTicketsExemploSac(anuncios: Anuncio[], pedidos: Pedido[]) {
-  const tickets: {
-    contaId: string | null;
-    anuncioId: string | null;
-    produto: string;
-    sku: string;
-    marketplaceId: MarketplaceId;
-    pergunta: string;
-    pedidoId?: string | null;
-    cliente?: string | null;
-  }[] = [];
-  const anuncioDe = (p: Pedido) =>
-    anuncios.find((a) => a.contaId === p.contaId && a.sku === p.sku) ?? null;
-  const doPedido = (p: Pedido, pergunta: string) => {
-    const a = anuncioDe(p);
-    tickets.push({
-      contaId: p.contaId,
-      anuncioId: a?.id ?? null,
-      produto: p.produto,
-      sku: p.sku,
-      marketplaceId: p.marketplaceId,
-      pergunta,
-      pedidoId: p.id,
-      cliente: p.cliente,
-    });
-  };
-  const emTransito = pedidos.find((p) => p.status === "em-transito" && anuncioDe(p));
-  const aguardando = pedidos.find((p) => p.status === "aguardando-envio" && anuncioDe(p));
-  const entregue = pedidos.find((p) => p.status === "entregue" && anuncioDe(p));
-  if (emTransito) doPedido(emTransito, "Oi, comprei faz 3 dias e ainda não chegou. Cadê meu pedido?");
-  if (aguardando) doPedido(aguardando, "Meu pedido ainda não foi enviado? Já faz dois dias que comprei.");
-  if (entregue)
-    doPedido(entregue, "O produto chegou com defeito, não liga de jeito nenhum. Quero meu dinheiro de volta!");
+export interface ReputacaoConta {
+  nivel: NivelReputacao;
+  /** Rótulo que o próprio canal usa (ex.: "MercadoLíder Platinum") */
+  rotuloCanal: string | null;
+  taxaAtraso: number; // 0-1
+  taxaCancelamento: number; // 0-1
+  taxaReclamacao: number; // 0-1
+  /** Limite do canal acima do qual a medalha é perdida (0-1) */
+  limiteAtraso: number;
+  limiteCancelamento: number;
+  /** Preenchido quando algum indicador está perto ou acima do limite */
+  alerta: string | null;
+}
 
-  const pelicula = anuncios.find((a) => a.sku === "PEL-IP15-PM") ?? anuncios[0];
-  if (pelicula) {
-    for (const pergunta of [
-      "Serve no iPhone 15 normal ou só no Pro Max?",
-      "É compatível com o iPhone 14 Pro Max?",
-      "Serve no iPhone 15 Plus?",
-    ]) {
-      tickets.push({
-        contaId: pelicula.contaId,
-        anuncioId: pelicula.id,
-        produto: pelicula.produto,
-        sku: pelicula.sku,
-        marketplaceId: pelicula.marketplaceId,
-        pergunta,
-      });
-    }
-  }
-  return tickets;
+/**
+ * Metas de margem do seller. As faixas verde/amarelo/vermelho são relativas
+ * a estes números, não a percentuais fixos: 8% pode ser ótimo num canal e
+ * péssimo em outro.
+ */
+export interface MetasMargem {
+  /** Abaixo disso o anúncio está fora do aceitável (0-1) */
+  margemMinima: number;
+  /** Alvo desejado (0-1) */
+  margemIdeal: number;
+}
+
+/**
+ * O canal de venda em si (Mercado Livre, Shopee...). Guarda só a identidade:
+ * tudo que varia — credencial, taxas, reputação, resultado — pertence à conta.
+ */
+export interface Marketplace {
+  id: MarketplaceId;
+  nome: string;
+}
+
+/**
+ * Uma conta de vendedor dentro de um canal. Um mesmo seller pode ter várias
+ * contas no mesmo marketplace (loja oficial, outlet, outro CNPJ), cada uma
+ * com credencial, taxas negociadas e reputação próprias — por isso é aqui,
+ * e não no Marketplace, que essas informações vivem.
+ */
+export interface ContaMarketplace {
+  id: string;
+  marketplaceId: MarketplaceId;
+  /** Nome dado pelo seller: "Loja Oficial", "Outlet" */
+  nome: string;
+  cnpj: string;
+  /** Empresa (CNPJ) dona desta conta — é por ela que o DRE é fechado */
+  empresaId: string;
+  conectada: boolean;
+  statusConexao: StatusConexaoMarketplace;
+  ultimaSincronizacao: string | null; // ISO
+  skusAtivos: number;
+  vendasHoje: number;
+  /** Regras usadas nos cálculos enquanto não há API real */
+  comissaoPercentual: number;
+  taxaFixa: number;
+  freteMedio: number;
+  /** null enquanto o seller não definiu metas para a conta */
+  metas: MetasMargem | null;
+  reputacao: ReputacaoConta | null;
+}
+
+export type StatusPedido =
+  | "entregue"
+  | "em-transito"
+  | "aguardando-envio"
+  | "cancelado";
+
+/** Uma fatia do valor de um pedido caindo na conta do seller — a maioria
+ * dos pedidos tem só uma; vendas parceladas no modo Magalu Parcelado têm
+ * uma por mês. */
+export interface RepasseParcela {
+  /** Quando esta fatia cai na conta do seller */
+  data: string; // ISO
+  valor: number;
+}
+
+export interface Pedido {
+  id: string;
+  data: string; // ISO
+  marketplaceId: MarketplaceId;
+  /** Conta que realizou a venda */
+  contaId: string;
+  sku: string;
+  produto: string;
+  quantidade: number;
+  precoUnitario: number;
+  faturamento: number;
+  cmv: number;
+  comissao: number;
+  taxaFixa: number;
+  impostos: number;
+  descontos: number;
+  outrosCustos: number;
+  /** ADS/mídia paga atribuída a este pedido — não confundir com outrosCustos */
+  custoMidia: number;
+  lucroLiquido: number;
+  margem: number; // 0-1
+  status: StatusPedido;
+  cliente: string;
+  telefone: string;
+  /** Full = estoque enviado ao centro de distribuição do marketplace; Flex =
+   * o próprio seller entrega, geralmente no mesmo dia; Padrão = o seller
+   * despacha via Correios/transportadora comum. */
+  tipoLogistica: TipoLogistica;
+  /** UF de entrega do pedido (endereço do cliente) */
+  estado: string;
+  /** Em quantas vezes o CLIENTE parcelou a compra no cartão — 1 é à vista.
+   * Só muda alguma coisa pro seller quando o canal é o Magalu no modo
+   * "Repasse Parcelado": lá o repasse segue esse mesmo parcelamento. Nos
+   * outros canais é só informação — o marketplace paga o seller à parte
+   * disso, então não afeta `repasses`. */
+  parcelas: number;
+  /**
+   * Quando e quanto desta venda cai na conta do seller. Cada canal tem sua
+   * própria regra (pesquisada, não é um número fixo igual pra todos):
+   * Mercado Livre varia com reputação da conta e tipo de entrega; Amazon é
+   * um ciclo fechado de 14 em 14 dias, não por pedido; Shopee é de 5 a 15
+   * dias corridos por pedido; Magalu, no modo parcelado, divide o valor em
+   * várias fatias mensais quando a venda foi parcelada — por isso isto é
+   * uma lista, não uma data só. A maioria dos pedidos tem 1 item aqui.
+   */
+  repasses: RepasseParcela[];
+  /**
+   * Valor devolvido pelo cliente após a entrega (0 quando não houve
+   * devolução). Diferente de "cancelado": a devolução acontece depois da
+   * venda já ter sido contabilizada como concluída.
+   */
+  valorDevolvido: number;
+  /** Data em que a devolução foi registrada; null quando não houve devolução */
+  dataDevolucao: string | null;
+  /** Motivo informado pelo cliente/canal; null quando não houve devolução */
+  motivoDevolucao: string | null;
+  /**
+   * Campanha de promoção em que esta venda saiu; null quando foi venda a
+   * preço cheio. Guardamos só o id — nome, tipo e período vivem na Campanha,
+   * pra não duplicar informação que pode divergir depois.
+   */
+  campanhaId: string | null;
+  /** Frete que deveria ter sido cobrado neste pedido, pela política do
+   * canal e o tipo de logística usado. Base de comparação do Auditor. */
+  freteEsperado: number;
+  /** Frete que o marketplace realmente cobrou neste pedido. Na maioria
+   * dos pedidos é igual a `freteEsperado`; quando diverge, é isso que o
+   * Agente Auditor aponta como cobrança divergente. */
+  freteCobrado: number;
+  /** O extrato do canal para este pedido: tudo o que foi cobrado, linha
+   * por linha, mais o contexto que decide o que ERA pra ser cobrado
+   * (quem paga o frete, se veio de afiliado, de quem era o cupom...).
+   * É o formato que as APIs dos canais devolvem. Fictício por enquanto;
+   * opcional porque pedidos antigos podem não ter. */
+  extrato?: ExtratoCobrancaPedido;
+}
+
+/** De quem é o frete deste pedido. */
+export type ResponsavelFrete =
+  /** saiu pelo Full: o frete do pedido é por conta do canal */
+  | "canal-full"
+  /** o comprador pagou o frete (ou o canal não cobra frete do vendedor) */
+  | "comprador"
+  /** frete grátis pago pelo vendedor */
+  | "seller";
+
+/** Tamanho do produto cadastrado no Full/FBA — decide a tarifa por unidade. */
+export type TamanhoFulfillment = "pequeno" | "medio" | "grande";
+
+/** Tudo o que o Auditor sabe conferir, em pedidos e na fatura do Full. */
+export type ItemCobrancaAuditor =
+  | "comissao"
+  | "taxaFixa"
+  | "frete"
+  | "parcelamento"
+  | "taxaTransacao"
+  | "taxaServico"
+  | "afiliado"
+  | "cupom"
+  | "freteDevolucao"
+  | "tarifaFulfillment"
+  | "garantia"
+  | "armazenagem"
+  | "armazenagemProlongada"
+  | "retirada"
+  | "multaFull";
+
+/** O extrato de UM pedido: o que foi cobrado e o contexto da venda. */
+export interface ExtratoCobrancaPedido {
+  responsavelFrete: ResponsavelFrete;
+  /** A venda veio de um link de afiliado/criador de conteúdo */
+  veioDeAfiliado: boolean;
+  /** Cupom usado na compra; null quando não teve cupom */
+  cupom: { origem: "seller" | "canal"; valor: number } | null;
+  /** Só pedidos do Full/FBA; null nos outros */
+  tamanhoFulfillment: TamanhoFulfillment | null;
+  /** Frete de volta da devolução, pela tabela do canal; null sem devolução */
+  freteDevolucaoTabela: number | null;
+  /** O que o canal cobrou, item por item. Item ausente = não cobrou. */
+  cobrado: Partial<Record<ItemCobrancaAuditor, number>>;
+}
+
+/** A fatura mensal do Full de um SKU: o que o canal cobrou no mês. */
+export interface CobrancaFullMes {
+  marketplaceId: MarketplaceId;
+  sku: string;
+  produto: string;
+  /** Mês da fatura, "AAAA-MM" */
+  mes: string;
+  /** Quando a fatura fechou (ISO) */
+  data: string;
+  /** Retiradas de estoque que o seller pediu no mês */
+  retiradasSolicitadas: number;
+  /** Não conformidades registradas pelo canal no mês */
+  naoConformidades: number;
+  cobrado: Partial<Record<ItemCobrancaAuditor, number>>;
+}
+
+/** Full = estoque no CD do marketplace; Flex = o seller entrega no mesmo dia;
+ * Coleta = o marketplace busca com o seller (cross-docking). O valor interno
+ * segue "padrao" por compatibilidade — o rótulo exibido vive em lib/logistica. */
+export type TipoLogistica = "full" | "flex" | "padrao";
+
+export type StatusCampanha = "ativa" | "encerrada";
+
+export type TipoCampanha =
+  | "oferta"
+  | "oferta-inteligente"
+  | "cupom"
+  | "equiparacao-preco";
+
+/**
+ * Como o seller entrou na campanha. "nexo" = entrou por aqui, passando pela
+ * análise de margem. "externa" = entrou direto no painel do marketplace, sem
+ * análise prévia — nesses casos o canal quase nunca devolve o nome da
+ * campanha, e é por isso que `nome` pode vir null.
+ */
+export type OrigemCampanha = "nexo" | "externa";
+
+export interface Campanha {
+  id: string;
+  /** null quando o canal não expôs o nome (típico de entrada externa) */
+  nome: string | null;
+  marketplaceId: MarketplaceId;
+  tipo: TipoCampanha;
+  status: StatusCampanha;
+  /** Início da vigência (ISO) */
+  inicio: string;
+  /** Fim da vigência (ISO). Campanha ativa tem fim no futuro. */
+  fim: string;
+  origem: OrigemCampanha;
+  /** SKUs inscritos na campanha */
+  skus: string[];
+  /** Desconto ofertado sobre o preço cheio, de 0 a 1 */
+  descontoPercentual: number;
+}
+
+export type StatusAnuncio = "ativo" | "pausado" | "sem-estoque";
+
+/**
+ * De onde veio o número da taxa. Um valor "estimado" é uma projeção sobre o
+ * preço de hoje; "liquidado" é o que o marketplace efetivamente cobrou.
+ * Misturar os dois sem avisar é a forma mais fácil de mentir sobre margem.
+ */
+export type OrigemValor = "estimado" | "liquidado";
+
+/**
+ * Faixa de saúde da margem, sempre relativa às MetasMargem do canal.
+ * "sem-custo" e "sem-meta" não são níveis piores: são a ausência do dado
+ * necessário para classificar, e precisam aparecer como tal.
+ */
+export type FaixaSaudeMargem =
+  | "prejuizo"
+  | "abaixo-da-minima"
+  | "entre-minima-e-ideal"
+  | "saudavel"
+  | "sem-meta"
+  | "sem-custo";
+
+/**
+ * Item do catálogo do seller — onde o CMV mora, uma vez só. Um Produto pode
+ * estar vinculado a vários Anúncios (o mesmo item publicado em vários
+ * marketplaces e contas); o custo nunca é digitado marketplace por
+ * marketplace, só aqui. Mudar o CMV aqui reflete em todo anúncio vinculado.
+ */
+export interface Produto {
+  id: string;
+  /** Código interno do seller — o identificador principal do catálogo */
+  sku: string;
+  /** Código de barras — opcional, usado para tentar auto-vincular um
+   * anúncio recém-puxado do marketplace sem intervenção manual */
+  ean: string | null;
+  nome: string;
+  cmv: number;
+  /** Categoria escolhida pelo seller ("Relógios", "Áudio"...) pra separar e
+   * filtrar a tela Precificação. null/ausente = sem categoria. */
+  categoria?: string | null;
+}
+
+/** Números brutos de Ads de um anúncio — o resto (ROAS, ACOS, CTR, CPC) é
+ * sempre calculado na hora a partir destes quatro, nunca guardado pronto,
+ * pra nunca ficar um número velho junto de um investimento novo. */
+export interface DadosAds {
+  investimento: number;
+  impressoes: number;
+  cliques: number;
+  /** Vendas que o próprio marketplace atribui a este investimento em Ads */
+  vendasAtribuidas: number;
+}
+
+export interface Anuncio {
+  id: string;
+  marketplaceId: MarketplaceId;
+  /** Conta em que o anúncio está publicado */
+  contaId: string;
+  sku: string;
+  /** Código de barras do anúncio no canal, quando o marketplace informa —
+   * segundo critério de busca em "Receber anúncios" além do SKU. */
+  ean: string | null;
+  produto: string;
+  precoAtual: number;
+  /** Preço cheio quando o anúncio está em promoção; null se não está */
+  precoCheio: number | null;
+  emPromocao: boolean;
+  /**
+   * Custo da mercadoria. null = não cadastrado — nesse caso NÃO existe margem
+   * calculável, e a interface precisa dizer isso em vez de exibir R$ 0,00.
+   */
+  cmv: number | null;
+  impostoPercentual: number;
+  comissaoPercentual: number;
+  taxaFixa: number;
+  /** Frete/subsídio de frete grátis absorvido pelo seller, por unidade */
+  freteUnitario: number;
+  /** ADS / anúncios patrocinados atribuídos a este anúncio, por unidade */
+  custoMidiaUnitario: number;
+  /**
+   * Dados brutos de Ads deste anúncio — null quando o seller não ativou
+   * Ads nele. Quando existe, `custoMidiaUnitario` acima já reflete
+   * `investimento / vendasAtribuidas`, então a conta de margem normal já
+   * desconta o Ads sozinha, sem precisar de fórmula separada.
+   */
+  ads: DadosAds | null;
+  /** Comissão de afiliado/criador (TAP, lives), por unidade */
+  custoAfiliadoUnitario: number;
+  /** Se as taxas acima são projeção ou já foram liquidadas pelo canal */
+  origemTaxas: OrigemValor;
+  /**
+   * Vínculo anúncio ↔ produto do catálogo (Produto.id). null = sem vínculo,
+   * e sem ele não há CMV — o anúncio cai na fila de Pendências até o seller
+   * vincular a um produto existente ou criar um novo a partir dele.
+   */
+  produtoId: string | null;
+  status: StatusAnuncio;
+  elegivelPromocao: boolean;
+  /** Unidades vendidas no período — usado na curva ABC e no realizado */
+  unidadesVendidas: number;
+  /**
+   * Data da última venda (ISO). null = nunca vendeu desde que entrou no
+   * sistema. É o que permite dizer "parado há 32 dias" — sem este campo o
+   * agente de giro não tem gatilho nenhum para disparar.
+   */
+  dataUltimaVenda: string | null;
+  /**
+   * ROAS que o seller configurou como meta no Ads Manager do marketplace
+   * (quanto a plataforma tenta manter de retorno por real investido).
+   * null quando o anúncio não tem Ads ativo (`ads` também é null nesse
+   * caso) ou quando o seller ainda não configurou nenhum objetivo. Não
+   * confundir com o ROAS mínimo — este último nunca é guardado, é sempre
+   * calculado na hora a partir da margem de contribuição (Agente de Ads).
+   */
+  roasObjetivo: number | null;
+}
+
+/**
+ * Um ponto do histórico diário de Ads de um anúncio — a fonte do gráfico
+ * de trajetória do ROAS (Agente de Ads). Cada linha é o dado bruto de UM
+ * dia; ROAS, ACOS, CTR e CPC continuam sendo sempre calculados na hora a
+ * partir destes números, nunca guardados prontos — mesma regra do
+ * `DadosAds` do próprio anúncio.
+ */
+export interface HistoricoAdsDia {
+  data: string; // ISO (yyyy-mm-dd)
+  anuncioId: string;
+  investimento: number;
+  impressoes: number;
+  cliques: number;
+  vendasAtribuidas: number;
+  faturamentoAtribuido: number;
+}
+
+/**
+ * Um "antes/depois" de uma taxa do anúncio (comissão ou taxa fixa),
+ * detectado pelo Agente Auditor comparando o valor salvo aqui com o valor
+ * atual do anúncio. Cada linha vira o motivo de uma `OcorrenciaAuditor`
+ * do tipo "mudanca-taxa".
+ */
+export interface HistoricoTaxaAnuncio {
+  id: string;
+  anuncioId: string;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  campo: "comissaoPercentual" | "taxaFixa";
+  valorAnterior: number;
+  valorNovo: number;
+  detectadoEm: string; // ISO
+}
+
+export interface AlteracaoPreco {
+  id: string;
+  data: string; // ISO
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  precoAnterior: number;
+  precoNovo: number;
+  usuario: string;
+}
+
+export interface Promocao {
+  id: string;
+  marketplaceId: MarketplaceId;
+  sku: string;
+  produto: string;
+  precoAtual: number;
+  tipo: string;
+  rebate: number;
+  precoFinal: number;
+  cmv: number;
+  impostoPercentual: number;
+  comissaoPercentual: number;
+  taxaFixa: number;
+}
+
+export interface ItemEstoque {
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  estoqueAtual: number;
+  estoqueFulfillment: number;
+}
+
+export type TipoNotificacao =
+  | "sincronizacao"
+  | "erro"
+  | "desconexao"
+  | "configuracao"
+  | "promocao";
+
+export interface Notificacao {
+  id: string;
+  tipo: TipoNotificacao;
+  titulo: string;
+  descricao: string;
+  data: string; // ISO
+  lida: boolean;
+}
+
+export type PapelUsuario = "administrador" | "analista" | "operacional";
+
+export interface Usuario {
+  id: string;
+  nome: string;
+  email: string;
+  papel: PapelUsuario;
+  ativo: boolean;
+  ultimoAcesso: string;
+  avatarUrl?: string;
+}
+
+export interface LogAlteracao {
+  id: string;
+  data: string; // ISO
+  usuario: string;
+  acao: string;
+  valorAnterior: string;
+  valorNovo: string;
 }
 
 
-function Agentes() {
-  const { metasPorConta, fiscal, custoOperacionalTotal } = useConfiguracoes();
-  const { selecionadas: contasSelecionadas, todasSelecionadas: semRestricaoDeConta } =
-    useSelecaoContas();
-  const { sessao, recursos } = useAuth();
-  const [abaAgente, setAbaAgente] = useState<AbaAgente>("analista");
-  const [eventos, setEventos] = useState<EventoAgente[]>([]);
-  const [insights, setInsights] = useState<InsightAnalista[]>([]);
-  const [tickets, setTickets] = useState<TicketSac[]>([]);
-  const [alertasEstoque, setAlertasEstoque] = useState<AlertaEstoque[]>([]);
-  const [carregandoEstoque, setCarregandoEstoque] = useState(true);
-  const [alertasFulfillment, setAlertasFulfillment] = useState<AlertaEstoque[]>([]);
-  const [carregandoFulfillment, setCarregandoFulfillment] = useState(true);
-  const [avaliacoesAds, setAvaliacoesAds] = useState<EventoAds[]>([]);
-  const [analisesAds, setAnalisesAds] = useState<AnaliseRoasAnuncio[]>([]);
-  const [acoesAds, setAcoesAds] = useState<AcaoAds[]>([]);
-  const [carregandoAds, setCarregandoAds] = useState(true);
-  const [ocorrenciasAuditor, setOcorrenciasAuditor] = useState<OcorrenciaAuditor[]>([]);
-  const [carregandoAuditor, setCarregandoAuditor] = useState(true);
-  const [carregandoTickets, setCarregandoTickets] = useState(true);
-  /** Ticket com resposta em andamento de gerar (mostra o spinner só nele) */
-  const [gerandoId, setGerandoId] = useState<string | null>(null);
-  /** O que deixa a resposta do SAC com a cara da loja: personalização,
-   * regras aprendidas, fichas dos produtos e mensagens prontas. */
-  const [configSac, setConfigSac] = useState<ConfiguracaoSac>(CONFIGURACAO_SAC_PADRAO);
-  const [regrasSac, setRegrasSac] = useState<RegraSac[]>([]);
-  const [fichas, setFichas] = useState<Map<string, string>>(new Map());
-  const [modelosSac, setModelosSac] = useState<Record<SituacaoSac, string>>(MODELOS_SAC_PADRAO);
-  /** Rascunho editável de cada ticket, por id — separado do que já está
-   * salvo, pra o seller poder ajustar antes de aprovar. */
-  const [rascunhos, setRascunhos] = useState<Record<string, string>>({});
-  const [sugestoesCriativo, setSugestoesCriativo] = useState<SugestaoCriativo[]>([]);
-  const [carregandoCriativo, setCarregandoCriativo] = useState(true);
-  const [gerandoCriativoId, setGerandoCriativoId] = useState<string | null>(null);
-  const [rascunhosCriativo, setRascunhosCriativo] = useState<Record<string, RascunhoCriativo>>({});
-  /** Palavras proibidas e limite de título por canal do Criativo */
-  const [configCriativo, setConfigCriativo] = useState<ConfiguracaoCriativo>(
-    CONFIGURACAO_CRIATIVO_PADRAO,
-  );
-  /** Produto com a janela da ficha aberta (a mesma no SAC e no Criativo) */
-  const [alvoFicha, setAlvoFicha] = useState<AlvoFicha | null>(null);
-  const [carregando, setCarregando] = useState(true);
-  /** Mudanças de preço feitas na tela Precificação — entram no "antes x
-   * depois" do Agente de Precificação junto com as sugestões aprovadas. */
-  const [alteracoesManuais, setAlteracoesManuais] = useState<AlteracaoPrecoRegistrada[]>([]);
+/* ------------------------------------------------------------------ */
+/* Custos operacionais do seller                                      */
+/* ------------------------------------------------------------------ */
 
-  /**
-   * A varredura do agente. Hoje roda quando a tela abre; quando houver
-   * servidor, é esta mesma função que passa a rodar de hora em hora sem
-   * ninguém olhando. Só GRAVA sugestão nova pra SKU que ainda não tem
-   * uma pendente — sem isso, toda vez que a tela abrisse duplicaria tudo.
-   */
-  const carregarEventos = useCallback(async () => {
-    if (!sessao || !recursos.agentes) return;
-    const perfilId = sessao.user.id;
+/**
+ * Custo que o seller tem por venda e que o marketplace não cobra dele:
+ * embalagem, fita, etiqueta, plástico bolha. Sem isso o "lucro real" é
+ * lucro antes de embalar.
+ */
+export interface CustoOperacional {
+  id: string;
+  /** Nome dado pelo próprio seller — aparece no Raio-X como ele escreveu */
+  nome: string;
+  /** "fixo" = R$ por unidade vendida; "percentual" = % sobre o preço */
+  tipo: "fixo" | "percentual";
+  /** Reais quando fixo; fração 0-1 quando percentual */
+  valor: number;
+  ativo: boolean;
+}
 
-    // Garante que o CMV dos produtos reais já está espalhado pros
-    // anúncios de exemplo, mesmo que o seller nunca tenha passado pela
-    // tela de Custos nesta sessão — senão o agente avalia sem custo.
-    const [produtos, alteracoes] = await Promise.all([
-      produtosService.listar(perfilId),
-      alteracoesPrecoService.listar(perfilId),
-    ]);
-    produtosService.reconciliarComAnuncios(produtos);
-    // Os preços que o seller mudou na tela Precificação valem aqui também.
-    alteracoesPrecoService.aplicarNosAnuncios(alteracoes);
-    setAlteracoesManuais(alteracoes);
+export type RegimeTributario =
+  | "simples-nacional"
+  | "lucro-presumido"
+  | "lucro-real";
 
-    // Frentes 1 e 2: subir (vende rápido e o estoque vai acabar) e baixar
-    // (parado, com corte que cresce com o tempo parado e o dinheiro preso).
-    const candidatos = sugerirPrecos(
-      anunciosService.listar(),
-      situacaoEstoquePorSku(
-        estoqueService.listarDetalhado(),
-        fulfillmentService.listarDetalhado(),
-        vendasService.listar(),
-      ),
-      (contaId) => metasPorConta[contaId] ?? FAIXAS_MARGEM_PADRAO,
-      { aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal },
-    );
+/**
+ * Perfil do seller autenticado — 1 linha por login, guardada na tabela
+ * `perfis` do Supabase (id = mesmo id do usuário em auth.users). É o que
+ * alimenta a lateral do app (logo, nome, plano).
+ *
+ * Sobre os nomes: `nomeExibicao` guarda o NOME FANTASIA da loja — é o nome
+ * que o seller digita na aba Empresa e o que aparece em primeiro lugar na
+ * lateral. A coluna no banco continua se chamando `nome_exibicao` por
+ * compatibilidade com o que já está gravado lá. `razaoSocial` é o nome
+ * jurídico, que aparece abaixo dele.
+ */
+export interface Perfil {
+  id: string;
+  nomeExibicao: string;
+  razaoSocial: string | null;
+  email: string;
+  logoUrl: string | null;
+  plano: string;
+  /** Aponta pra `planos.id` ('essencial' | 'agentes') — é o que decide o
+   * que o app libera, diferente de `plano`, que é só o texto exibido. */
+  planoId: string;
+}
 
-    const jaPendentes = await eventosAgenteService.chavesPendentesPreco(perfilId);
-    for (const c of candidatos) {
-      if (jaPendentes.has(chaveSugestaoPreco(c))) continue;
-      const erro = await eventosAgenteService.criar(perfilId, c);
-      if (erro) console.error("Não consegui gravar a sugestão:", erro);
+/** O que o plano do seller libera — vem de `planos.recursos` no banco. */
+export interface RecursosPlano {
+  dashboard: boolean;
+  agentes: boolean;
+  agentesEscrita: boolean;
+}
+
+export interface DadosEmpresa {
+  nome: string;
+  cnpj: string;
+  nomeFantasia: string;
+  email: string;
+  telefone: string;
+  /** Endereço separado — CEP, rua, número, complemento, bairro, cidade, UF */
+  cep: string;
+  rua: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  /** Para onde saem as cotações de reposição */
+  emailFornecedor: string;
+}
+
+export interface ConfiguracaoFiscal {
+  regime: RegimeTributario;
+  /** Fração 0-1 aplicada sobre o faturamento */
+  aliquota: number;
+}
+
+/**
+ * Uma empresa do seller. Cada CNPJ é uma empresa separada aos olhos da lei:
+ * tem o próprio regime tributário, as próprias despesas e o próprio
+ * fechamento. O DRE nunca soma empresas diferentes — só mostra uma por vez.
+ */
+export interface Empresa {
+  id: string;
+  /** Razão social, como sai na nota */
+  nome: string;
+  nomeFantasia: string;
+  cnpj: string;
+  regime: RegimeTributario;
+  /** Fração 0-1 aplicada sobre o faturamento desta empresa */
+  aliquota: number;
+}
+
+export type TipoLancamento = "despesa" | "receita";
+
+/**
+ * Um gasto ou uma entrada que NÃO vem de venda: aluguel, contador, energia,
+ * folha, ou uma receita avulsa. Pertence sempre a uma empresa.
+ *
+ * Recorrência: o lançamento é guardado uma vez só, com o mês em que começa.
+ * Se `recorrente` for true, ele repete todo mês PRA SEMPRE — não tem um
+ * número de repetições. Os meses seguintes são calculados na hora de ler.
+ *
+ * Duas formas de parar, e elas não se confundem:
+ * - `competenciaFim`: "parar de repetir daqui pra frente". Guarda o último
+ *   mês em que o lançamento ainda vale; a partir do mês seguinte ele some
+ *   sozinho. Os meses já lançados antes disso continuam intocados.
+ * - `mesesExcluidos`: exceção pontual — remove só UM mês específico (passado
+ *   ou futuro) sem mexer na recorrência nem nos outros meses. É o que o
+ *   seller usa quando quer apagar, por exemplo, só o de julho.
+ */
+export interface Lancamento {
+  id: string;
+  empresaId: string;
+  tipo: TipoLancamento;
+  /** "Aluguel", "Contador", "Energia" — vem de uma lista fixa de categorias */
+  categoria: string;
+  descricao: string;
+  /** Mês em que começa, no formato "2026-09" */
+  competencia: string;
+  valor: number;
+  /** Quando true, repete todo mês a partir da competência, sem fim definido */
+  recorrente: boolean;
+  /** Último mês em que a recorrência ainda vale; null = sem fim (continua) */
+  competenciaFim: string | null;
+  /** Competências específicas em que este lançamento foi removido à parte */
+  mesesExcluidos: string[];
+  criadoEm: string; // ISO
+}
+
+/** Categorias fixas de despesa/receita, na ordem em que aparecem no formulário. */
+export const CATEGORIAS_LANCAMENTO = [
+  "Aluguel",
+  "Contador",
+  "Energia",
+  "Folha",
+  "Marketing",
+  "Software/assinaturas",
+  "Outros",
+] as const;
+
+export interface Periodo {
+  inicio: Date;
+  fim: Date;
+  rotulo: string;
+}
+
+export type TipoOportunidadeRecuperacao =
+  | "boleto-pendente"
+  | "pix-nao-pago"
+  | "cancelamento-solicitado";
+
+export type StatusOportunidadeRecuperacao = "aguardando-acao" | "mensagem-enviada";
+
+export interface OportunidadeRecuperacao {
+  id: string;
+  cliente: string;
+  telefone: string;
+  pedidoId: string;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  contaId: string;
+  valor: number;
+  tipo: TipoOportunidadeRecuperacao;
+  tempoRestante: string;
+  status: StatusOportunidadeRecuperacao;
+  dataCriacao: string; // ISO
+  dataUltimoContato: string | null; // ISO
+}
+
+
+export interface ItemEstoqueDetalhado {
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  quantidade: number;
+  vendasDia: number;
+  coberturaDias: number;
+  custoUnitario: number;
+  valorEstoque: number;
+  /** Quantos dias o fornecedor leva pra entregar uma reposição — o alerta
+   * de ruptura precisa vir com essa folga de antecedência, e não só
+   * quando o estoque já está baixo. */
+  prazoFornecedorDias: number;
+  /** Quanto o marketplace cobra por mês de armazenagem deste item no
+   * centro de distribuição dele. Sempre 0 no estoque próprio do seller —
+   * só existe cobrança de armazenagem quando o item está no Full. */
+  custoArmazenagemMensal: number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agentes                                                            */
+/* ------------------------------------------------------------------ */
+
+export type AgenteId =
+  | "precificacao"
+  | "analista"
+  | "sac"
+  | "estoque"
+  | "ads"
+  | "criativo"
+  | "fulfillment"
+  | "auditor";
+
+/**
+ * Situação de uma sugestão. Enquanto não há API com permissão de escrita,
+ * "aprovada" significa que o seller aceitou e vai aplicar no marketplace na
+ * mão. Quando a API conectar, é aqui que entra "aplicada".
+ */
+export type StatusSugestao = "pendente" | "aprovada" | "recusada";
+
+/**
+ * Semáforo da decisão — a mesma linguagem do resto do sistema:
+ * verde   = continua acima da margem mínima, o agente poderia agir sozinho
+ * amarelo = cai abaixo da margem mínima, precisa do seller
+ * vermelho= abaixo do empate, é prejuízo; só o seller decide queimar
+ */
+export type SemaforoDecisao = "verde" | "amarelo" | "vermelho";
+
+/**
+ * Um evento é TUDO que um agente fez ou propôs. É a peça central: o feed, o
+ * histórico, a fila de aprovação e (mais para a frente) a sala com os
+ * avatares leem todos desta mesma lista. Um dado, várias telas.
+ */
+export interface EventoAgente {
+  id: string;
+  agenteId: AgenteId;
+  /** Quando o agente decidiu (ISO) */
+  data: string;
+  anuncioId: string;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  contaId: string;
+  /** Por que agiu, em português, para aparecer no feed */
+  motivo: string;
+  diasParado: number;
+  precoAtual: number;
+  precoSugerido: number;
+  margemAtual: number;
+  margemSugerida: number;
+  /** Piso calculado para este anúncio neste canal */
+  precoMinimo: number;
+  semaforo: SemaforoDecisao;
+  /** true quando o degrau de 5% bateria no piso e foi travado nele */
+  travadoNoPiso: boolean;
+  status: StatusSugestao;
+  /** Quando o seller decidiu (ISO); null enquanto pendente */
+  decididoEm: string | null;
+  /** Precificação: "baixar" (produto parado) ou "subir" (vende rápido e o
+   * estoque vai acabar). Sugestões antigas não têm — contam como "baixar". */
+  direcao?: DirecaoPreco;
+  /** Tamanho do ajuste sugerido, de 0 a 1 (0,08 = 8%) */
+  degrau?: number;
+}
+
+export type DirecaoPreco = "baixar" | "subir";
+
+/** Uma mudança de preço já feita — base do "acompanhar o resultado".
+ * Vem das sugestões aprovadas (e, enquanto não há histórico real, de
+ * exemplos fictícios). */
+export interface MudancaPreco {
+  id: string;
+  anuncioId: string;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  contaId: string;
+  precoAntes: number;
+  precoDepois: number;
+  /** Quando o preço mudou (ISO) */
+  data: string;
+  /** true = exemplo fictício, não uma aprovação do seller */
+  exemplo: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente Analista                                                     */
+/* ------------------------------------------------------------------ */
+
+/** As cinco frentes do Analista — cada uma vira um tipo de aviso no feed. */
+export type TipoInsightAnalista =
+  | "queda_margem"
+  | "curva_abc"
+  | "dado_faltando"
+  | "saude_conta"
+  | "resumo_diario";
+
+/**
+ * Um aviso do Analista. Mais simples que `EventoAgente`: não é uma
+ * decisão de preço, é uma observação — por isso não tem "preço antes/
+ * depois", só o motivo e os números que sustentam ele em `dados`.
+ */
+export interface InsightAnalista {
+  id: string;
+  tipo: TipoInsightAnalista;
+  data: string;
+  /** null quando o aviso é do negócio como um todo, não de uma conta específica */
+  contaId: string | null;
+  motivo: string;
+  semaforo: SemaforoDecisao;
+  /** "aprovada" aqui significa "visto/reconhecido", não "aplicado" */
+  status: StatusSugestao;
+  decididoEm: string | null;
+  dados: Record<string, unknown>;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente SAC                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Uma pergunta de cliente (fictícia, até a API de mensagens conectar) e,
+ * quando o seller pedir, a resposta gerada por IA — nunca gerada
+ * sozinha: só quando alguém clica em "Gerar resposta", porque é o único
+ * passo desse agente que custa token de verdade.
+ */
+export interface TicketSac {
+  id: string;
+  data: string;
+  contaId: string | null;
+  anuncioId: string | null;
+  produto: string;
+  sku: string;
+  marketplaceId: MarketplaceId;
+  pergunta: string;
+  /** null até o seller pedir a IA gerar */
+  resposta: string | null;
+  status: StatusSugestao;
+  decididoEm: string | null;
+  /** Pedido a que a mensagem se refere (pós-venda/reclamação); null em
+   * pergunta de pré-venda, feita antes de comprar */
+  pedidoId?: string | null;
+  /** Nome do cliente, pra personalizar a mensagem pronta */
+  cliente?: string | null;
+}
+
+/** O tipo de mensagem, decidido por palavras-chave (sem IA, sem token):
+ * - pré-venda: dúvida antes de comprar;
+ * - pós-venda: "cadê meu pedido";
+ * - reclamação: onde a reputação corre risco — o seller responde. */
+export type CategoriaSac = "pre-venda" | "pos-venda" | "reclamacao";
+
+/** Tom de voz das respostas do SAC. */
+export type TomSac = "formal" | "neutro" | "descontraido";
+
+/** A personalização do SAC que o seller define em Configurações. */
+export interface ConfiguracaoSac {
+  tom: TomSac;
+  /** Como assinar as mensagens ("Equipe Planeta97") */
+  assinatura: string;
+  politicaTroca: string;
+  garantia: string;
+  prazoEnvio: string;
+  /** Uma frase ou palavra por linha */
+  frasesProibidas: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente de Estoque                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Um alerta de ruptura projetada — não é "já esgotou", é "no ritmo atual,
+ * vai esgotar em breve". Vem sempre com a conta: quanto vendeu, a que
+ * ritmo, e quanto repor pra não correr risco.
+ */
+export interface AlertaEstoque {
+  id: string;
+  data: string;
+  contaId: string | null;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  estoqueAtual: number;
+  vendidoUltimos7Dias: number;
+  mediaDiaria: number;
+  diasRestantes: number;
+  quantidadeSugerida: number;
+  diasAlvoCobertura: number;
+  status: StatusSugestao;
+  decididoEm: string | null;
+  /* Campos do Bloco 4 — opcionais porque alertas gravados antes não têm */
+  /** "ruptura" = vai faltar; "parado" = sobrando no Full (só Fulfillment) */
+  tipoAlerta?: TipoAlertaEstoque;
+  /** Dias que o fornecedor leva pra entregar */
+  prazoFornecedorDias?: number;
+  /** Até quando dá pra fazer o pedido sem faltar: dias a partir de hoje.
+   * Zero ou negativo = já passou do ponto, vai faltar mesmo pedindo hoje. */
+  diasParaPedir?: number;
+  /** Pedindo hoje, quantos dias o produto fica sem estoque até chegar */
+  diasSemEstoque?: number;
+  custoUnitario?: number;
+  /** Quanto custa a reposição sugerida (quantidade × custo) */
+  custoReposicao?: number;
+  veredito?: VereditoReposicao;
+  /** Por que vale (ou não) repor, em português */
+  motivoVeredito?: string;
+  classeAbc?: "A" | "B" | "C" | null;
+  /** Margem líquida do SKU nos últimos 30 dias */
+  margem30d?: number | null;
+  /* Só Fulfillment */
+  /** Dias pra preparar, agendar, transportar e o Full conferir */
+  prazoEnvioFullDias?: number;
+  /** Estoque próprio disponível pra mandar pro Full */
+  estoqueProprio?: number;
+  /** Quanto mandar do estoque próprio pro Full agora */
+  quantidadeEnviar?: number;
+  /** Quanto falta comprar do fornecedor (quando o estoque próprio não dá) */
+  quantidadeComprar?: number;
+  /** Armazenagem que este SKU custa hoje por mês no Full */
+  custoArmazenagemMensal?: number;
+  /** Parado: quantas unidades vale retirar do Full */
+  quantidadeRetirar?: number;
+  /** Parado: quanto custa retirar essas unidades */
+  custoRetirada?: number;
+  /** Parado: quanto deixa de pagar de armazenagem por mês retirando */
+  economiaMensal?: number;
+}
+
+/** O que o agente acha de repor: vale, vale com cuidado (repor menos) ou
+ * não vale (resolver o preço antes). */
+export type VereditoReposicao = "repor" | "repor-com-cuidado" | "nao-repor";
+
+export type TipoAlertaEstoque = "ruptura" | "parado";
+
+/* ------------------------------------------------------------------ */
+/* Agente de Ads                                                       */
+/* ------------------------------------------------------------------ */
+
+/** As duas janelas do agente: achar quem devia entrar em Ads, e avaliar
+ * quem já está. */
+export type TipoEventoAds = "sugestao" | "analise";
+
+/**
+ * Um produto, numa das duas janelas. `investimento`, `lucroLiquido` e
+ * `valeAPena` só existem de verdade na "análise" — na "sugestão" eles
+ * ficam zerados/null, porque o produto ainda não está em Ads.
+ *
+ * De propósito, só o essencial: quanto vende por dia, quanto investiu,
+ * e o que sobrou de lucro líquido no final — nada de ROAS/ACOS/CTR
+ * poluindo a tela, isso fica só no Dashboard.
+ */
+export interface EventoAds {
+  id: string;
+  tipo: TipoEventoAds;
+  data: string;
+  contaId: string | null;
+  sku: string;
+  produto: string;
+  quantidade: number;
+  unidadesPorDia: number;
+  faturamento: number;
+  investimento: number;
+  /** Lucro já com o Ads descontado — o número que fecha a pergunta
+   * "sobrou dinheiro ou não". Na sugestão, é o lucro sem Ads mesmo
+   * (ainda não investe nele). */
+  lucroLiquido: number;
+  /** Margem se não tivesse Ads nenhum */
+  margemSemAds: number;
+  /** Margem de verdade, com o Ads descontado — igual à margemSemAds na
+   * sugestão, já que ainda não tem Ads pra descontar */
+  margemComAds: number;
+  /** null na sugestão (não se aplica ainda); true/false na análise */
+  valeAPena: boolean | null;
+  status: StatusSugestao;
+  decididoEm: string | null;
+}
+
+
+/** As três ações que o Agente de Ads sugere em cima do ROAS mínimo. */
+export type TipoAcaoAds = "ajuste_roas" | "realocacao" | "anuncio_cansado";
+
+/** Um dos lados de uma realocação de verba (de onde sai / pra onde vai). */
+export interface LadoRealocacaoAds {
+  anuncioId: string;
+  sku: string;
+  produto: string;
+  classe: "A" | "B" | "C" | null;
+  roasAtual: number;
+  roasMinimo: number;
+  investimento: number;
+  diasSeguidosAbaixo: number;
+  coberturaEstoqueDias: number | null;
+}
+
+/** O "miolo" de cada ação — cada tipo guarda só o que ele precisa. */
+export type DetalheAcaoAds =
+  | {
+      tipo: "ajuste_roas";
+      direcao: "subir" | "baixar";
+      roasAtual: number;
+      roasMinimo: number;
+      roasObjetivoAtual: number;
+      roasObjetivoSugerido: number;
     }
-
-    const lista = await eventosAgenteService.listar(perfilId, "precificacao");
-    setEventos(lista);
-    setCarregando(false);
-  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
-
-  /** Frentes 4 e 5 (campanhas e preço por canal): só leitura, recalculadas
-   * sempre que as metas ou os custos mudam — não vão pro banco. */
-  const analisesPreco = useMemo(() => {
-    const metasDe = (contaId: string) => metasPorConta[contaId] ?? FAIXAS_MARGEM_PADRAO;
-    const opcoes = { aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal };
-    const anuncios = anunciosService.listar();
-    const situacao = situacaoEstoquePorSku(
-      estoqueService.listarDetalhado(),
-      fulfillmentService.listarDetalhado(),
-      vendasService.listar(),
-    );
-    return {
-      campanhas: avaliarCampanhas(promocoesService.listar(), anuncios, situacao, metasDe, opcoes),
-      porCanal: precosPorCanal(anuncios, metasDe, opcoes),
+  | {
+      tipo: "realocacao";
+      fonte: LadoRealocacaoAds;
+      destino: LadoRealocacaoAds;
+      /** Cada ação fala de UM anúncio só: "reduzir" = o anúncio no prejuízo
+       * (fonte), "aumentar" = o saudável (destino). Ausente = formato antigo,
+       * com os dois juntos no mesmo aviso. */
+      lado?: "reduzir" | "aumentar";
+    }
+  | {
+      tipo: "anuncio_cansado";
+      cliques: number;
+      vendas: number;
+      conversao: number;
+      investimento: number;
     };
-  }, [metasPorConta, fiscal, custoOperacionalTotal]);
 
-  const [carregandoInsights, setCarregandoInsights] = useState(true);
-
-  /**
-   * As cinco frentes do Analista, rodando de uma vez: queda de margem,
-   * curva ABC, dado faltando, saúde da conta e o resumo do dia. Cada
-   * frente só vira aviso quando tem algo que realmente merece atenção —
-   * sem novidade, fica quieto.
-   */
-  const carregarInsights = useCallback(async () => {
-    if (!sessao || !recursos.agentes) return;
-    const perfilId = sessao.user.id;
-
-    const pedidos = vendasService.listar();
-    const anuncios = anunciosService.listar();
-    const contasAtivas = contasService.ativas();
-    const opcoesCusto = {
-      aliquotaImposto: fiscal.aliquota,
-      custosOperacionais: custoOperacionalTotal,
-    };
-
-    const quedaMargem = diagnosticarQuedaMargem(pedidos);
-    const abc = diagnosticarCurvaAbc(anuncios, opcoesCusto);
-    const dadoFaltando = diagnosticarDadoFaltando(anuncios, contasAtivas, metasPorConta);
-    const saude = diagnosticarSaudeContas(contasAtivas);
-    const hoje = new Date();
-    const pedidosHoje = pedidos.filter(
-      (p) => new Date(p.data).toDateString() === hoje.toDateString(),
-    );
-    const resumo = montarResumoDiario(pedidosHoje, quedaMargem, dadoFaltando, saude, abc);
-
-    const candidatos: Omit<InsightAnalista, "id" | "status" | "decididoEm" | "data">[] = [];
-
-    if (quedaMargem) {
-      candidatos.push({
-        tipo: "queda_margem",
-        contaId: null,
-        motivo: `Margem caiu ${Math.abs(quedaMargem.diferencaPP).toFixed(1)} pontos percentuais — de ${formatPercentual(quedaMargem.margemAnterior)} para ${formatPercentual(quedaMargem.margemAtual)} no período.`,
-        semaforo: "amarelo",
-        dados: { ...quedaMargem },
-      });
-    }
-
-    if (abc && abc.cEmPrejuizo.length > 0) {
-      candidatos.push({
-        tipo: "curva_abc",
-        contaId: null,
-        motivo: `${abc.cEmPrejuizo.length} produto${abc.cEmPrejuizo.length > 1 ? "s" : ""} de baixo faturamento vendendo com prejuízo — candidato a rever preço ou descontinuar.`,
-        semaforo: "vermelho",
-        dados: {
-          cEmPrejuizo: abc.cEmPrejuizo.map((i) => ({
-            produto: i.anuncio.produto,
-            sku: i.anuncio.sku,
-          })),
-          topA: abc.topA.map((i) => ({ produto: i.anuncio.produto, participacao: i.participacao })),
-        },
-      });
-    } else if (abc && abc.topA.length > 0) {
-      candidatos.push({
-        tipo: "curva_abc",
-        contaId: null,
-        motivo: `${abc.topA.length} produto${abc.topA.length > 1 ? "s" : ""} concentra${abc.topA.length > 1 ? "m" : ""} a maior parte do seu faturamento.`,
-        semaforo: "verde",
-        dados: {
-          topA: abc.topA.map((i) => ({ produto: i.anuncio.produto, participacao: i.participacao })),
-        },
-      });
-    }
-
-    if (dadoFaltando) {
-      candidatos.push({
-        tipo: "dado_faltando",
-        contaId: null,
-        motivo: `${dadoFaltando.anunciosSemCusto} anúncio(s) sem CMV e ${dadoFaltando.contasSemMeta} conta(s) sem margem mínima configurada — os cálculos desses ficam incompletos até isso ser preenchido.`,
-        semaforo: "amarelo",
-        dados: { ...dadoFaltando },
-      });
-    }
-
-    for (const item of saude) {
-      candidatos.push({
-        tipo: "saude_conta",
-        contaId: item.conta.id,
-        motivo: item.alerta,
-        semaforo: "vermelho",
-        dados: { contaNome: item.conta.nome, marketplaceId: item.conta.marketplaceId },
-      });
-    }
-
-    candidatos.push({
-      tipo: "resumo_diario",
-      contaId: null,
-      motivo: `Hoje: ${formatBRL(resumo.faturamento)} em ${formatNumero(resumo.pedidos)} pedido(s), margem de ${formatPercentual(resumo.margem)}.`,
-      semaforo: resumo.quedaDeMargem || resumo.contasEmAlerta > 0 ? "amarelo" : "verde",
-      dados: { ...resumo },
-    });
-
-    const jaPendentes = await eventosAgenteService.tiposPendentes(perfilId);
-    for (const c of candidatos) {
-      const chave = `${c.tipo}:${c.contaId ?? ""}`;
-      if (jaPendentes.has(chave)) continue;
-      const erro = await eventosAgenteService.criarInsight(perfilId, c);
-      if (erro) console.error("Não consegui gravar o aviso:", erro);
-    }
-
-    const lista = await eventosAgenteService.listarInsights(perfilId);
-    setInsights(lista);
-    setCarregandoInsights(false);
-  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
-
-  /**
-   * Quatro perguntas comuns de cliente de marketplace, usadas só pra
-   * semear os primeiros tickets de exemplo — a API de mensagens ainda
-   * não existe, então a pergunta em si é sempre fictícia.
-   */
-  const carregarTickets = useCallback(async () => {
-    if (!sessao || !recursos.agentes) return;
-    const perfilId = sessao.user.id;
-
-    // O contexto do SAC vem junto: personalização, regras, fichas e
-    // mensagens prontas. Nada disso gasta token — é só leitura do banco.
-    const [config, regras, mapaFichas, modelos] = await Promise.all([
-      sacConfigService.carregar(perfilId),
-      regrasSacService.listar(perfilId),
-      fichasService.listar(perfilId),
-      modelosSacService.listar(perfilId),
-    ]);
-    setConfigSac(config);
-    setRegrasSac(regras);
-    setFichas(mapaFichas);
-    setModelosSac(modelos);
-
-    const anunciosAtivos = anunciosService.listar().filter((a) => a.status === "ativo");
-    const existentes = await sacService.listar(perfilId);
-    if (existentes.length === 0) {
-      const amostra = anunciosAtivos.slice(0, Math.min(4, anunciosAtivos.length));
-      for (let i = 0; i < amostra.length; i++) {
-        const a = amostra[i]!;
-        const erro = await sacService.criarTicket(perfilId, {
-          contaId: a.contaId,
-          anuncioId: a.id,
-          produto: a.produto,
-          sku: a.sku,
-          marketplaceId: a.marketplaceId,
-          pergunta: PERGUNTAS_FICTICIAS[i % PERGUNTAS_FICTICIAS.length]!,
-        });
-        if (erro) console.error("Não consegui criar o ticket de exemplo:", erro);
-      }
-    }
-
-    // Leva de exemplos do Bloco 6 (uma vez só): pós-venda, reclamação e
-    // perguntas repetidas — pra mostrar cada tipo de mensagem na tela.
-    const lotes = await sacService.lotesCriados(perfilId);
-    if (!lotes.has(LOTE_EXEMPLOS_SAC)) {
-      for (const t of montarTicketsExemploSac(anunciosAtivos, vendasService.listar())) {
-        const erro = await sacService.criarTicket(perfilId, { ...t, lote: LOTE_EXEMPLOS_SAC });
-        if (erro) console.error("Não consegui criar o ticket de exemplo:", erro);
-      }
-    }
-
-    const lista = await sacService.listar(perfilId);
-    setTickets(lista);
-    setCarregandoTickets(false);
-  }, [sessao, recursos.agentes]);
-
-  /** Semeia algumas sugestões de exemplo, uma vez só, a partir de
-   * anúncios ativos reais — igual o SAC faz com as perguntas fictícias. */
-  const carregarSugestoesCriativo = useCallback(async () => {
-    if (!sessao || !recursos.agentes) return;
-    const perfilId = sessao.user.id;
-
-    setConfigCriativo(await criativoConfigService.carregar(perfilId));
-
-    const existentes = await criativoService.listar(perfilId);
-    if (existentes.length === 0) {
-      const anunciosAtivos = anunciosService.listar().filter((a) => a.status === "ativo");
-      const amostra = anunciosAtivos.slice(0, Math.min(4, anunciosAtivos.length));
-      for (const a of amostra) {
-        const erro = await criativoService.criarSugestao(perfilId, {
-          contaId: a.contaId,
-          anuncioId: a.id,
-          produto: a.produto,
-          sku: a.sku,
-          marketplaceId: a.marketplaceId,
-        });
-        if (erro) console.error("Não consegui criar a sugestão criativa de exemplo:", erro);
-      }
-    }
-
-    const lista = await criativoService.listar(perfilId);
-    setSugestoesCriativo(lista);
-    setCarregandoCriativo(false);
-  }, [sessao, recursos.agentes]);
-
-  /**
-   * Agente de Estoque (estoque próprio): avisa a tempo de o fornecedor
-   * entregar, diz se vale a pena repor (margem depois do Ads + curva ABC)
-   * e quanto dinheiro a reposição exige. O banco guarda o status de cada
-   * alerta; os números vêm sempre do cálculo de agora.
-   */
-  const carregarAlertasEstoque = useCallback(async () => {
-    if (!sessao || !recursos.agentes) return;
-    const perfilId = sessao.user.id;
-
-    const calculados = analisarReposicaoEstoque(
-      estoqueService.listarDetalhado(),
-      vendasService.listar(),
-      contasService.ativas(),
-    );
-
-    const jaPendentes = await estoqueService.chavesPendentes(perfilId);
-    for (const a of calculados) {
-      if (jaPendentes.has(chaveAlertaEstoque(a))) continue;
-      const erro = await estoqueService.criarAlerta(perfilId, { ...a, contaId: null });
-      if (erro) console.error("Não consegui gravar o alerta de estoque:", erro);
-    }
-
-    const gravados = await estoqueService.listarAlertas(perfilId);
-    setAlertasEstoque(mesclarAlertasEstoque(gravados, calculados));
-    setCarregandoEstoque(false);
-  }, [sessao, recursos.agentes]);
-
-  /** Agente de Fulfillment: o que vai faltar no Full (contando o prazo de
-   * envio até o centro de distribuição, quanto mandar e quanto comprar)
-   * e o que está parado lá pagando armazenagem. */
-  const carregarAlertasFulfillment = useCallback(async () => {
-    if (!sessao || !recursos.agentes) return;
-    const perfilId = sessao.user.id;
-
-    const calculados = analisarFulfillment(
-      fulfillmentService.listarDetalhado(),
-      estoqueService.listarDetalhado(),
-      vendasService.listar(),
-      contasService.ativas(),
-    );
-
-    const jaPendentes = await fulfillmentService.chavesPendentes(perfilId);
-    for (const a of calculados) {
-      if (jaPendentes.has(chaveAlertaEstoque(a))) continue;
-      const erro = await fulfillmentService.criarAlerta(perfilId, { ...a, contaId: null });
-      if (erro) console.error("Não consegui gravar o alerta de fulfillment:", erro);
-    }
-
-    const gravados = await fulfillmentService.listarAlertas(perfilId);
-    setAlertasFulfillment(mesclarAlertasEstoque(gravados, calculados));
-    setCarregandoFulfillment(false);
-  }, [sessao, recursos.agentes]);
-
-  /**
-   * O Agente de Ads, em duas partes:
-   * 1. Candidatos: produtos que vendem bem sem nenhum Ads (a partir dos
-   *    pedidos dos últimos 30 dias).
-   * 2. ROAS: cada anúncio em Ads comparado com o ROAS mínimo que a margem
-   *    dele aguenta — daí saem as ações (ajustar objetivo, mover verba,
-   *    anúncio cansado). As ações vão pro banco pra ter aprovar/recusar e
-   *    histórico; a análise em si é recalculada toda vez, sempre fresca.
-   */
-  const carregarAvaliacoesAds = useCallback(async () => {
-    if (!sessao || !recursos.agentes) return;
-    const perfilId = sessao.user.id;
-
-    const pedidos = vendasService.listar();
-    const fim = new Date();
-    const inicio = new Date(fim.getTime() - 29 * 86400000);
-    const periodo = { inicio, fim, rotulo: "Últimos 30 dias" };
-
-    const jaSugeridos = await adsService.skusPendentes(perfilId, "sugestao");
-    for (const s of sugerirAnunciosParaAds(pedidos, periodo)) {
-      if (jaSugeridos.has(s.sku)) continue;
-      const erro = await adsService.criarEvento(perfilId, {
-        tipo: "sugestao",
-        contaId: null,
-        sku: s.sku,
-        produto: s.produto,
-        quantidade: s.quantidade,
-        unidadesPorDia: s.unidadesPorDia,
-        faturamento: s.faturamento,
-        investimento: 0,
-        lucroLiquido: s.lucroLiquido,
-        margemSemAds: s.margem,
-        margemComAds: s.margem,
-        valeAPena: null,
-      });
-      if (erro) console.error("Não consegui gravar a sugestão de Ads:", erro);
-    }
-
-    // Garante o CMV dos produtos reais nos anúncios antes de calcular a
-    // margem de contribuição (mesmo cuidado do agente de Precificação).
-    const produtos = await produtosService.listar(perfilId);
-    produtosService.reconciliarComAnuncios(produtos);
-
-    const analises = analisarRoasAnuncios(
-      anunciosService.listar(),
-      adsService.historico(),
-      estoqueService.listarDetalhado(),
-      { aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal },
-    );
-    setAnalisesAds(analises);
-
-    const jaPendentes = await adsService.chavesAcoesPendentes(perfilId);
-    for (const { chave, acao } of montarAcoesAds(analises)) {
-      if (jaPendentes.has(chave)) continue;
-      const erro = await adsService.criarAcao(perfilId, acao, chave);
-      if (erro) console.error("Não consegui gravar a ação de Ads:", erro);
-    }
-
-    const [lista, acoes] = await Promise.all([
-      adsService.listar(perfilId),
-      adsService.listarAcoes(perfilId),
-    ]);
-    setAvaliacoesAds(lista);
-    // Avisos antigos de "mover verba" (dois anúncios no mesmo aviso) que
-    // ainda estavam pendentes saem da lista — agora cada anúncio tem o seu.
-    setAcoesAds(
-      acoes.filter(
-        (a) => !(a.status === "pendente" && a.detalhe.tipo === "realocacao" && !a.detalhe.lado),
-      ),
-    );
-    setCarregandoAds(false);
-  }, [sessao, recursos.agentes, fiscal, custoOperacionalTotal]);
-
-  /**
-   * A varredura do Auditor: confere os pedidos dos últimos 30 dias contra
-   * a regra de cada conta e junta as mudanças de taxa detectadas. Só grava
-   * o que ainda não foi registrado — inclusive o que o seller já ignorou
-   * não volta.
-   */
-  const carregarAuditor = useCallback(async () => {
-    if (!sessao || !recursos.agentes) return;
-    const perfilId = sessao.user.id;
-
-    const contas = contasService.ativas();
-    const pedidos = vendasService.listar();
-    const encontradas = [
-      ...auditarMudancasTaxa(
-        auditorService.historicoTaxas(),
-        anunciosService.listar(),
-        pedidos,
-        contas,
-      ),
-      ...auditarCobrancas(pedidos, contas),
-      ...auditarCobrancasFull(
-        auditorService.cobrancasFull(),
-        fulfillmentService.listarDetalhado(),
-        contas,
-      ),
-    ];
-
-    const jaRegistradas = await auditorService.chavesRegistradas(perfilId);
-    for (const o of encontradas) {
-      if (jaRegistradas.has(o.chave)) continue;
-      const erro = await auditorService.criar(perfilId, o);
-      if (erro) console.error("Não consegui gravar a ocorrência do Auditor:", erro);
-    }
-
-    // O banco guarda o status; a conta e as explicações vêm sempre do
-    // cálculo de agora — assim ocorrências antigas ganham as melhorias.
-    const gravadas = await auditorService.listar(perfilId);
-    setOcorrenciasAuditor(mesclarOcorrenciasAuditor(gravadas, encontradas));
-    setCarregandoAuditor(false);
-  }, [sessao, recursos.agentes]);
-
-  /** Agente que não conseguiu carregar → mensagem do erro. Sem isso, um
-   * erro no meio do caminho deixava a tela girando pra sempre. */
-  const [errosCarregar, setErrosCarregar] = useState<Partial<Record<AbaAgente, string>>>({});
-
-  /**
-   * Roda a carga de um agente com proteção: se der erro, ou se passar de
-   * 30 segundos sem responder, para o "carregando" e mostra a mensagem com
-   * o botão "Tentar de novo" — em vez de ficar girando sem fim.
-   */
-  const executarCarga = useCallback(
-    async (aba: AbaAgente, carregar: () => Promise<void>, pararCarregando: () => void) => {
-      setErrosCarregar((atual) => {
-        const novo = { ...atual };
-        delete novo[aba];
-        return novo;
-      });
-      try {
-        await Promise.race([
-          carregar(),
-          new Promise<never>((_, rejeitar) =>
-            setTimeout(() => rejeitar(new Error("demorou mais de 30 segundos para responder")), 30000),
-          ),
-        ]);
-      } catch (erro) {
-        console.error(`Não consegui carregar o agente ${aba}:`, erro);
-        pararCarregando();
-        setErrosCarregar((atual) => ({
-          ...atual,
-          [aba]: erro instanceof Error ? erro.message : "erro desconhecido",
-        }));
-      }
-    },
-    [],
-  );
-
-  /** Cada aba: como carregar e como parar o "carregando" dela. */
-  const cargas = useMemo(
-    () =>
-      ({
-        analista: [carregarInsights, () => setCarregandoInsights(false)],
-        precificacao: [carregarEventos, () => setCarregando(false)],
-        sac: [carregarTickets, () => setCarregandoTickets(false)],
-        estoque: [carregarAlertasEstoque, () => setCarregandoEstoque(false)],
-        fulfillment: [carregarAlertasFulfillment, () => setCarregandoFulfillment(false)],
-        ads: [carregarAvaliacoesAds, () => setCarregandoAds(false)],
-        auditor: [carregarAuditor, () => setCarregandoAuditor(false)],
-        criativo: [carregarSugestoesCriativo, () => setCarregandoCriativo(false)],
-      }) satisfies Record<AbaAgente, [() => Promise<void>, () => void]>,
-    [
-      carregarEventos,
-      carregarInsights,
-      carregarTickets,
-      carregarAlertasEstoque,
-      carregarAlertasFulfillment,
-      carregarAvaliacoesAds,
-      carregarAuditor,
-      carregarSugestoesCriativo,
-    ],
-  );
-
-  const tentarDeNovo = (aba: AbaAgente) => {
-    const [carregar, pararCarregando] = cargas[aba];
-    executarCarga(aba, carregar, pararCarregando);
-  };
-
-  useEffect(() => {
-    for (const [aba, [carregar, pararCarregando]] of Object.entries(cargas) as [
-      AbaAgente,
-      [() => Promise<void>, () => void],
-    ][]) {
-      executarCarga(aba, carregar, pararCarregando);
-    }
-  }, [cargas, executarCarga]);
-
-  // O filtro de canal ("Todas as contas") só recorta o que aparece — não
-  // muda o que o agente já gravou. Assim trocar o filtro não refaz a
-  // varredura nem conversa de novo com o banco.
-  const eventosNaSelecao = semRestricaoDeConta
-    ? eventos
-    : eventos.filter((e) => contasSelecionadas.has(e.contaId));
-
-  const pendentes = eventosNaSelecao.filter((e) => e.status === "pendente");
-  const decididos = eventosNaSelecao.filter((e) => e.status !== "pendente");
-  const aprovadas = decididos.filter((e) => e.status === "aprovada").length;
-
-  /** Frente 3: o resultado de cada mudança de preço aprovada (e dos
-   * exemplos fictícios, enquanto não há histórico real). */
-  const resultadosPreco = useMemo(() => {
-    const pedidos = vendasService.listar();
-    const aprovadasReais = eventosNaSelecao
-      .filter((e) => e.status === "aprovada" && e.decididoEm)
-      .map((e) => ({
-        id: e.id,
-        anuncioId: e.anuncioId,
-        sku: e.sku,
-        produto: e.produto,
-        marketplaceId: e.marketplaceId,
-        contaId: e.contaId,
-        precoAntes: e.precoAtual,
-        precoDepois: e.precoSugerido,
-        data: e.decididoEm!,
-        exemplo: false,
-      }));
-    const manuais = alteracoesManuais
-      .filter((m) => semRestricaoDeConta || (m.contaId !== null && contasSelecionadas.has(m.contaId)))
-      .map((m) => ({
-        id: m.id,
-        anuncioId: m.anuncioId,
-        sku: m.sku,
-        produto: m.produto,
-        marketplaceId: m.marketplaceId,
-        contaId: m.contaId ?? "",
-        precoAntes: m.precoAntes,
-        precoDepois: m.precoDepois,
-        data: m.data,
-        exemplo: false,
-      }));
-    return [...aprovadasReais, ...manuais, ...mudancasPrecoService.exemplos()]
-      .map((m) => avaliarMudancaPreco(m, pedidos))
-      .sort((a, b) => a.diasDesde - b.diasDesde);
-  }, [eventosNaSelecao, alteracoesManuais, semRestricaoDeConta, contasSelecionadas]);
-
-  const decidir = async (evento: EventoAgente, status: StatusSugestao) => {
-    if (status !== "aprovada" && status !== "recusada") return;
-    // Otimista: a tela responde na hora.
-    setEventos((atual) =>
-      atual.map((e) =>
-        e.id === evento.id ? { ...e, status, decididoEm: new Date().toISOString() } : e,
-      ),
-    );
-    const erro = await eventosAgenteService.decidir(evento.id, status);
-    if (erro) {
-      toast.error(`Não consegui salvar: ${erro}`);
-      await carregarEventos();
-      return;
-    }
-    if (status === "aprovada") {
-      toast.success(
-        `Aprovado: ${evento.produto} de ${formatBRL(evento.precoAtual)} para ${formatBRL(evento.precoSugerido)}. Aplique no marketplace — sem API conectada, o agente ainda não altera sozinho.`,
-      );
-    } else {
-      toast(`Recusado: ${evento.produto} segue em ${formatBRL(evento.precoAtual)}.`);
-    }
-  };
-
-  const dispensarInsight = async (insight: InsightAnalista) => {
-    setInsights((atual) =>
-      atual.map((i) =>
-        i.id === insight.id ? { ...i, status: "aprovada", decididoEm: new Date().toISOString() } : i,
-      ),
-    );
-    const erro = await eventosAgenteService.decidir(insight.id, "aprovada");
-    if (erro) {
-      toast.error(`Não consegui salvar: ${erro}`);
-      await carregarInsights();
-    }
-  };
-
-  const dispensarAlertaEstoque = async (alerta: AlertaEstoque) => {
-    setAlertasEstoque((atual) =>
-      atual.map((a) =>
-        a.id === alerta.id ? { ...a, status: "aprovada", decididoEm: new Date().toISOString() } : a,
-      ),
-    );
-    const erro = await eventosAgenteService.decidir(alerta.id, "aprovada");
-    if (erro) {
-      toast.error(`Não consegui salvar: ${erro}`);
-      await carregarAlertasEstoque();
-    }
-  };
-
-  const dispensarAlertaFulfillment = async (alerta: AlertaEstoque) => {
-    setAlertasFulfillment((atual) =>
-      atual.map((a) =>
-        a.id === alerta.id ? { ...a, status: "aprovada", decididoEm: new Date().toISOString() } : a,
-      ),
-    );
-    const erro = await eventosAgenteService.decidir(alerta.id, "aprovada");
-    if (erro) {
-      toast.error(`Não consegui salvar: ${erro}`);
-      await carregarAlertasFulfillment();
-    }
-  };
-
-  const decidirAcaoAds = async (
-    acao: AcaoAds,
-    status: Extract<StatusSugestao, "aprovada" | "recusada">,
-  ) => {
-    setAcoesAds((atual) =>
-      atual.map((a) =>
-        a.id === acao.id ? { ...a, status, decididoEm: new Date().toISOString() } : a,
-      ),
-    );
-    const erro = await eventosAgenteService.decidir(acao.id, status);
-    if (erro) {
-      toast.error(`Não consegui salvar: ${erro}`);
-      await carregarAvaliacoesAds();
-      return;
-    }
-    toast.success(
-      status === "aprovada"
-        ? "Aprovado. Agora faça o ajuste no Ads do marketplace — sem API conectada, o NEXO ainda não altera sozinho."
-        : `Recusado: ${acao.produto}.`,
-    );
-  };
-
-  const dispensarAvaliacaoAds = async (av: EventoAds) => {
-    setAvaliacoesAds((atual) =>
-      atual.map((a) =>
-        a.id === av.id ? { ...a, status: "aprovada", decididoEm: new Date().toISOString() } : a,
-      ),
-    );
-    const erro = await eventosAgenteService.decidir(av.id, "aprovada");
-    if (erro) {
-      toast.error(`Não consegui salvar: ${erro}`);
-      await carregarAvaliacoesAds();
-    }
-  };
-
-  /** Só aqui sai custo de token de verdade — por isso é sempre um clique
-   * do seller, nunca automático. */
-  const gerarRespostaSac = async (ticket: TicketSac) => {
-    setGerandoId(ticket.id);
-    const { resposta, erro } = await sacService.gerarResposta({
-      pergunta: ticket.pergunta,
-      produto: ticket.produto,
-      categoria: classificarPergunta(ticket.pergunta, ticket.pedidoId),
-      // O anúncio publicado (puxado do marketplace) + as informações
-      // extras do seller, num texto só.
-      ficha: montarInformacoesProduto(
-        conteudoPublicadoService.buscar(ticket.sku),
-        fichas.get(ticket.sku) ?? null,
-      ),
-      config: configSac,
-      regras: regrasSac.filter((r) => r.ativa).map((r) => r.regra),
-    });
-    setGerandoId(null);
-    if (erro) {
-      toast.error(`Não consegui gerar a resposta: ${erro}`);
-      return;
-    }
-    if (!resposta) return;
-    const erroSalvar = await sacService.salvarResposta(ticket.id, resposta);
-    if (erroSalvar) {
-      toast.error(`Gerei a resposta, mas não consegui salvar: ${erroSalvar}`);
-      return;
-    }
-    setTickets((atual) => atual.map((t) => (t.id === ticket.id ? { ...t, resposta } : t)));
-    setRascunhos((atual) => ({ ...atual, [ticket.id]: resposta }));
-  };
-
-  /** O seller editou a resposta da IA e pediu pra aprender: o Gestor
-   * compara as duas versões e propõe uma regra (o seller confirma antes). */
-  const aprenderComEdicaoSac = async (
-    ticket: TicketSac,
-    original: string,
-    editada: string,
-  ): Promise<string | null> => {
-    const { regra, erro } = await sacService.aprenderComEdicao({
-      pergunta: ticket.pergunta,
-      produto: ticket.produto,
-      respostaOriginal: original,
-      respostaEditada: editada,
-    });
-    if (erro) {
-      toast.error(`Não consegui analisar a edição: ${erro}`);
-      return null;
-    }
-    if (!regra) toast("A edição foi pequena demais pra virar uma regra — nada foi mudado.");
-    return regra;
-  };
-
-  const salvarRegraSac = async (regra: string, origem: RegraSac["origem"]) => {
-    if (!sessao) return;
-    const erro = await regrasSacService.criar(sessao.user.id, regra, origem);
-    if (erro) {
-      toast.error(`Não consegui salvar a regra: ${erro}`);
-      return;
-    }
-    setRegrasSac(await regrasSacService.listar(sessao.user.id));
-    toast.success("Regra salva. As próximas respostas do SAC já seguem ela.");
-  };
-
-  const salvarModeloSac = async (situacao: SituacaoSac, texto: string) => {
-    if (!sessao) return;
-    const erro = await modelosSacService.salvar(sessao.user.id, situacao, texto);
-    if (erro) {
-      toast.error(`Não consegui salvar a mensagem: ${erro}`);
-      return;
-    }
-    setModelosSac((atual) => ({ ...atual, [situacao]: texto }));
-    toast.success("Mensagem salva como padrão pras próximas.");
-  };
-
-  /** Perguntas repetidas = anúncio incompleto: manda pro Criativo. */
-  const enviarRepetidaParaCriativo = async (g: PerguntaRepetida) => {
-    if (!sessao) return;
-    const erro = await criativoService.criarSugestao(sessao.user.id, {
-      contaId: g.contaId,
-      anuncioId: g.anuncioId,
-      produto: g.produto,
-      sku: g.sku,
-      marketplaceId: g.marketplaceId,
-      origem: "sac",
-      motivo: `${g.quantidade} clientes perguntaram sobre ${g.assunto} de "${g.produto}". O anúncio provavelmente não explica isso — inclua essa informação na descrição, nos bullet points ou nas fotos.`,
-    });
-    if (erro) {
-      toast.error(`Não consegui mandar pro Criativo: ${erro}`);
-      return;
-    }
-    toast.success("Enviado pro Agente Criativo, com o motivo junto.");
-    await carregarSugestoesCriativo();
-  };
-
-  const decidirTicket = async (
-    ticket: TicketSac,
-    status: Extract<StatusSugestao, "aprovada" | "recusada">,
-    /** Texto final quando não veio da IA (mensagem pronta de pós-venda
-     * ou resposta escrita pelo seller numa reclamação) */
-    textoFinal?: string,
-  ) => {
-    const rascunho = textoFinal ?? rascunhos[ticket.id];
-    if (status === "aprovada" && rascunho && rascunho !== ticket.resposta) {
-      const erroSalvar = await sacService.salvarResposta(ticket.id, rascunho);
-      if (erroSalvar) {
-        toast.error(`Não consegui salvar a edição: ${erroSalvar}`);
-        return;
-      }
-    }
-    setTickets((atual) =>
-      atual.map((t) =>
-        t.id === ticket.id
-          ? {
-              ...t,
-              status,
-              decididoEm: new Date().toISOString(),
-              resposta: status === "aprovada" ? (rascunho ?? t.resposta) : t.resposta,
-            }
-          : t,
-      ),
-    );
-    const erro = await eventosAgenteService.decidir(ticket.id, status);
-    if (erro) {
-      toast.error(`Não consegui salvar: ${erro}`);
-      await carregarTickets();
-      return;
-    }
-    toast.success(
-      status === "aprovada"
-        ? "Aprovado. Sem canal de mensagem conectado ainda — copie e envie essa resposta no marketplace."
-        : `Descartado: pergunta sobre "${ticket.produto}".`,
-    );
-  };
-
-  /** Os quatro campos vêm juntos — só aqui sai custo de token de verdade.
-   * Vai junto o contexto: canal e limite do título, ficha do produto, o
-   * motivo (SAC/Ads) e as palavras proibidas do seller. */
-  const gerarConteudoCriativo = async (s: SugestaoCriativo) => {
-    setGerandoCriativoId(s.id);
-    const { conteudo, erro } = await criativoService.gerarConteudo({
-      produto: s.produto,
-      marketplace: getMarketplace(s.marketplaceId).nome,
-      limiteTitulo: limiteTitulo(configCriativo, s.marketplaceId),
-      ficha: montarInformacoesProduto(
-        conteudoPublicadoService.buscar(s.sku),
-        fichas.get(s.sku) ?? null,
-      ),
-      motivo: s.origem === "exemplo" ? "" : s.motivo,
-      palavrasProibidas: listaPalavrasSeller(configCriativo),
-    });
-    setGerandoCriativoId(null);
-    if (erro) {
-      toast.error(`Não consegui gerar o conteúdo: ${erro}`);
-      return;
-    }
-    if (!conteudo) return;
-    const erroSalvar = await criativoService.salvarConteudo(s.id, conteudo);
-    if (erroSalvar) {
-      toast.error(`Gerei o conteúdo, mas não consegui salvar: ${erroSalvar}`);
-      return;
-    }
-    setSugestoesCriativo((atual) =>
-      atual.map((item) =>
-        item.id === s.id
-          ? {
-              ...item,
-              tituloSugerido: conteudo.titulo,
-              titulosAlternativos: conteudo.titulos,
-              descricaoSugerida: conteudo.descricao,
-              palavrasChave: conteudo.palavrasChave,
-              bulletPoints: conteudo.bulletPoints,
-            }
-          : item,
-      ),
-    );
-    setRascunhosCriativo((atual) => ({
-      ...atual,
-      [s.id]: {
-        titulo: conteudo.titulo,
-        descricao: conteudo.descricao,
-        palavrasChave: conteudo.palavrasChave,
-        bulletPoints: conteudo.bulletPoints,
-      },
-    }));
-  };
-
-  /** Ads achou um anúncio com muito clique e pouca compra: manda pro
-   * Criativo com o motivo junto. Se já tem um pendente pra esse anúncio,
-   * só abre o Criativo — não duplica. */
-  const enviarAdsParaCriativo = async (acao: AcaoAds) => {
-    if (!sessao) return;
-    const jaExiste = sugestoesCriativo.some(
-      (x) => x.status === "pendente" && x.anuncioId === acao.anuncioId,
-    );
-    if (!jaExiste) {
-      const erro = await criativoService.criarSugestao(sessao.user.id, {
-        contaId: acao.contaId,
-        anuncioId: acao.anuncioId,
-        produto: acao.produto,
-        sku: acao.sku,
-        marketplaceId: acao.marketplaceId,
-        origem: "ads",
-        motivo: `O Agente de Ads viu muito clique e pouca compra: ${acao.motivo} Reescreva o título e a descrição pra convencer quem já clicou.`,
-      });
-      if (erro) {
-        toast.error(`Não consegui mandar pro Criativo: ${erro}`);
-        return;
-      }
-      toast.success("Enviado pro Agente Criativo, com o motivo junto.");
-      await carregarSugestoesCriativo();
-    }
-    setAbaAgente("criativo");
-  };
-
-  /** Salva a ficha de um SKU — chamado pelo SAC e pelo Criativo. */
-  const salvarFicha = async (sku: string, texto: string): Promise<boolean> => {
-    if (!sessao) return false;
-    const erro = await fichasService.salvar(sessao.user.id, sku, texto);
-    if (erro) {
-      toast.error(`Não consegui salvar as informações extras: ${erro}`);
-      return false;
-    }
-    setFichas((atual) => {
-      const novo = new Map(atual);
-      if (texto.trim()) novo.set(sku, texto.trim());
-      else novo.delete(sku);
-      return novo;
-    });
-    toast.success(
-      texto.trim()
-        ? "Informações extras salvas. O SAC e o Criativo já usam."
-        : "Informações extras apagadas.",
-    );
-    return true;
-  };
-
-  const salvarConfigCriativo = async (c: ConfiguracaoCriativo): Promise<boolean> => {
-    if (!sessao) return false;
-    const erro = await criativoConfigService.salvar(sessao.user.id, c);
-    if (erro) {
-      toast.error(`Não consegui salvar as regras: ${erro}`);
-      return false;
-    }
-    setConfigCriativo(c);
-    toast.success("Regras do Criativo salvas.");
-    return true;
-  };
-
-  const decidirCriativo = async (
-    s: SugestaoCriativo,
-    status: Extract<StatusSugestao, "aprovada" | "recusada">,
-  ) => {
-    const rascunho = rascunhosCriativo[s.id];
-    if (status === "aprovada" && rascunho) {
-      const erroSalvar = await criativoService.salvarConteudo(s.id, rascunho);
-      if (erroSalvar) {
-        toast.error(`Não consegui salvar a edição: ${erroSalvar}`);
-        return;
-      }
-    }
-    setSugestoesCriativo((atual) =>
-      atual.map((item) =>
-        item.id === s.id
-          ? {
-              ...item,
-              status,
-              decididoEm: new Date().toISOString(),
-              ...(status === "aprovada" && rascunho
-                ? {
-                    tituloSugerido: rascunho.titulo,
-                    descricaoSugerida: rascunho.descricao,
-                    palavrasChave: rascunho.palavrasChave,
-                    bulletPoints: rascunho.bulletPoints,
-                  }
-                : {}),
-            }
-          : item,
-      ),
-    );
-    const erro = await eventosAgenteService.decidir(s.id, status);
-    if (erro) {
-      toast.error(`Não consegui salvar: ${erro}`);
-      await carregarSugestoesCriativo();
-      return;
-    }
-    toast.success(
-      status === "aprovada"
-        ? "Aprovado. Copie e cole no marketplace — publicar direto ainda depende da API de escrita."
-        : `Descartado: sugestão para "${s.produto}".`,
-    );
-  };
-
-  const atualizarStatusAuditor = async (
-    o: OcorrenciaAuditor,
-    status: StatusOcorrenciaAuditor,
-  ) => {
-    setOcorrenciasAuditor((atual) =>
-      atual.map((item) =>
-        item.id === o.id
-          ? { ...item, status, atualizadoEm: new Date().toISOString() }
-          : item,
-      ),
-    );
-    const erro = await auditorService.atualizarStatus(o, status);
-    if (erro) {
-      toast.error(`Não consegui salvar: ${erro}`);
-      await carregarAuditor();
-      return;
-    }
-    if (status === "reembolsado") toast.success("Marcado como resolvido.");
-    else if (status === "ignorado") toast("Ocorrência ignorada.");
-  };
-
-  const insightsPendentes = insights.filter((i) => i.status === "pendente").length;
-  const ticketsPendentes = tickets.filter((t) => t.status === "pendente").length;
-  const alertasEstoquePendentes = alertasEstoque.filter((a) => a.status === "pendente").length;
-  const alertasFulfillmentPendentes = alertasFulfillment.filter(
-    (a) => a.status === "pendente",
-  ).length;
-  // O filtro de contas também vale pro Ads: a análise e as ações têm conta.
-  const analisesAdsNaSelecao = semRestricaoDeConta
-    ? analisesAds
-    : analisesAds.filter((x) => contasSelecionadas.has(x.anuncio.contaId));
-  const acoesAdsNaSelecao = semRestricaoDeConta
-    ? acoesAds
-    : acoesAds.filter((a) => a.contaId === null || contasSelecionadas.has(a.contaId));
-  const avaliacoesAdsPendentes =
-    avaliacoesAds.filter((a) => a.status === "pendente" && a.tipo === "sugestao").length +
-    acoesAdsNaSelecao.filter((a) => a.status === "pendente").length;
-  const ocorrenciasAuditorNaSelecao = semRestricaoDeConta
-    ? ocorrenciasAuditor
-    : ocorrenciasAuditor.filter((o) => contasSelecionadas.has(o.contaId));
-  const ocorrenciasAuditorAbertas = ocorrenciasAuditorNaSelecao.filter(
-    (o) => o.status === "aberto" || o.status === "reclamacao-aberta",
-  ).length;
-  const sugestoesCriativoPendentes = sugestoesCriativo.filter(
-    (s) => s.status === "pendente",
-  ).length;
-
-  /** Gestor: as 3 decisões pendentes que valem mais dinheiro (uma por
-   * agente). Olha todas as contas — é o que o seller precisa ver primeiro,
-   * independente do filtro de canal. */
-  const top3 = useMemo(() => {
-    const precoPorSku = new Map<string, number>();
-    for (const a of anunciosService.listar()) {
-      if (!precoPorSku.has(a.sku)) precoPorSku.set(a.sku, a.precoAtual);
-    }
-    return montarTop3({
-      ocorrenciasAuditor,
-      alertasEstoque,
-      alertasFulfillment,
-      eventosPreco: eventos,
-      acoesAds,
-      estoqueDetalhado: estoqueService.listarDetalhado(),
-      precoPorSku,
-    });
-  }, [ocorrenciasAuditor, alertasEstoque, alertasFulfillment, eventos, acoesAds]);
-
-  /** Gestor: hoje × mesmo dia da semana passada, 7 dias × 7 anteriores,
-   * mês até hoje × mesmo período do mês passado. */
-  const comparativos = useMemo(() => montarComparativos(vendasService.listar()), []);
-
-  /** Um produto por SKU, pra aba Fichas do Criativo */
-  const produtosFicha = useMemo(() => {
-    const vistos = new Map<string, AlvoFicha>();
-    for (const a of anunciosService.listar()) {
-      if (!vistos.has(a.sku)) vistos.set(a.sku, { sku: a.sku, produto: a.produto });
-    }
-    return [...vistos.values()];
-  }, []);
-
-  /** SKU → quantos assuntos os clientes perguntam repetido no SAC */
-  const repetidasPorSku = useMemo(() => {
-    const mapa = new Map<string, number>();
-    for (const g of perguntasRepetidas(tickets)) mapa.set(g.sku, (mapa.get(g.sku) ?? 0) + 1);
-    return mapa;
-  }, [tickets]);
-
-  if (!recursos.agentes) {
-    return (
-      <div className="mx-auto max-w-[1100px]">
-        <Painel titulo="Agentes" descricao="Recurso do plano com Agentes">
-          <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-full bg-brand/15 text-brand">
-              <Bot className="size-5" />
-            </div>
-            <p className="text-sm font-semibold">Isso ainda não está no seu plano</p>
-            <p className="max-w-sm text-xs text-muted-foreground">
-              Os agentes de IA fazem parte do plano com Agentes. Fale com o suporte pra
-              fazer o upgrade e ligar essa tela pra sua conta.
-            </p>
-          </div>
-        </Painel>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mx-auto max-w-[1100px] space-y-4">
-      {/* Um agente por vez, ocupando a tela toda — antes ficavam os três
-          empilhados, e pra responder o SAC era preciso rolar a tela
-          inteira passando pelos outros dois. */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {(
-          [
-            ["analista", "Gestor", Bot, insightsPendentes] as const,
-            ["precificacao", "Precificação", TrendingDown, pendentes.length] as const,
-            ["sac", "SAC", MessageCircle, ticketsPendentes] as const,
-            ["estoque", "Estoque", Boxes, alertasEstoquePendentes] as const,
-            ["fulfillment", "Fulfillment", Warehouse, alertasFulfillmentPendentes] as const,
-            ["ads", "Ads", Target, avaliacoesAdsPendentes] as const,
-            ["auditor", "Auditor", ShieldCheck, ocorrenciasAuditorAbertas] as const,
-            ["criativo", "Criativo", Wand2, sugestoesCriativoPendentes] as const,
-          ] as const
-        ).map(([id, nome, Icone, contagem]) => (
-          <button
-            key={id}
-            onClick={() => setAbaAgente(id)}
-            className={cn(
-              "flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors",
-              abaAgente === id
-                ? "border-brand bg-brand/10 text-foreground"
-                : "border-transparent bg-muted/50 text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Icone className="size-3.5" />
-            {nome}
-            {contagem > 0 && (
-              <span
-                className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
-                  abaAgente === id ? "bg-brand text-white" : "bg-muted-foreground/20",
-                )}
-              >
-                {contagem}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {errosCarregar[abaAgente] && (
-        <Painel titulo="Não consegui carregar" descricao="Este agente não abriu desta vez">
-          <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
-            <p className="max-w-md text-xs text-muted-foreground">
-              Deu um problema ao carregar este agente ({errosCarregar[abaAgente]}). Os outros
-              agentes continuam funcionando. Se o erro continuar depois de tentar de novo, me
-              mande um print desta tela.
-            </p>
-            <Button size="sm" onClick={() => tentarDeNovo(abaAgente)}>
-              <RefreshCw className="size-3.5" />
-              Tentar de novo
-            </Button>
-          </div>
-        </Painel>
-      )}
-
-      {!errosCarregar[abaAgente] && abaAgente === "analista" && (
-        <PainelAnalista
-          insights={insights}
-          carregando={carregandoInsights}
-          aoDispensar={dispensarInsight}
-          perfilId={sessao?.user.id ?? null}
-          top3={top3}
-          comparativos={comparativos}
-          aoAbrirAgente={(agente: AgenteTop) => setAbaAgente(agente)}
-        />
-      )}
-
-      {!errosCarregar[abaAgente] && abaAgente === "precificacao" && (
-        <PainelPrecificacao
-          pendentes={pendentes}
-          decididos={decididos}
-          aprovadas={aprovadas}
-          carregando={carregando}
-          aoDecidir={decidir}
-          campanhas={analisesPreco.campanhas}
-          precosPorCanal={analisesPreco.porCanal}
-          resultados={resultadosPreco}
-        />
-      )}
-
-      {!errosCarregar[abaAgente] && abaAgente === "sac" && (
-        <PainelSac
-          tickets={tickets}
-          carregando={carregandoTickets}
-          gerandoId={gerandoId}
-          rascunhos={rascunhos}
-          aoMudarRascunho={(id, texto) => setRascunhos((atual) => ({ ...atual, [id]: texto }))}
-          aoGerar={gerarRespostaSac}
-          aoDecidir={decidirTicket}
-          config={configSac}
-          regrasAtivas={regrasSac.filter((r) => r.ativa).length}
-          fichas={fichas}
-          modelos={modelosSac}
-          buscarPedido={(id) => vendasService.buscarPorId(id)}
-          aoAprender={aprenderComEdicaoSac}
-          aoSalvarRegra={(regra) => salvarRegraSac(regra, "aprendida")}
-          aoSalvarModelo={salvarModeloSac}
-          aoEnviarParaCriativo={enviarRepetidaParaCriativo}
-          aoAbrirFicha={setAlvoFicha}
-          buscarPublicado={conteudoPublicadoService.buscar}
-        />
-      )}
-
-      {!errosCarregar[abaAgente] && abaAgente === "estoque" && (
-        <PainelEstoque
-          alertas={alertasEstoque}
-          carregando={carregandoEstoque}
-          aoDispensar={dispensarAlertaEstoque}
-        />
-      )}
-
-      {!errosCarregar[abaAgente] && abaAgente === "fulfillment" && (
-        <PainelFulfillment
-          alertas={alertasFulfillment}
-          carregando={carregandoFulfillment}
-          aoDispensar={dispensarAlertaFulfillment}
-        />
-      )}
-
-      {!errosCarregar[abaAgente] && abaAgente === "ads" && (
-        <PainelAds
-          analises={analisesAdsNaSelecao}
-          acoes={acoesAdsNaSelecao}
-          candidatos={avaliacoesAds}
-          carregando={carregandoAds}
-          opcoesCusto={{ aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal }}
-          aoDecidirAcao={decidirAcaoAds}
-          aoDispensarCandidato={dispensarAvaliacaoAds}
-          aoAbrirCriativo={enviarAdsParaCriativo}
-        />
-      )}
-
-      {!errosCarregar[abaAgente] && abaAgente === "auditor" && (
-        <PainelAuditor
-          ocorrencias={ocorrenciasAuditorNaSelecao}
-          carregando={carregandoAuditor}
-          aoAtualizarStatus={atualizarStatusAuditor}
-        />
-      )}
-
-      {!errosCarregar[abaAgente] && abaAgente === "criativo" && (
-        <PainelCriativo
-          sugestoes={sugestoesCriativo}
-          carregando={carregandoCriativo}
-          gerandoId={gerandoCriativoId}
-          rascunhos={rascunhosCriativo}
-          aoMudarRascunho={(id, campo, texto) =>
-            setRascunhosCriativo((atual) => ({
-              ...atual,
-              [id]: {
-                titulo: atual[id]?.titulo ?? "",
-                descricao: atual[id]?.descricao ?? "",
-                palavrasChave: atual[id]?.palavrasChave ?? "",
-                bulletPoints: atual[id]?.bulletPoints ?? "",
-                [campo]: texto,
-              },
-            }))
-          }
-          aoGerar={gerarConteudoCriativo}
-          aoDecidir={decidirCriativo}
-          fichas={fichas}
-          produtos={produtosFicha}
-          aoAbrirFicha={setAlvoFicha}
-          config={configCriativo}
-          aoSalvarConfig={salvarConfigCriativo}
-          buscarAnuncio={(id) => (id ? anunciosService.buscarPorId(id) : null)}
-          repetidasPorSku={repetidasPorSku}
-          buscarPublicado={conteudoPublicadoService.buscar}
-        />
-      )}
-
-      <ModalFicha
-        alvo={alvoFicha}
-        textoAtual={alvoFicha ? (fichas.get(alvoFicha.sku) ?? "") : ""}
-        publicado={alvoFicha ? conteudoPublicadoService.buscar(alvoFicha.sku) : null}
-        aoFechar={() => setAlvoFicha(null)}
-        aoSalvar={salvarFicha}
-      />
-    </div>
-  );
+/**
+ * Uma sugestão de ação do Agente de Ads. Igual às outras sugestões:
+ * o seller aprova ou recusa, e o NEXO não mexe em nada no marketplace
+ * sozinho (sem API de escrita ainda — "aprovada" = "vou aplicar").
+ */
+export interface AcaoAds {
+  id: string;
+  data: string;
+  contaId: string | null;
+  anuncioId: string;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  motivo: string;
+  semaforo: SemaforoDecisao;
+  status: StatusSugestao;
+  decididoEm: string | null;
+  detalhe: DetalheAcaoAds;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente Criativo                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Título, descrição, palavras-chave e bullet points de um anúncio —
+ * os quatro nascem juntos, na mesma chamada à IA, porque custa
+ * praticamente o mesmo gerar um ou os quatro. Todos ficam null até o
+ * seller pedir: é o único passo desse agente que gasta token de verdade.
+ */
+/** De onde veio o pedido de conteúdo novo: dos exemplos iniciais, do SAC
+ * (clientes perguntando a mesma coisa) ou do Ads (muito clique, pouca
+ * compra). */
+export type OrigemCriativo = "exemplo" | "sac" | "ads";
+
+export interface SugestaoCriativo {
+  id: string;
+  data: string;
+  contaId: string | null;
+  anuncioId: string | null;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  /** Por que esse anúncio veio pro Criativo — escrito pelo agente que mandou */
+  motivo: string;
+  origem: OrigemCriativo;
+  tituloSugerido: string | null;
+  /** As 3 opções de título que a IA escreveu (a 1ª é o tituloSugerido).
+   * null em sugestões geradas antes do Bloco 7, que só tinham um título. */
+  titulosAlternativos: string[] | null;
+  descricaoSugerida: string | null;
+  palavrasChave: string | null;
+  bulletPoints: string | null;
+  status: StatusSugestao;
+  decididoEm: string | null;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Ficha do anúncio — usada pelo Criativo e pelo SAC                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * "Informações extras" do produto, escritas pelo seller — OPCIONAL. O
+ * principal vem do próprio anúncio (ConteudoPublicado); aqui entra só o
+ * que o anúncio não diz ou diz errado ("serve também no modelo X", "a
+ * cor real é mais escura"). Quando as duas coisas se contradizem, a
+ * informação extra vale mais. Uma por SKU (tabela fichas_anuncio).
+ */
+export interface FichaAnuncio {
+  id: string;
+  sku: string;
+  descricaoCompleta: string;
+  atualizadoEm: string; // ISO
+}
+
+/**
+ * O anúncio como está publicado no marketplace: título, descrição e ficha
+ * técnica (atributos). Com a API, o NEXO puxa isso sozinho do anúncio;
+ * até lá, vem de dados fictícios (origem "exemplo"). É a base de tudo que
+ * o SAC responde e que o Criativo reescreve — o seller não precisa colar.
+ */
+export interface ConteudoPublicado {
+  sku: string;
+  titulo: string;
+  descricao: string;
+  atributos: { nome: string; valor: string }[];
+  origem: "exemplo" | "api";
+}
+
+/**
+ * O que o seller configurou pro Agente Criativo: palavras que ele não quer
+ * ver nos anúncios ("quem avisa é você") e o limite de caracteres do
+ * título em cada canal — os marketplaces mudam essa regra de tempos em
+ * tempos, então o seller pode corrigir o número sem esperar o NEXO.
+ */
+export interface ConfiguracaoCriativo {
+  /** Uma palavra ou frase por linha */
+  palavrasProibidas: string;
+  limitesTitulo: Record<MarketplaceId, number>;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente SAC — modelos de mensagem e regras aprendidas                */
+/* ------------------------------------------------------------------ */
+
+/** As situações de pedido que já têm uma mensagem pronta pro seller usar
+ * como ponto de partida. Pergunta de pré-venda e reclamação continuam
+ * geradas do zero pela IA — variam demais pra caber num modelo fixo. */
+export type SituacaoSac = "pedido-despachado" | "pedido-nao-despachado";
+
+/**
+ * O texto pronto que o SAC sugere pra cada situação de pedido. Começa
+ * com um texto padrão; se o seller editar antes de aprovar e confirmar
+ * que quer guardar a edição, o texto editado vira o novo padrão daqui
+ * pra frente (o padrão anterior não é perdido, só sobrescrito).
+ */
+export interface ModeloMensagemSac {
+  id: string;
+  situacao: SituacaoSac;
+  texto: string;
+  atualizadoEm: string; // ISO
+}
+
+/**
+ * Uma regra curta que molda como o SAC responde — nascida de uma edição
+ * do seller numa resposta (o Gestor identifica o padrão e propõe a
+ * regra) ou escrita direto pelo seller nas Configurações. Fica sempre
+ * visível e editável; desativar não apaga o histórico de onde veio.
+ */
+export interface RegraSac {
+  id: string;
+  regra: string;
+  origem: "aprendida" | "manual";
+  ativa: boolean;
+  criadaEm: string; // ISO
+}
+
+/* ------------------------------------------------------------------ */
+/* Agente Auditor                                                      */
+/* ------------------------------------------------------------------ */
+
+/** As frentes do Auditor: a regra do anúncio mudou (comissão ou taxa
+ * fixa); um pedido específico foi cobrado diferente do esperado; ou a
+ * fatura mensal do Full de um SKU veio diferente do esperado. */
+export type TipoOcorrenciaAuditor = "mudanca-taxa" | "cobranca-divergente" | "cobranca-full";
+
+/** Acompanha um processo, não só uma decisão — por isso tem mais estados
+ * que `StatusSugestao`: o seller reclama com o marketplace e o resultado
+ * demora a vir, então o Auditor precisa lembrar em que pé isso ficou. */
+export type StatusOcorrenciaAuditor =
+  | "aberto"
+  | "reclamacao-aberta"
+  | "reembolsado"
+  | "ignorado";
+
+/** Um item conferido pelo Auditor: o que era pra ser cobrado, o que foi
+ * cobrado e a conta que explica o esperado. */
+export interface ItemDivergenteAuditor {
+  item: ItemCobrancaAuditor;
+  esperado: number;
+  cobrado: number;
+  /** Como o esperado foi calculado, em português ("16% sobre R$ 84,90") */
+  regra?: string;
+  /** O que chama atenção no cobrado ("equivale a 17,5% da venda") —
+   * só existe quando o item veio diferente */
+  observacao?: string;
+  /** Nada era pra ser cobrado (esperado 0) e veio cobrança */
+  indevido?: boolean;
+}
+
+/** Um pedido que já saiu com a taxa nova, depois de uma mudança de regra. */
+export interface PedidoAfetadoAuditor {
+  pedidoId: string;
+  data: string; // ISO
+  faturamento: number;
+  /** Quanto este pedido pagou a mais por causa da taxa nova */
+  custoExtra: number;
+}
+
+/**
+ * Um item de conferência do Auditor.
+ * - "mudanca-taxa": a REGRA do anúncio mudou. Usa `campo`,
+ *   `valorAnterior`, `valorNovo` e `pedidosAfetados` (os pedidos que já
+ *   saíram com a taxa nova). Esses pedidos não estão errados — só ficaram
+ *   mais caros —, por isso ficam agrupados aqui em vez de virar um alerta
+ *   de cobrança cada um.
+ * - "cobranca-divergente": UM pedido foi cobrado diferente da regra que
+ *   vale. Usa `pedidoId` e `itensDivergentes` — um pedido com frete E
+ *   comissão errados vira uma ocorrência só, com os dois lado a lado.
+ */
+export interface OcorrenciaAuditor {
+  /** id da linha em `eventos_agente`; vazio enquanto só existe no cálculo */
+  id: string;
+  /** Identidade estável da ocorrência — é o que impede o Auditor de
+   * registrar a mesma coisa duas vezes a cada varredura */
+  chave: string;
+  tipo: TipoOcorrenciaAuditor;
+  data: string; // ISO
+  anuncioId: string | null;
+  pedidoId: string | null;
+  sku: string;
+  produto: string;
+  marketplaceId: MarketplaceId;
+  contaId: string;
+  /** Nome da conta, pra escrever a reclamação sem precisar buscar de novo */
+  contaNome: string;
+  /** Por que o Auditor agiu, em português, pra aparecer na lista */
+  motivo: string;
+  /** Explicação da causa provável, em português */
+  causaProvavel: string;
+  campo: "comissaoPercentual" | "taxaFixa" | null;
+  valorAnterior: number | null;
+  valorNovo: number | null;
+  pedidosAfetados: PedidoAfetadoAuditor[];
+  itensDivergentes: ItemDivergenteAuditor[];
+  /** TODOS os itens conferidos, inclusive os que vieram certos — pra
+   * tela mostrar a conta inteira com ✓ nos que batem. Ausente em
+   * ocorrências gravadas antes desta versão. */
+  itensConferidos?: ItemDivergenteAuditor[];
+  /** Fatura do Full: mês de referência "AAAA-MM"; null nas outras */
+  mesReferencia?: string | null;
+  /** Cobrança divergente: soma de (cobrado − esperado) dos itens.
+   * Mudança de taxa: quanto os pedidos afetados já custaram a mais. */
+  diferenca: number;
+  status: StatusOcorrenciaAuditor;
+  /** Quando o seller mudou o status pela última vez; null enquanto "aberto" */
+  atualizadoEm: string | null;
 }
