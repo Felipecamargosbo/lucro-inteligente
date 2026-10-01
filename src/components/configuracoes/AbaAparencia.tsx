@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { Check, Moon, Sun } from "lucide-react";
 import { Painel } from "@/components/comum/Indicadores";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { useAuth } from "@/context/auth";
+import { preferenciasService } from "@/services";
 import { lerTema, salvarTema, type Tema } from "@/lib/tema";
 
 /**
@@ -9,13 +12,24 @@ import { lerTema, salvarTema, type Tema } from "@/lib/tema";
  * claro (fundo branco). Muda na hora e fica salvo neste navegador.
  */
 export function AbaAparencia() {
+  const { sessao } = useAuth();
   const [tema, setTema] = useState<Tema>("escuro");
 
   useEffect(() => setTema(lerTema()), []);
 
-  const escolher = (t: Tema) => {
+  const escolher = async (t: Tema) => {
     setTema(t);
     salvarTema(t);
+    if (!sessao) return;
+    // Salva também na conta, pra valer em qualquer computador ou celular.
+    const erro = await preferenciasService.salvarTema(sessao.user.id, t);
+    if (erro) {
+      toast.error(
+        erro.includes("preferencias_usuario")
+          ? "Tema aplicado neste navegador, mas a tabela de preferências ainda não existe — rode o SQL no Supabase pra salvar na conta."
+          : `Tema aplicado neste navegador, mas não consegui salvar na conta: ${erro}`,
+      );
+    }
   };
 
   const opcoes: { id: Tema; titulo: string; descricao: string; Icone: typeof Sun }[] = [
@@ -90,7 +104,8 @@ export function AbaAparencia() {
         })}
       </div>
       <p className="border-t px-4 py-3 text-[11px] text-muted-foreground">
-        A escolha fica salva neste navegador. Em outro computador ou celular, escolha de novo.
+        A escolha fica salva na sua conta: vale em qualquer computador ou celular em que você
+        entrar.
       </p>
     </Painel>
   );
