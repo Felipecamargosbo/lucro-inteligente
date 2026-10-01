@@ -632,7 +632,13 @@ function Agentes() {
       adsService.listarAcoes(perfilId),
     ]);
     setAvaliacoesAds(lista);
-    setAcoesAds(acoes);
+    // Avisos antigos de "mover verba" (dois anúncios no mesmo aviso) que
+    // ainda estavam pendentes saem da lista — agora cada anúncio tem o seu.
+    setAcoesAds(
+      acoes.filter(
+        (a) => !(a.status === "pendente" && a.detalhe.tipo === "realocacao" && !a.detalhe.lado),
+      ),
+    );
     setCarregandoAds(false);
   }, [sessao, recursos.agentes, fiscal, custoOperacionalTotal]);
 
