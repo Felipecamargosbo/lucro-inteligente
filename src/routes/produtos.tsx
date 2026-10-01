@@ -115,7 +115,6 @@ interface GrupoProduto {
   /** Menor e maior lucro por unidade entre os anúncios */
   menorLucro: number | null;
   maiorLucro: number | null;
-  vendidas: number;
 }
 
 type Ordenacao =
@@ -124,9 +123,7 @@ type Ordenacao =
   | "margem-maior"
   | "margem-menor"
   | "lucro-maior"
-  | "lucro-menor"
-  | "vendas-mais"
-  | "vendas-menos";
+  | "lucro-menor";
 
 const OPCOES_ORDENAR: { id: Ordenacao; rotulo: string }[] = [
   { id: "nome-az", rotulo: "Nome (A-Z)" },
@@ -135,8 +132,6 @@ const OPCOES_ORDENAR: { id: Ordenacao; rotulo: string }[] = [
   { id: "margem-menor", rotulo: "Margem: menor primeiro (prejuízo no topo)" },
   { id: "lucro-maior", rotulo: "Lucro: maior primeiro" },
   { id: "lucro-menor", rotulo: "Lucro: menor primeiro" },
-  { id: "vendas-mais", rotulo: "Mais vendidos primeiro" },
-  { id: "vendas-menos", rotulo: "Menos vendidos primeiro" },
 ];
 
 type ModoEdicao = "preco" | "margem";
@@ -286,8 +281,6 @@ function Precificacao() {
         melhorMargem: linhas.length > 0 ? Math.max(...linhas.map((l) => l.det.margem)) : null,
         menorLucro: linhas.length > 0 ? Math.min(...linhas.map((l) => l.det.lucro)) : null,
         maiorLucro: linhas.length > 0 ? Math.max(...linhas.map((l) => l.det.lucro)) : null,
-        // Soma só os anúncios que aparecem (respeita o filtro de conta lá de cima).
-        vendidas: naSelecao.reduce((s, a) => s + a.unidadesVendidas, 0),
       };
     });
   }, [
@@ -338,23 +331,17 @@ function Precificacao() {
           return porNumero(a.maiorLucro, b.maiorLucro, false);
         case "lucro-menor":
           return porNumero(a.menorLucro, b.menorLucro, true);
-        case "vendas-mais":
-          return b.vendidas - a.vendidas;
-        case "vendas-menos":
-          return a.vendidas - b.vendidas;
         default:
           return a.produto.nome.localeCompare(b.produto.nome, "pt-BR");
       }
     });
     // Dentro de cada produto, os anúncios seguem a mesma ordem quando ela
-    // é por margem, lucro ou vendas.
+    // é por margem ou lucro.
     const ordemLinhas: Partial<Record<Ordenacao, (x: LinhaAnuncio, y: LinhaAnuncio) => number>> = {
       "margem-maior": (x, y) => y.det.margem - x.det.margem,
       "margem-menor": (x, y) => x.det.margem - y.det.margem,
       "lucro-maior": (x, y) => y.det.lucro - x.det.lucro,
       "lucro-menor": (x, y) => x.det.lucro - y.det.lucro,
-      "vendas-mais": (x, y) => y.anuncio.unidadesVendidas - x.anuncio.unidadesVendidas,
-      "vendas-menos": (x, y) => x.anuncio.unidadesVendidas - y.anuncio.unidadesVendidas,
     };
     const ordemDasLinhas = ordemLinhas[ordenar as Ordenacao];
     return ordemDasLinhas
@@ -512,7 +499,7 @@ function Precificacao() {
     toast(`"${anuncio.produto}" descartado — não aparece mais na fila.`);
   };
 
-  const COLUNAS = 17;
+  const COLUNAS = 16;
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-6">
@@ -599,8 +586,7 @@ function Precificacao() {
                     </div>
                     <SeloMarketplace id={a.marketplaceId} />
                     <span className="text-[10px] text-muted-foreground">
-                      {contasService.buscar(a.contaId)?.nome ?? "—"} · {formatBRL(a.precoAtual)} ·{" "}
-                      {formatNumero(a.unidadesVendidas)} vendidos
+                      {contasService.buscar(a.contaId)?.nome ?? "—"} · {formatBRL(a.precoAtual)}
                     </span>
                     <div className="ml-auto flex items-center gap-1.5">
                       <button
@@ -703,9 +689,6 @@ function Precificacao() {
             <thead>
               <tr className="border-b bg-muted/50 text-[9px] uppercase tracking-wide text-muted-foreground">
                 <th className="px-3 py-2.5 font-bold">Canal / conta</th>
-                <th className="px-2 py-2.5 text-right font-bold" title="Unidades vendidas no período">
-                  Vendidos
-                </th>
                 <th className="px-2 py-2.5 text-right font-bold">Preço</th>
                 <th className="px-2 py-2.5 text-right font-bold">CMV</th>
                 <th className="px-2 py-2.5 text-right font-bold">Comissão</th>
@@ -847,9 +830,7 @@ function Precificacao() {
 
                               <SeloSituacao situacao={g.situacao} qtdAbaixo={g.qtdAbaixo} />
                               <span className="text-[10px] text-muted-foreground">
-                                {g.linhas.length} anúncio{g.linhas.length === 1 ? "" : "s"} ·{" "}
-                                <strong className="num text-foreground">{formatNumero(g.vendidas)}</strong>{" "}
-                                vendido{g.vendidas === 1 ? "" : "s"}
+                                {g.linhas.length} anúncio{g.linhas.length === 1 ? "" : "s"}
                               </span>
 
                               <span className="ml-auto flex items-center gap-2">
@@ -1176,9 +1157,6 @@ function LinhaDoAnuncio({
           <SeloMarketplace id={a.marketplaceId} />
           <span className="truncate text-[10px] text-muted-foreground">{linha.nomeConta}</span>
         </div>
-      </td>
-      <td className="num px-2 py-2 text-right" title="Unidades vendidas no período">
-        {formatNumero(a.unidadesVendidas)}
       </td>
       <td
         className={cn("num px-2 py-2 text-right font-semibold", alteracaoPreco && COR_ALTERADO)}
