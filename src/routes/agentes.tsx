@@ -13,6 +13,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import {
+  ajustesCustoService,
   alteracoesPrecoService,
   anunciosService,
   adsService,
@@ -79,6 +80,7 @@ import {
   listaPalavrasSeller,
   montarInformacoesProduto,
 } from "@/lib/criativo";
+import { anuncioComAjuste, type AjusteCusto } from "@/lib/precificacao";
 import { montarComparativos, montarTop3, type AgenteTop } from "@/lib/gestor";
 import { Painel } from "@/components/comum/Indicadores";
 import { Button } from "@/components/ui/button";
@@ -213,7 +215,24 @@ function montarTicketsExemploSac(anuncios: Anuncio[], pedidos: Pedido[]) {
 
 
 function Agentes() {
-  const { metasPorConta, fiscal, custoOperacionalTotal } = useConfiguracoes();
+  const { metasPorConta, fiscal, custoOperacionalTotal, custoOperacionalDetalhado } =
+    useConfiguracoes();
+  /** Ajustes de Ads e "Outros" feitos na tela Precificação, por anúncio */
+  const [ajustesCusto, setAjustesCusto] = useState<Map<string, AjusteCusto>>(new Map());
+
+  /** Os anúncios com os ajustes da Precificação embutidos — é com eles que
+   * os agentes calculam lucro e margem, pra bater com a Precificação. */
+  const comAjustes = useCallback(
+    (lista: Anuncio[], mapa: Map<string, AjusteCusto>) => {
+      if (mapa.size === 0) return lista;
+      const cfg = { aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalDetalhado };
+      return lista.map((a) => {
+        const ajuste = mapa.get(a.id);
+        return ajuste ? anuncioComAjuste(a, ajuste, cfg) : a;
+      });
+    },
+    [fiscal, custoOperacionalDetalhado],
+  );
   const { selecionadas: contasSelecionadas, todasSelecionadas: semRestricaoDeConta } =
     useSelecaoContas();
   const { sessao, recursos } = useAuth();
@@ -271,19 +290,21 @@ function Agentes() {
     // Garante que o CMV dos produtos reais já está espalhado pros
     // anúncios de exemplo, mesmo que o seller nunca tenha passado pela
     // tela de Custos nesta sessão — senão o agente avalia sem custo.
-    const [produtos, alteracoes] = await Promise.all([
+    const [produtos, alteracoes, mapaAjustes] = await Promise.all([
       produtosService.listar(perfilId),
       alteracoesPrecoService.listar(perfilId),
+      ajustesCustoService.listar(perfilId),
     ]);
     produtosService.reconciliarComAnuncios(produtos);
     // Os preços que o seller mudou na tela Precificação valem aqui também.
     alteracoesPrecoService.aplicarNosAnuncios(alteracoes);
     setAlteracoesManuais(alteracoes);
+    setAjustesCusto(mapaAjustes);
 
     // Frentes 1 e 2: subir (vende rápido e o estoque vai acabar) e baixar
     // (parado, com corte que cresce com o tempo parado e o dinheiro preso).
     const candidatos = sugerirPrecos(
-      anunciosService.listar(),
+      comAjustes(anunciosService.listar(), mapaAjustes),
       situacaoEstoquePorSku(
         estoqueService.listarDetalhado(),
         fulfillmentService.listarDetalhado(),
@@ -303,14 +324,14 @@ function Agentes() {
     const lista = await eventosAgenteService.listar(perfilId, "precificacao");
     setEventos(lista);
     setCarregando(false);
-  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
+  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal, comAjustes]);
 
   /** Frentes 4 e 5 (campanhas e preço por canal): só leitura, recalculadas
    * sempre que as metas ou os custos mudam — não vão pro banco. */
   const analisesPreco = useMemo(() => {
     const metasDe = (contaId: string) => metasPorConta[contaId] ?? FAIXAS_MARGEM_PADRAO;
     const opcoes = { aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal };
-    const anuncios = anunciosService.listar();
+    const anuncios = comAjustes(anunciosService.listar(), ajustesCusto);
     const situacao = situacaoEstoquePorSku(
       estoqueService.listarDetalhado(),
       fulfillmentService.listarDetalhado(),
@@ -320,7 +341,7 @@ function Agentes() {
       campanhas: avaliarCampanhas(promocoesService.listar(), anuncios, situacao, metasDe, opcoes),
       porCanal: precosPorCanal(anuncios, metasDe, opcoes),
     };
-  }, [metasPorConta, fiscal, custoOperacionalTotal]);
+  }, [metasPorConta, fiscal, custoOperacionalTotal, comAjustes, ajustesCusto]);
 
   const [carregandoInsights, setCarregandoInsights] = useState(true);
 
@@ -335,7 +356,7 @@ function Agentes() {
     const perfilId = sessao.user.id;
 
     const pedidos = vendasService.listar();
-    const anuncios = anunciosService.listar();
+    const anuncios = comAjustes(anunciosService.listar(), await ajustesCustoService.listar(perfilId));
     const contasAtivas = contasService.ativas();
     const opcoesCusto = {
       aliquotaImposto: fiscal.aliquota,
@@ -429,7 +450,7 @@ function Agentes() {
     const lista = await eventosAgenteService.listarInsights(perfilId);
     setInsights(lista);
     setCarregandoInsights(false);
-  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal]);
+  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal, comAjustes]);
 
   /**
    * Quatro perguntas comuns de cliente de marketplace, usadas só pra
@@ -613,7 +634,7 @@ function Agentes() {
     produtosService.reconciliarComAnuncios(produtos);
 
     const analises = analisarRoasAnuncios(
-      anunciosService.listar(),
+      comAjustes(anunciosService.listar(), await ajustesCustoService.listar(perfilId)),
       adsService.historico(),
       estoqueService.listarDetalhado(),
       { aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal },
@@ -640,7 +661,7 @@ function Agentes() {
       ),
     );
     setCarregandoAds(false);
-  }, [sessao, recursos.agentes, fiscal, custoOperacionalTotal]);
+  }, [sessao, recursos.agentes, fiscal, custoOperacionalTotal, comAjustes]);
 
   /**
    * A varredura do Auditor: confere os pedidos dos últimos 30 dias contra
