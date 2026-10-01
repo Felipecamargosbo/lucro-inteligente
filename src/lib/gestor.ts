@@ -199,12 +199,14 @@ export function montarTop3(p: {
         rotuloValor: "gastos em 14 dias",
         semaforo: "vermelho",
       });
-    } else if (d.tipo === "realocacao") {
+    } else if (d.tipo === "realocacao" && d.lado !== "aumentar") {
+      // Só o lado "reduzir" tem dinheiro em jogo (o gasto no prejuízo); o
+      // "aumentar" é oportunidade, não entra no Top 3.
       itensAds.push({
         agente: "ads",
         nomeAgente: NOME_AGENTE.ads,
-        titulo: `Mover verba de ${d.fonte.produto} para ${d.destino.produto}`,
-        explicacao: `${d.fonte.produto} gastou ${formatBRL(d.fonte.investimento)} em 14 dias abaixo do ROAS mínimo (no prejuízo). ${d.destino.produto} está dando retorno.`,
+        titulo: `Reduzir a verba de Ads de ${d.fonte.produto}`,
+        explicacao: `Gastou ${formatBRL(d.fonte.investimento)} em Ads nos últimos 14 dias abaixo do ROAS mínimo — vendendo no prejuízo.`,
         valor: d.fonte.investimento,
         rotuloValor: "no prejuízo em 14 dias",
         semaforo: "amarelo",
