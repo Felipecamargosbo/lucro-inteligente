@@ -12,4 +12,15 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Hospedagem na Cloudflare Workers.
+  // nodeCompat: liga a compatibilidade com Node (o Supabase e outras bibliotecas precisam).
+  // deployConfig: no build, gera sozinho a configuração que o "wrangler deploy" usa
+  // (aponta para o servidor em .output/server e para os arquivos do site em .output/public).
+  // Na Vercel essas opções são ignoradas, então o site continua funcionando lá durante o teste.
+  nitro: {
+    cloudflare: {
+      nodeCompat: true,
+      deployConfig: true,
+    },
+  },
 });
