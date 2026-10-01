@@ -32,7 +32,7 @@ import {
 } from "@/data/mock";
 import { CONFIGURACAO_SAC_PADRAO, MODELOS_SAC_PADRAO } from "@/lib/sac";
 import { CONFIGURACAO_CRIATIVO_PADRAO, LIMITES_TITULO_PADRAO } from "@/lib/criativo";
-import type { AjusteCusto, ModoAds } from "@/lib/precificacao";
+import type { AjusteCusto, FaixaPreco, FaixasPorCanal, ModoAds } from "@/lib/precificacao";
 import type {
   AcaoAds,
   AgenteId,
@@ -519,6 +519,44 @@ export const ajustesCustoService = {
         atualizado_em: agora,
       })),
       { onConflict: "perfil_id,anuncio_id" },
+    );
+    return error?.message ?? null;
+  },
+};
+
+/** Regras de taxa fixa e frete por faixa de preço, por canal (tabela
+ * `faixas_preco_canal`). Canal sem regra = taxa e frete do próprio anúncio. */
+export const faixasPrecoService = {
+  listar: async (perfilId: string): Promise<FaixasPorCanal> => {
+    const resultado: FaixasPorCanal = {};
+    const { data, error } = await supabase
+      .from("faixas_preco_canal")
+      .select("*")
+      .eq("perfil_id", perfilId);
+    if (error) {
+      console.error("faixasPrecoService.listar:", error.message);
+      return resultado;
+    }
+    for (const l of data ?? []) {
+      const faixas = Array.isArray(l.faixas) ? (l.faixas as FaixaPreco[]) : [];
+      if (faixas.length > 0) resultado[l.marketplace_id as MarketplaceId] = faixas;
+    }
+    return resultado;
+  },
+
+  salvar: async (
+    perfilId: string,
+    marketplaceId: MarketplaceId,
+    faixas: FaixaPreco[],
+  ): Promise<string | null> => {
+    const { error } = await supabase.from("faixas_preco_canal").upsert(
+      {
+        perfil_id: perfilId,
+        marketplace_id: marketplaceId,
+        faixas,
+        atualizado_em: new Date().toISOString(),
+      },
+      { onConflict: "perfil_id,marketplace_id" },
     );
     return error?.message ?? null;
   },
