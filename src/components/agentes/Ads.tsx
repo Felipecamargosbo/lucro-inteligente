@@ -816,7 +816,7 @@ function ConteudoDetalheAds({
         {!x.calculavel && (
           <p className="mb-2 rounded-lg bg-muted px-3 py-2 text-[11px] text-warning">
             Este anúncio está sem custo (CMV) cadastrado. Sem ele, o ROAS mínimo não é
-            confiável. Cadastre o custo em Custos.
+            confiável. Cadastre o custo em Precificação.
           </p>
         )}
         <div className="overflow-hidden rounded-lg border">
