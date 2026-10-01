@@ -19,7 +19,8 @@ import { AuthProvider, useAuth } from "@/context/auth";
 import { Login } from "@/components/Auth/Login";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
-import { SCRIPT_TEMA_INICIAL } from "@/lib/tema";
+import { SCRIPT_TEMA_INICIAL, salvarTema } from "@/lib/tema";
+import { preferenciasService } from "@/services";
 
 function NotFoundComponent() {
   return (
@@ -153,6 +154,15 @@ function RootComponent() {
  */
 function AreaLogada() {
   const { sessao, carregando } = useAuth();
+
+  // O tema fica salvo na conta: ao entrar, vale o da conta (em qualquer
+  // computador ou celular). Até ele chegar, vale o que estava no navegador.
+  useEffect(() => {
+    if (!sessao) return;
+    preferenciasService.carregarTema(sessao.user.id).then((tema) => {
+      if (tema) salvarTema(tema);
+    });
+  }, [sessao]);
 
   if (carregando) {
     return <div className="min-h-screen bg-background" />;
