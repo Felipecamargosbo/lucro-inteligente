@@ -1227,7 +1227,7 @@ function FiltroCategoria({
 
 function Resumo({ rotulo, valor, cor }: { rotulo: string; valor: string; cor?: string }) {
   return (
-    <div className="rounded-lg bg-muted px-3 py-2">
+    <div className="rounded-lg border border-white/50 bg-muted px-3 py-2 [.claro_&]:border-black/50">
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{rotulo}</p>
       <p className={cn("num text-lg font-bold", cor)}>{valor}</p>
     </div>
