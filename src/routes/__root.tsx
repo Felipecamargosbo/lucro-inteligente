@@ -6,6 +6,7 @@ import {
   useRouter,
   HeadContent,
   Scripts,
+  useRouterState,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
@@ -152,8 +153,12 @@ function RootComponent() {
  * o login, sem o menu/app por trás. O resto do app (rotas, contextos de
  * dados) só monta depois que existe uma sessão válida.
  */
+// Páginas que abrem sem login e sem o menu do app (Termos e Privacidade).
+const PAGINAS_PUBLICAS = ["/termos", "/privacidade"];
+
 function AreaLogada() {
   const { sessao, carregando } = useAuth();
+  const caminho = useRouterState({ select: (s) => s.location.pathname });
 
   // O tema fica salvo na conta: ao entrar, vale o da conta (em qualquer
   // computador ou celular). Até ele chegar, vale o que estava no navegador.
@@ -163,6 +168,10 @@ function AreaLogada() {
       if (tema) salvarTema(tema);
     });
   }, [sessao]);
+
+  if (PAGINAS_PUBLICAS.includes(caminho)) {
+    return <Outlet />;
+  }
 
   if (carregando) {
     return <div className="min-h-screen bg-background" />;
