@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/context/auth";
@@ -126,6 +127,18 @@ export function Login() {
             {modo === "entrar" ? "Entrar" : "Criar conta"}
           </Button>
         </form>
+
+        <p className="text-center text-xs leading-relaxed text-muted-foreground">
+          {modo === "cadastrar" ? "Ao criar a conta, você concorda com os " : "Leia os "}
+          <Link to="/termos" className="underline underline-offset-2 hover:text-foreground">
+            Termos de Uso
+          </Link>{" "}
+          e a{" "}
+          <Link to="/privacidade" className="underline underline-offset-2 hover:text-foreground">
+            Política de Privacidade
+          </Link>
+          .
+        </p>
       </div>
     </div>
   );
