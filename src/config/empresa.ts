@@ -8,7 +8,7 @@ export const EMPRESA = {
   nomeFantasia: "Planeta97",
   produto: "NEXO",
   // Troque pelo número quando o CNPJ for emitido (ex.: "12.345.678/0001-90").
-  cnpj: "em registro",
+  cnpj: "69.494.454/0001-62",
   email: "felipe.sbo.97@gmail.com",
   // Pessoa responsável pelos dados pessoais (o "encarregado" da LGPD).
   encarregado: "Felipe Camargo",
