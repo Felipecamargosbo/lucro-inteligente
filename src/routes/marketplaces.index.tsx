@@ -10,6 +10,7 @@ import { resolverPeriodo } from "@/lib/period";
 import { formatBRL, formatNumero, formatPercentual, tempoRelativo } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
+import { ConexoesMercadoLivre } from "@/components/marketplaces/ConexoesMercadoLivre";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -119,6 +120,8 @@ function Marketplaces() {
           detalhe="Somado entre todas as contas conectadas"
         />
       </div>
+
+      <ConexoesMercadoLivre />
 
       <Painel
         titulo="Contas conectadas"
