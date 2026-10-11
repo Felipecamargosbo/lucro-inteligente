@@ -7,7 +7,7 @@ import {
   definirContasAtuais,
 } from "@/data/mock";
 import { emDemonstracao } from "@/lib/demonstracao";
-import { metasService } from "@/services";
+import { metasService, obterContasReais } from "@/services";
 import { useAuth } from "@/context/auth";
 import type {
   ConfiguracaoFiscal,
@@ -135,7 +135,9 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
         ],
   );
 
-  const [contas, setContas] = useState<ContaMarketplace[]>(() => (demo ? CONTAS : []));
+  const [contas, setContas] = useState<ContaMarketplace[]>(() =>
+    demo ? CONTAS : [...obterContasReais()],
+  );
 
   // Espelha as contas para fora do React: os loaders de rota (que decidem,
   // por exemplo, se um canal tem conta única e pula a seleção) rodam fora

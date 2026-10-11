@@ -81,7 +81,25 @@ const REAIS = {
   anuncios: [] as Anuncio[],
   pedidos: [] as Pedido[],
   historicoPrecos: [] as AlteracaoPreco[],
+  contas: [] as ContaMarketplace[],
 };
+
+/** Guarda os dados reais lidos do banco (src/services/dados-reais.ts). As
+ * listas são trocadas por dentro, sem criar arrays novos, porque outras
+ * partes do app guardam referência a elas. */
+export function definirDadosReais(dados: {
+  anuncios: Anuncio[];
+  pedidos: Pedido[];
+  contas: ContaMarketplace[];
+}) {
+  REAIS.anuncios.splice(0, REAIS.anuncios.length, ...dados.anuncios);
+  REAIS.pedidos.splice(0, REAIS.pedidos.length, ...dados.pedidos);
+  REAIS.contas.splice(0, REAIS.contas.length, ...dados.contas);
+}
+
+/** Contas reais (as conectadas de verdade) — o ponto de partida das
+ * Configurações numa conta limpa. */
+export const obterContasReais = () => REAIS.contas;
 const anunciosAtuais = () => (emDemonstracao() ? ANUNCIOS_EXEMPLO : REAIS.anuncios);
 const pedidosAtuais = () => (emDemonstracao() ? PEDIDOS_EXEMPLO : REAIS.pedidos);
 const historicoPrecosAtual = () =>

@@ -7,6 +7,11 @@ import { Button } from "@/components/ui/button";
 import { tempoRelativo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { mercadoLivreService, type ConexaoMercadoLivre } from "@/services/mercadolivre";
+import { sincronizarAgora } from "@/services/dados-reais";
+import { emDemonstracao } from "@/lib/demonstracao";
+
+/** Avisa o app (o __root) para reler os dados reais do banco. */
+const avisarDadosNovos = () => window.dispatchEvent(new Event("nexo:dados-reais"));
 
 /**
  * Painel "Conexão real com o Mercado Livre" da tela Marketplaces.
@@ -14,14 +19,31 @@ import { mercadoLivreService, type ConexaoMercadoLivre } from "@/services/mercad
  * - Lista as contas do ML já conectadas de verdade (pela API oficial).
  * - Quando o seller volta do ML, mostra o aviso de sucesso ou de erro.
  *
- * As outras contas da tela continuam com dados de exemplo até a leitura
- * dos dados reais (próximas etapas).
+ * - Botão "Sincronizar agora": traz anúncios e vendas reais do ML para o
+ *   NEXO (também roda sozinho logo depois de conectar uma conta).
  */
 export function ConexoesMercadoLivre() {
   const [conexoes, setConexoes] = useState<ConexaoMercadoLivre[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [conectando, setConectando] = useState(false);
   const [removendo, setRemovendo] = useState<string | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
+  const demo = emDemonstracao();
+
+  const sincronizar = async () => {
+    setSincronizando(true);
+    const id = toast.loading("Buscando anúncios e vendas no Mercado Livre…", {
+      description: "Pode levar até 1 minuto.",
+    });
+    const { erro, resumo } = await sincronizarAgora();
+    setSincronizando(false);
+    if (erro) {
+      toast.error("Não consegui sincronizar", { id, description: erro });
+      return;
+    }
+    toast.success("Dados do Mercado Livre atualizados", { id, description: resumo });
+    avisarDadosNovos();
+  };
 
   const carregar = async () => {
     setCarregando(true);
@@ -41,6 +63,8 @@ export function ConexoesMercadoLivre() {
         toast.success("Conta do Mercado Livre conectada!", {
           description: detalhe ? `Conta: ${detalhe}` : undefined,
         });
+        // Conta nova: já traz os anúncios e as vendas dela.
+        if (!emDemonstracao()) sincronizar();
       } else {
         toast.error("Não foi possível conectar o Mercado Livre", { description: detalhe });
       }
@@ -76,6 +100,7 @@ export function ConexoesMercadoLivre() {
         "Para remover também a autorização no Mercado Livre, vá em Minha conta → Segurança → Aplicativos conectados.",
     });
     carregar();
+    avisarDadosNovos();
   };
 
   return (
@@ -83,6 +108,19 @@ export function ConexoesMercadoLivre() {
       titulo="Conexão real com o Mercado Livre"
       descricao="Conecte sua conta pela API oficial do Mercado Livre. Você autoriza no site do ML; o NEXO nunca vê a sua senha."
       acoes={
+        <div className="flex gap-2">
+        {!demo && conexoes.length > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            disabled={sincronizando}
+            onClick={sincronizar}
+          >
+            <RefreshCw className={cn("size-3.5", sincronizando && "animate-spin")} />
+            Sincronizar agora
+          </Button>
+        )}
         <Button
           size="sm"
           className="h-8 gap-1.5 bg-brand text-xs text-brand-foreground hover:bg-brand/90"
@@ -92,6 +130,7 @@ export function ConexoesMercadoLivre() {
           {conectando ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
           Conectar Mercado Livre
         </Button>
+        </div>
       }
     >
       <div className="p-5">

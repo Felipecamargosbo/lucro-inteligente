@@ -8,7 +8,7 @@ import {
   Scripts,
   useRouterState,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -21,7 +21,8 @@ import { Login } from "@/components/Auth/Login";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { SCRIPT_TEMA_INICIAL, salvarTema } from "@/lib/tema";
-import { preferenciasService } from "@/services";
+import { definirDadosReais, preferenciasService } from "@/services";
+import { carregarDadosReais } from "@/services/dados-reais";
 
 function NotFoundComponent() {
   return (
@@ -169,6 +170,31 @@ function AreaLogada() {
     });
   }, [sessao]);
 
+  // Conta limpa: antes de desenhar as telas, lê do banco as contas, anúncios
+  // e vendas reais (o que a sincronização com os marketplaces trouxe).
+  // `versaoDados` muda quando o seller pede "Sincronizar agora", e remonta a
+  // área logada com os dados novos.
+  const [dadosProntos, setDadosProntos] = useState<string | null>(null);
+  const [versaoDados, setVersaoDados] = useState(0);
+  const chaveDados = perfil && !demonstracao ? `${perfil.id}:${versaoDados}` : null;
+  useEffect(() => {
+    if (!chaveDados || !perfil) return;
+    let cancelado = false;
+    carregarDadosReais(perfil.id).then((dados) => {
+      if (cancelado) return;
+      definirDadosReais(dados);
+      setDadosProntos(chaveDados);
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [chaveDados]);
+  useEffect(() => {
+    const recarregar = () => setVersaoDados((v) => v + 1);
+    window.addEventListener("nexo:dados-reais", recarregar);
+    return () => window.removeEventListener("nexo:dados-reais", recarregar);
+  }, []);
+
   if (PAGINAS_PUBLICAS.includes(caminho)) {
     return <Outlet />;
   }
@@ -186,11 +212,14 @@ function AreaLogada() {
   if (carregandoPerfil && !perfil) {
     return <div className="min-h-screen bg-background" />;
   }
+  if (chaveDados && dadosProntos === null) {
+    return <div className="min-h-screen bg-background" />;
+  }
 
   return (
     // A `key` remonta a área logada inteira se o modo mudar (ex.: o ADMIN
     // ligou a demonstração), para nenhuma tela guardar dado do modo anterior.
-    <ConfiguracoesProvider key={demonstracao ? "demo" : "real"}>
+    <ConfiguracoesProvider key={demonstracao ? "demo" : `real:${dadosProntos ?? ""}`}>
       <SelecaoContasProvider>
         <PeriodoProvider>
           <AppShell>
