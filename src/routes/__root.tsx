@@ -159,7 +159,13 @@ const PAGINAS_PUBLICAS = ["/termos", "/privacidade"];
 
 function AreaLogada() {
   const { sessao, carregando, perfil, carregandoPerfil, demonstracao } = useAuth();
-  const caminho = useRouterState({ select: (s) => s.location.pathname });
+  // Decide pela página que o <Outlet> vai desenhar de fato (as "matches"), e
+  // não pelo endereço: durante a troca de página o endereço muda antes, e a
+  // tela do app chegava a ser desenhada sem as configurações (erro ao clicar
+  // em "Voltar ao NEXO" nos Termos/Privacidade).
+  const paginaPublica = useRouterState({
+    select: (s) => s.matches.some((m) => PAGINAS_PUBLICAS.includes(m.pathname)),
+  });
 
   // O tema fica salvo na conta: ao entrar, vale o da conta (em qualquer
   // computador ou celular). Até ele chegar, vale o que estava no navegador.
@@ -195,7 +201,7 @@ function AreaLogada() {
     return () => window.removeEventListener("nexo:dados-reais", recarregar);
   }, []);
 
-  if (PAGINAS_PUBLICAS.includes(caminho)) {
+  if (paginaPublica) {
     return <Outlet />;
   }
 
