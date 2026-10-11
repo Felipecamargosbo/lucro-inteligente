@@ -96,7 +96,10 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
   const [demo] = useState(emDemonstracao);
   const nomeDoSeller = perfil?.razaoSocial || perfil?.nomeExibicao || "Minha empresa";
 
-  const [empresa, setEmpresa] = useState<DadosEmpresa>(() => !demo ? empresaInicialLimpa(nomeDoSeller) : {
+  const [empresa, setEmpresa] = useState<DadosEmpresa>(() =>
+    !demo
+      ? empresaInicialLimpa(nomeDoSeller)
+      : {
     nome: EMPRESA.nome,
     cnpj: EMPRESA.cnpj,
     nomeFantasia: "NEXO",
@@ -110,7 +113,7 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
     cidade: "São Paulo",
     estado: "SP",
     emailFornecedor: "compras@fornecedor.com.br",
-  }));
+  });
 
   const [fiscal, setFiscal] = useState<ConfiguracaoFiscal>({
     regime: "simples-nacional",
