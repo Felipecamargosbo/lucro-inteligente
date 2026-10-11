@@ -7,5 +7,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true
-  }
+  },
+  // Necessário para os links de teste (Previews) de cada ramo do GitHub.
+  // Não muda nada no site oficial.
+  "previews": {}
 }
