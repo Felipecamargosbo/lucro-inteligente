@@ -553,6 +553,14 @@ export interface Perfil {
   planoId: string;
   /** Conta de demonstração (ligada no ADMIN): só ela vê os dados fictícios. */
   modoDemonstracao: boolean;
+  /** Conta interna (sua ou de teste): não é cobrada. */
+  contaInterna: boolean;
+  /** 'teste' | 'ativa' | 'atrasada' | 'bloqueada' | 'cancelada' */
+  statusAssinatura: string;
+  /** Fim do teste grátis de 7 dias (ISO), quando houver. */
+  testeAte: string | null;
+  /** Próxima cobrança (ISO), quando houver. */
+  proximoVencimento: string | null;
 }
 
 /** O que o plano do seller libera — vem de `planos.recursos` no banco. */

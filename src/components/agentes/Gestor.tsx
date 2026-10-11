@@ -210,7 +210,7 @@ function AbaResumo({
   const copiar = async () => {
     try {
       await navigator.clipboard.writeText(mensagem);
-      toast.success("Mensagem copiada. É só colar no WhatsApp.");
+      toast.success("Resumo copiado. É só colar onde quiser.");
     } catch {
       toast.error("Não consegui copiar. Selecione o texto e copie com Ctrl+C.");
     }
@@ -293,11 +293,11 @@ function AbaResumo({
         ))}
       </div>
 
-      {/* WhatsApp */}
+      {/* Resumo em texto, para copiar (o NEXO não envia por WhatsApp) */}
       <div className="space-y-2 px-4 py-4">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs font-semibold">
-            Prévia do WhatsApp ({tipo === "diario" ? "diário" : "semanal"})
+            Resumo em texto ({tipo === "diario" ? "diário" : "semanal"})
           </p>
           <div className="ml-auto flex gap-2">
             <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setVerWhats((v) => !v)}>
@@ -315,8 +315,8 @@ function AbaResumo({
           </pre>
         )}
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          Por enquanto é só prévia pra copiar. O envio automático pelo WhatsApp (todo dia e toda
-          semana) entra depois do CNPJ, quando der pra conectar a API do WhatsApp.
+          O mesmo resumo em texto, pronto pra copiar e colar onde você quiser. Os avisos do NEXO
+          aparecem aqui na plataforma.
         </p>
       </div>
     </div>

@@ -1,7 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { formatBRL } from "@/lib/format";
 import { useAuth } from "@/context/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +12,16 @@ import { CampoSenha } from "@/components/comum/CampoSenha";
 import { cn } from "@/lib/utils";
 
 type Modo = "entrar" | "cadastrar";
+
+/** Planos que o seller pode escolher no cadastro (Black Diamond é sob consulta). */
+interface PlanoCadastro {
+  id: string;
+  nome: string;
+  preco: number;
+  contas: number | null;
+  iaMes: number | null;
+}
+const PLANOS_DO_CADASTRO = ["bronze", "silver", "gold", "platinum"];
 
 /**
  * Tela cheia mostrada sempre que não há sessão do Supabase — substitui o
@@ -24,13 +36,38 @@ export function Login() {
   const [senha, setSenha] = useState("");
   const [nome, setNome] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [planos, setPlanos] = useState<PlanoCadastro[]>([]);
+  const [planoEscolhido, setPlanoEscolhido] = useState("bronze");
+
+  // Preços e limites vêm do banco (são os que você define no ADMIN).
+  useEffect(() => {
+    if (modo !== "cadastrar" || planos.length) return;
+    supabase
+      .from("planos")
+      .select("id, nome, preco_mensal, contas, ia_mes, ordem")
+      .in("id", PLANOS_DO_CADASTRO)
+      .order("ordem")
+      .then(({ data }) =>
+        setPlanos(
+          (data ?? []).map((p) => ({
+            id: p.id as string,
+            nome: p.nome as string,
+            preco: Number(p.preco_mensal) || 0,
+            contas: (p.contas as number | null) ?? null,
+            iaMes: (p.ia_mes as number | null) ?? null,
+          })),
+        ),
+      );
+  }, [modo, planos.length]);
 
   async function aoEnviar(e: FormEvent) {
     e.preventDefault();
     setEnviando(true);
 
     const resultado =
-      modo === "entrar" ? await entrar(email, senha) : await cadastrar(email, senha, nome);
+      modo === "entrar"
+        ? await entrar(email, senha)
+        : await cadastrar(email, senha, nome, planoEscolhido);
 
     setEnviando(false);
 
@@ -40,14 +77,16 @@ export function Login() {
     }
 
     if (modo === "cadastrar") {
-      toast.success("Conta criada! Verifique seu e-mail para confirmar o cadastro.");
+      toast.success("Conta criada! Seu teste grátis de 7 dias começou.", {
+        description: "Confirme o cadastro pelo link que enviamos para o seu e-mail.",
+      });
       setModo("entrar");
     }
   }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm space-y-6">
+      <div className={cn("w-full space-y-6 py-8", modo === "cadastrar" ? "max-w-2xl" : "max-w-sm")}>
         <div className="text-center">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Planeta97</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -122,9 +161,48 @@ export function Login() {
             />
           </div>
 
+          {modo === "cadastrar" && (
+            <div className="space-y-2">
+              <Label>Escolha o seu plano</Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {planos.map((p) => {
+                  const ativo = p.id === planoEscolhido;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setPlanoEscolhido(p.id)}
+                      className={cn(
+                        "flex flex-col gap-1 rounded-lg border p-3 text-left transition-colors",
+                        ativo ? "border-brand bg-brand/10" : "hover:bg-muted/50",
+                      )}
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold">{p.nome}</span>
+                        {ativo && <Check className="size-4 text-brand" />}
+                      </span>
+                      <span className="text-lg font-bold">
+                        {formatBRL(p.preco)}
+                        <span className="text-xs font-normal text-muted-foreground">/mês</span>
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {p.contas ? `Até ${p.contas} contas de marketplace` : ""}
+                        {p.iaMes ? ` · ${p.iaMes.toLocaleString("pt-BR")} usos de IA por mês` : ""}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                <strong className="text-foreground">7 dias grátis.</strong> Cancele dentro desse prazo e não
+                paga nada. Precisa de mais de 10 contas? Fale com a gente sobre o plano Black Diamond.
+              </p>
+            </div>
+          )}
+
           <Button type="submit" className="w-full" disabled={enviando}>
             {enviando && <Loader2 className="size-4 animate-spin" />}
-            {modo === "entrar" ? "Entrar" : "Criar conta"}
+            {modo === "entrar" ? "Entrar" : "Começar teste grátis de 7 dias"}
           </Button>
         </form>
 

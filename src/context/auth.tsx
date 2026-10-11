@@ -40,6 +40,7 @@ interface AuthContexto {
     email: string,
     senha: string,
     nomeExibicao: string,
+    planoEscolhido?: string,
   ) => Promise<{ erro: string | null }>;
   sair: () => Promise<void>;
   atualizarPerfil: (dados: DadosEditaveis) => Promise<{ erro: string | null }>;
@@ -81,6 +82,10 @@ function linhaParaPerfil(linha: {
   plano: string;
   plano_id: string;
   modo_demonstracao?: boolean | null;
+  conta_interna?: boolean | null;
+  status_assinatura?: string | null;
+  teste_ate?: string | null;
+  proximo_vencimento?: string | null;
 }): Perfil {
   return {
     id: linha.id,
@@ -91,6 +96,10 @@ function linhaParaPerfil(linha: {
     plano: linha.plano,
     planoId: linha.plano_id,
     modoDemonstracao: Boolean(linha.modo_demonstracao),
+    contaInterna: Boolean(linha.conta_interna),
+    statusAssinatura: linha.status_assinatura ?? "ativa",
+    testeAte: linha.teste_ate ?? null,
+    proximoVencimento: linha.proximo_vencimento ?? null,
   };
 }
 
@@ -120,7 +129,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function lerPerfil(userId: string) {
     const { data, error } = await supabase
       .from("perfis")
-      .select("id, nome_exibicao, razao_social, email, logo_url, plano, plano_id, modo_demonstracao")
+      .select(
+        "id, nome_exibicao, razao_social, email, logo_url, plano, plano_id, modo_demonstracao, conta_interna, status_assinatura, teste_ate, proximo_vencimento",
+      )
       .eq("id", userId)
       .single();
 
@@ -202,7 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { erro: error?.message ?? null };
   }
 
-  async function cadastrar(email: string, senha: string, nomeExibicao: string) {
+  async function cadastrar(email: string, senha: string, nomeExibicao: string, planoEscolhido = "bronze") {
     const { error } = await supabase.auth.signUp({
       email,
       password: senha,
@@ -210,7 +221,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // `display_name` é a chave que o painel do Supabase lê para preencher
       // a coluna "Display name" da tela de Users — sem ela, aquela coluna
       // fica vazia e você não sabe de quem é cada e-mail.
-      options: { data: { nome_exibicao: nomeExibicao, display_name: nomeExibicao } },
+      // `plano_escolhido` define o plano (com 7 dias grátis) na hora do
+      // cadastro — quem confere se o plano existe é a trigger do banco.
+      options: {
+        data: { nome_exibicao: nomeExibicao, display_name: nomeExibicao, plano_escolhido: planoEscolhido },
+      },
     });
     return { erro: error?.message ?? null };
   }

@@ -55,7 +55,6 @@ function PoliticaDePrivacidade() {
             "Cadastro: nome, e-mail e senha (a senha é guardada de forma criptografada; nem nós conseguimos vê-la).",
             "Dados da empresa: razão social, CNPJ, regime tributário, logo e configurações.",
             "Dados do negócio: custos dos produtos (CMV), categorias, metas, ajustes de preço, informações extras dos anúncios e outras informações que você cadastrar.",
-            "Número de WhatsApp, se você ativar os avisos por lá.",
             "Mensagens que você envia aos agentes de IA ou ao nosso suporte.",
           ]}
         />
@@ -75,7 +74,7 @@ function PoliticaDePrivacidade() {
         <Lista
           itens={[
             "Registros de acesso (data, hora e endereço IP), que a lei brasileira (Marco Civil da Internet) obriga a guardar por 6 meses.",
-            "Quantidade de uso dos agentes de IA e das mensagens de WhatsApp, para controlar os limites do seu plano.",
+            "Quantidade de uso dos agentes de IA, para controlar os limites do seu plano.",
             "Preferências, como o tema claro ou escuro.",
           ]}
         />
@@ -92,7 +91,7 @@ function PoliticaDePrivacidade() {
             "Criar e manter sua conta e fazer o login funcionar (base legal: execução do contrato).",
             "Calcular lucro, margem e preços, mostrar os painéis e gerar as sugestões dos agentes (execução do contrato).",
             "Responder perguntas de compradores com sugestões do agente de SAC, quando você usar essa função (execução do contrato, em seu nome).",
-            "Enviar resumos e avisos pela plataforma, por e-mail e, se você ativar, pelo WhatsApp (execução do contrato).",
+            "Mostrar resumos e avisos na plataforma e enviar avisos importantes por e-mail (execução do contrato).",
             "Cobrar a assinatura e emitir notas fiscais (execução do contrato e obrigação legal).",
             "Manter a segurança, evitar fraudes e cumprir a lei, como guardar os registros de acesso (obrigação legal e legítimo interesse).",
             "Melhorar o NEXO, usando dados de uso de forma agregada, sem identificar você (legítimo interesse).",
@@ -119,7 +118,6 @@ function PoliticaDePrivacidade() {
           itens={[
             "Hospedagem e banco de dados (Supabase e Cloudflare).",
             "Inteligência artificial (OpenAI).",
-            "Envio de mensagens de WhatsApp (Meta / WhatsApp Business).",
             "Empresa de pagamentos e contabilidade, para cobrança e obrigações fiscais.",
             "Os próprios marketplaces, quando você aprovar uma ação que precisa ser enviada a eles (como mudar um preço).",
             "Autoridades públicas, quando a lei ou uma ordem judicial exigir.",
@@ -172,7 +170,7 @@ function PoliticaDePrivacidade() {
             "Pedir a anonimização, o bloqueio ou a exclusão de dados desnecessários ou tratados em desacordo com a lei.",
             "Pedir uma cópia dos seus dados para levar a outro serviço (portabilidade).",
             "Saber com quem compartilhamos seus dados.",
-            "Retirar um consentimento que tenha dado (como os avisos por WhatsApp).",
+            "Retirar um consentimento que tenha dado.",
             "Pedir a exclusão da conta e dos dados.",
           ]}
         />

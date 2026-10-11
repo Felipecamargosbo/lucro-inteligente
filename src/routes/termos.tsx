@@ -46,7 +46,7 @@ function TermosDeUso() {
             "Reúne vendas, anúncios, taxas, fretes, custos e anúncios patrocinados (Ads) dos marketplaces conectados (como Mercado Livre, Shopee, TikTok Shop, Magalu, Amazon e Shein).",
             "Calcula lucro, margem e preço de cada anúncio, a partir dos dados dos marketplaces e dos custos que você informa (como o CMV dos produtos).",
             "Oferece agentes de inteligência artificial (Precificação, Gestor, SAC, Estoque, Fulfillment, Ads, Criativo e Auditor) que analisam os dados e sugerem ações.",
-            "Envia resumos e avisos pela plataforma e, quando você ativar, pelo WhatsApp.",
+            "Mostra resumos e avisos na própria plataforma.",
             "Quando você autorizar, aplica nos marketplaces as mudanças que você aprovar (como um novo preço ou um novo título de anúncio).",
           ]}
         />
@@ -88,7 +88,8 @@ function TermosDeUso() {
       <Secao numero={5} titulo="Planos, limites de uso e pagamento">
         <Lista
           itens={[
-            "Os planos, preços, número de contas conectadas e limites mensais de uso (como interações com os agentes de IA e mensagens de WhatsApp) são os informados na plataforma no momento da contratação.",
+            "Os planos, preços, número de contas conectadas e limites mensais de uso (como interações com os agentes de IA) são os informados na plataforma no momento da contratação.",
+            "Teste grátis: ao criar a conta, você escolhe um plano e usa o NEXO por 7 dias sem pagar. Se cancelar dentro desses 7 dias, nada é cobrado. Se não cancelar, a assinatura do plano escolhido começa automaticamente no fim do teste.",
             "A assinatura é pré-paga: você paga antes de usar, e ela renova automaticamente todo mês, no mesmo dia em que foi contratada, até ser cancelada.",
             "Quando os créditos mensais do plano acabam, as funções essenciais continuam (como o resumo diário e avisos importantes) e as demais param até o mês seguinte, até um upgrade de plano ou até a compra de créditos avulsos.",
             "Créditos avulsos são pagos na hora da compra e só são liberados depois do pagamento confirmado.",
@@ -111,7 +112,7 @@ function TermosDeUso() {
       <Secao numero={7} titulo="Atraso no pagamento">
         <p>
           Se uma fatura não for paga até o vencimento, a plataforma passa a mostrar avisos. Se o atraso
-          continuar, as funções de IA e WhatsApp podem ser pausadas e, depois, o acesso à conta pode ser
+          continuar, as funções de IA podem ser pausadas e, depois, o acesso à conta pode ser
           bloqueado, nos prazos informados na plataforma. Assim que o pagamento for confirmado, o acesso volta
           ao normal, com os seus dados preservados dentro do prazo previsto na Política de Privacidade.
         </p>
@@ -148,7 +149,7 @@ function TermosDeUso() {
         <p>
           Trabalhamos para que o NEXO funcione sem interrupções, mas ele pode passar por manutenções, falhas
           técnicas ou instabilidades nossas ou de serviços de terceiros (marketplaces, hospedagem, inteligência
-          artificial, WhatsApp, pagamentos).
+          artificial, pagamentos).
         </p>
         <p>
           Na medida permitida pela lei, a {e.nomeFantasia} não se responsabiliza por lucros que deixaram de ser

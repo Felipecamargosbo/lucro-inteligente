@@ -4,6 +4,7 @@ import { BarraSuperior } from "./BarraSuperior";
 import { PainelNotificacoes } from "./PainelNotificacoes";
 import { AvisoContaSemDados } from "./AvisoContaSemDados";
 import { FaixaSuporte } from "./FaixaSuporte";
+import { AvisoAssinatura } from "./AvisoAssinatura";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [recolhido, setRecolhido] = useState(false);
@@ -14,6 +15,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <MenuLateral recolhido={recolhido} alternar={() => setRecolhido((v) => !v)} />
       <div className="flex min-w-0 flex-1 flex-col">
         <FaixaSuporte />
+        <AvisoAssinatura />
         <BarraSuperior aoAbrirNotificacoes={() => setNotificacoesAbertas(true)} />
         <main className="flex-1 p-6">
           <AvisoContaSemDados />
