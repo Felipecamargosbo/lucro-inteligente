@@ -1,3 +1,4 @@
+import { emDemonstracao } from "@/lib/demonstracao";
 import { useMemo } from "react";
 import {
   Area,
@@ -242,7 +243,8 @@ export function VisaoGeral() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">
           Período analisado: <strong>{formatData(periodo.inicio)}</strong> até{" "}
-          <strong>{formatData(periodo.fim)}</strong> · dados fictícios de demonstração
+          <strong>{formatData(periodo.fim)}</strong>
+          {emDemonstracao() && " · dados fictícios de demonstração"}
         </p>
         <ExportarDados nomeArquivo="resumo-dashboard" secoes={secoesExport} />
       </div>

@@ -1,3 +1,4 @@
+import { emDemonstracao } from "@/lib/demonstracao";
 import { Fragment, useMemo } from "react";
 import {
   Bar,
@@ -242,11 +243,13 @@ export function Financeiro() {
         <ExportarDados nomeArquivo="financeiro" linhas={linhasExport} />
       </div>
 
-      <div className="rounded-xl bg-muted/40 px-4 py-2.5 text-[11px] text-muted-foreground">
-        Prazo de repasse e devoluções calculados sobre as vendas do período selecionado —{" "}
-        <strong>dados fictícios de demonstração</strong>. Quando as APIs dos marketplaces forem
-        conectadas, a data de repasse e a devolução virão direto do canal, em vez de estimadas.
-      </div>
+      {emDemonstracao() && (
+        <div className="rounded-xl bg-muted/40 px-4 py-2.5 text-[11px] text-muted-foreground">
+          Prazo de repasse e devoluções calculados sobre as vendas do período selecionado —{" "}
+          <strong>dados fictícios de demonstração</strong>. Quando as APIs dos marketplaces forem
+          conectadas, a data de repasse e a devolução virão direto do canal, em vez de estimadas.
+        </div>
+      )}
 
       <Painel titulo="Recebíveis" descricao="Quanto do faturamento do período já caiu na conta e quanto ainda está para vir">
         <div className="grid gap-4 p-5 sm:grid-cols-2 xl:grid-cols-4">

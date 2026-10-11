@@ -1,8 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Clock, RefreshCw, Settings2, XCircle } from "lucide-react";
 import { vendasService } from "@/services";
+import { mercadoLivreService, type ConexaoMercadoLivre } from "@/services/mercadolivre";
+import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { CANAIS } from "@/config/navegacao";
 import { filtrarPorPeriodo, resumir } from "@/lib/finance";
@@ -61,8 +63,22 @@ function Marketplaces() {
     [pedidos],
   );
 
-  const conectadas = contas.filter((c) => c.statusConexao !== "desconectado");
-  const expirando = contas.filter((c) => c.statusConexao === "token-expirando");
+  // Conta limpa (sem demonstração): os números do topo vêm das conexões
+  // reais com os marketplaces, não das contas de exemplo.
+  const { demonstracao } = useAuth();
+  const [conexoesReais, setConexoesReais] = useState<ConexaoMercadoLivre[]>([]);
+  useEffect(() => {
+    if (demonstracao) return;
+    mercadoLivreService.listar().then(setConexoesReais);
+  }, [demonstracao]);
+
+  const conectadas = demonstracao
+    ? contas.filter((c) => c.statusConexao !== "desconectado")
+    : conexoesReais.filter((c) => c.status === "ativa");
+  const totalContas = demonstracao ? contas.length : conexoesReais.length;
+  const expirando = demonstracao
+    ? contas.filter((c) => c.statusConexao === "token-expirando")
+    : conexoesReais.filter((c) => c.status !== "ativa");
 
   const testarConexao = (c: ContaMarketplace) => {
     setTestando(c.id);
@@ -102,7 +118,7 @@ function Marketplaces() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <CardKpi
           titulo="Contas conectadas"
-          valor={`${conectadas.length} de ${contas.length}`}
+          valor={`${conectadas.length} de ${totalContas}`}
           detalhe="Somando todas as contas, mesmo repetidas no mesmo canal"
         />
         <CardKpi
@@ -110,8 +126,12 @@ function Marketplaces() {
           valor={expirando.length > 0 ? "Atenção" : "Operacionais"}
           detalhe={
             expirando.length > 0
-              ? `${expirando.length} conta(s) com token expirando`
-              : "Todas as integrações sincronizando normalmente"
+              ? demonstracao
+                ? `${expirando.length} conta(s) com token expirando`
+                : `${expirando.length} conta(s) precisam ser conectadas de novo`
+              : totalContas === 0
+                ? "Nenhuma conta conectada ainda"
+                : "Todas as integrações sincronizando normalmente"
           }
         />
         <CardKpi
@@ -123,6 +143,9 @@ function Marketplaces() {
 
       <ConexoesMercadoLivre />
 
+      {/* Os cards abaixo são das contas de exemplo; numa conta limpa, a
+          conexão real fica no quadro do Mercado Livre acima. */}
+      {contas.length > 0 && (
       <Painel
         titulo="Contas conectadas"
         descricao="Um card por conta — inclusive quando você tem mais de uma no mesmo canal"
@@ -206,6 +229,7 @@ function Marketplaces() {
           })}
         </div>
       </Painel>
+      )}
 
       <ModalConfiguracaoMarketplace
         conta={emConfiguracao}

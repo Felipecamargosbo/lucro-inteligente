@@ -5,8 +5,8 @@ import {
   EMPRESAS,
   REGRAS_FINANCEIRAS,
   definirContasAtuais,
-  empresaPorCnpj,
 } from "@/data/mock";
+import { emDemonstracao } from "@/lib/demonstracao";
 import { metasService } from "@/services";
 import { useAuth } from "@/context/auth";
 import type {
@@ -70,8 +70,33 @@ const CUSTOS_INICIAIS: CustoOperacional[] = [
   { id: "c2", nome: "Fita e etiqueta", tipo: "fixo", valor: 0.45, ativo: true },
 ];
 
+/** Conta limpa (sem demonstração): começa sem nenhum dado de exemplo. A
+ * única "empresa" é a do próprio seller, com o nome que ele cadastrou. */
+function empresaInicialLimpa(nome: string): DadosEmpresa {
+  return {
+    nome,
+    cnpj: "",
+    nomeFantasia: nome,
+    email: "",
+    telefone: "",
+    cep: "",
+    rua: "",
+    numero: "",
+    complemento: "",
+    bairro: "",
+    cidade: "",
+    estado: "",
+    emailFornecedor: "",
+  };
+}
+
 export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
-  const [empresa, setEmpresa] = useState<DadosEmpresa>({
+  const { sessao, perfil } = useAuth();
+  // Lido uma vez só: se o modo mudar, o __root remonta este provider.
+  const [demo] = useState(emDemonstracao);
+  const nomeDoSeller = perfil?.razaoSocial || perfil?.nomeExibicao || "Minha empresa";
+
+  const [empresa, setEmpresa] = useState<DadosEmpresa>(() => !demo ? empresaInicialLimpa(nomeDoSeller) : {
     nome: EMPRESA.nome,
     cnpj: EMPRESA.cnpj,
     nomeFantasia: "NEXO",
@@ -85,16 +110,29 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
     cidade: "São Paulo",
     estado: "SP",
     emailFornecedor: "compras@fornecedor.com.br",
-  });
+  }));
 
   const [fiscal, setFiscal] = useState<ConfiguracaoFiscal>({
     regime: "simples-nacional",
     aliquota: REGRAS_FINANCEIRAS.impostoPercentual,
   });
 
-  const [empresas] = useState<Empresa[]>(EMPRESAS);
+  const [empresas] = useState<Empresa[]>(() =>
+    demo
+      ? EMPRESAS
+      : [
+          {
+            id: "emp-principal",
+            nome: nomeDoSeller,
+            nomeFantasia: nomeDoSeller,
+            cnpj: "",
+            regime: "simples-nacional",
+            aliquota: REGRAS_FINANCEIRAS.impostoPercentual,
+          },
+        ],
+  );
 
-  const [contas, setContas] = useState<ContaMarketplace[]>(CONTAS);
+  const [contas, setContas] = useState<ContaMarketplace[]>(() => (demo ? CONTAS : []));
 
   // Espelha as contas para fora do React: os loaders de rota (que decidem,
   // por exemplo, se um canal tem conta única e pula a seleção) rodam fora
@@ -108,11 +146,9 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
     Record<string, MetasMargem | null>
   >(() => {
     const inicial: Record<string, MetasMargem | null> = {};
-    for (const c of CONTAS) inicial[c.id] = c.metas;
+    if (demo) for (const c of CONTAS) inicial[c.id] = c.metas;
     return inicial;
   });
-
-  const { sessao } = useAuth();
 
   // Carrega as metas salvas de verdade e sobrepõe aos valores de exemplo —
   // uma conta sem linha salva ainda continua mostrando o padrão do mock,
@@ -125,7 +161,7 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
     });
   }, [sessao]);
 
-  const [custos, setCustos] = useState<CustoOperacional[]>(CUSTOS_INICIAIS);
+  const [custos, setCustos] = useState<CustoOperacional[]>(() => (demo ? CUSTOS_INICIAIS : []));
 
   const valor = useMemo<ConfiguracoesContexto>(() => {
     const ativos = custos.filter((c) => c.ativo);
@@ -157,7 +193,7 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
           marketplaceId,
           nome: dados.nome,
           cnpj: dados.cnpj,
-          empresaId: empresaPorCnpj(dados.cnpj).id,
+          empresaId: (empresas.find((e) => e.cnpj === dados.cnpj) ?? empresas[0])?.id ?? "",
           conectada: false,
           statusConexao: "desconectado",
           ultimaSincronizacao: null,

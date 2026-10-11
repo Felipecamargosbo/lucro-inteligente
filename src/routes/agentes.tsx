@@ -38,6 +38,7 @@ import {
   type RascunhoCriativo,
 } from "@/services";
 import { getMarketplace } from "@/data/mock";
+import { emDemonstracao } from "@/lib/demonstracao";
 import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
@@ -475,8 +476,12 @@ function Agentes() {
     setModelosSac(modelos);
 
     const anunciosAtivos = anunciosService.listar().filter((a) => a.status === "ativo");
+    // Perguntas e sugestões de exemplo só existem na conta de demonstração:
+    // numa conta real, o SAC e o Criativo trabalham só com o que chegar de
+    // verdade dos marketplaces.
+    const demo = emDemonstracao();
     const existentes = await sacService.listar(perfilId);
-    if (existentes.length === 0) {
+    if (demo && existentes.length === 0) {
       const amostra = anunciosAtivos.slice(0, Math.min(4, anunciosAtivos.length));
       for (let i = 0; i < amostra.length; i++) {
         const a = amostra[i]!;
@@ -495,7 +500,7 @@ function Agentes() {
     // Leva de exemplos do Bloco 6 (uma vez só): pós-venda, reclamação e
     // perguntas repetidas — pra mostrar cada tipo de mensagem na tela.
     const lotes = await sacService.lotesCriados(perfilId);
-    if (!lotes.has(LOTE_EXEMPLOS_SAC)) {
+    if (demo && !lotes.has(LOTE_EXEMPLOS_SAC)) {
       for (const t of montarTicketsExemploSac(anunciosAtivos, vendasService.listar())) {
         const erro = await sacService.criarTicket(perfilId, { ...t, lote: LOTE_EXEMPLOS_SAC });
         if (erro) console.error("Não consegui criar o ticket de exemplo:", erro);
@@ -516,7 +521,7 @@ function Agentes() {
     setConfigCriativo(await criativoConfigService.carregar(perfilId));
 
     const existentes = await criativoService.listar(perfilId);
-    if (existentes.length === 0) {
+    if (emDemonstracao() && existentes.length === 0) {
       const anunciosAtivos = anunciosService.listar().filter((a) => a.status === "ativo");
       const amostra = anunciosAtivos.slice(0, Math.min(4, anunciosAtivos.length));
       for (const a of amostra) {

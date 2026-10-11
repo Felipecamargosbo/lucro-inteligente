@@ -8,6 +8,7 @@ import {
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import type { Perfil, RecursosPlano } from "@/types";
+import { definirDemonstracao } from "@/lib/demonstracao";
 
 /**
  * Sessão de login do seller (Supabase Auth) + o perfil dele (tabela
@@ -23,6 +24,11 @@ interface AuthContexto {
   /** O que o plano atual libera — enquanto carrega ou se algo falhar, vem
    * fechado (só o essencial), nunca aberto por padrão. */
   recursos: RecursosPlano;
+  /** true só nas contas marcadas como "Demonstração" no ADMIN: são as únicas
+   * que veem os dados fictícios de exemplo. */
+  demonstracao: boolean;
+  /** true enquanto ainda não leu o perfil de quem está logado. */
+  carregandoPerfil: boolean;
   carregando: boolean;
   entrar: (email: string, senha: string) => Promise<{ erro: string | null }>;
   cadastrar: (
@@ -69,6 +75,7 @@ function linhaParaPerfil(linha: {
   logo_url: string | null;
   plano: string;
   plano_id: string;
+  modo_demonstracao?: boolean | null;
 }): Perfil {
   return {
     id: linha.id,
@@ -78,6 +85,7 @@ function linhaParaPerfil(linha: {
     logoUrl: linha.logo_url,
     plano: linha.plano,
     planoId: linha.plano_id,
+    modoDemonstracao: Boolean(linha.modo_demonstracao),
   };
 }
 
@@ -86,11 +94,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [perfil, setPerfil] = useState<Perfil | null>(null);
   const [recursos, setRecursos] = useState<RecursosPlano>(RECURSOS_PADRAO);
   const [carregando, setCarregando] = useState(true);
+  const [demonstracao, setDemonstracao] = useState(false);
+  const [carregandoPerfil, setCarregandoPerfil] = useState(false);
+
+  /** Liga/desliga os dados de exemplo para o app inteiro. */
+  function aplicarDemonstracao(valor: boolean) {
+    definirDemonstracao(valor);
+    setDemonstracao(valor);
+  }
 
   async function buscarPerfil(userId: string) {
+    setCarregandoPerfil(true);
+    try {
+      await lerPerfil(userId);
+    } finally {
+      setCarregandoPerfil(false);
+    }
+  }
+
+  async function lerPerfil(userId: string) {
     const { data, error } = await supabase
       .from("perfis")
-      .select("id, nome_exibicao, razao_social, email, logo_url, plano, plano_id")
+      .select("id, nome_exibicao, razao_social, email, logo_url, plano, plano_id, modo_demonstracao")
       .eq("id", userId)
       .single();
 
@@ -98,10 +123,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // A trigger no banco cria a linha de perfil no instante do cadastro —
       // se não achou, o mais provável é ela ainda não ter rodado. Não é
       // motivo pra travar o app; a lateral cai num nome padrão.
+      // Sem perfil, nunca mostra dado fictício (o padrão é a conta limpa).
+      aplicarDemonstracao(false);
       setPerfil(null);
       setRecursos(RECURSOS_PADRAO);
       return;
     }
+    aplicarDemonstracao(Boolean(data.modo_demonstracao));
     setPerfil(linhaParaPerfil(data));
 
     const { data: plano } = await supabase
@@ -124,6 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (novaSessao) {
         buscarPerfil(novaSessao.user.id);
       } else {
+        aplicarDemonstracao(false);
         setPerfil(null);
         setRecursos(RECURSOS_PADRAO);
       }
@@ -239,6 +268,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessao,
         perfil,
         recursos,
+        demonstracao,
+        carregandoPerfil,
         carregando,
         entrar,
         cadastrar,

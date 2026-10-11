@@ -551,6 +551,8 @@ export interface Perfil {
   /** Aponta pra `planos.id` ('essencial' | 'agentes') — é o que decide o
    * que o app libera, diferente de `plano`, que é só o texto exibido. */
   planoId: string;
+  /** Conta de demonstração (ligada no ADMIN): só ela vê os dados fictícios. */
+  modoDemonstracao: boolean;
 }
 
 /** O que o plano do seller libera — vem de `planos.recursos` no banco. */

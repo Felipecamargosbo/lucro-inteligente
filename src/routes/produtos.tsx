@@ -22,7 +22,6 @@ import {
   produtosService,
   type AlteracaoPrecoRegistrada,
 } from "@/services";
-import { USUARIO_ATUAL } from "@/data/mock";
 import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
@@ -148,7 +147,7 @@ function Precificacao() {
   // título, igual no Dashboard).
   const { selecionadas: contasSelecionadas, todasSelecionadas: semRestricaoDeConta } =
     useSelecaoContas();
-  const { sessao } = useAuth();
+  const { sessao, perfil } = useAuth();
 
   const [busca, setBusca] = useState("");
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>("todas");
@@ -450,7 +449,7 @@ function Precificacao() {
     const a = linha.anuncio;
     const antes = a.precoAtual;
     setAplicando(a.id);
-    const erro = await alteracoesPrecoService.registrar(sessao.user.id, a, precoNovo, USUARIO_ATUAL.nome);
+    const erro = await alteracoesPrecoService.registrar(sessao.user.id, a, precoNovo, perfil?.nomeExibicao ?? "Você");
     setAplicando(null);
     if (erro) {
       toast.error(

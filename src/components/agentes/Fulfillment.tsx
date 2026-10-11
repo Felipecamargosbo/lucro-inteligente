@@ -1,3 +1,4 @@
+import { emDemonstracao } from "@/lib/demonstracao";
 // Parte da tela de Agentes (src/routes/agentes.tsx). Cada agente tem o seu
 // próprio arquivo aqui, pra poder mexer em um sem tocar nos outros.
 
@@ -156,9 +157,9 @@ export function PainelFulfillment({
       <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
         "Vai faltar" usa a venda real dos pedidos do Full nos últimos 7 dias e avisa quando o
         estoque de lá dura menos que o prazo de envio + {DIAS_SEGURANCA_REPOSICAO} dias de folga.
-        "Parado" é cobertura acima de {DIAS_PARADO_FULL} dias. Prazo de envio, armazenagem e
-        retirada ainda são de exemplo — quando a API do canal conectar, passam a ser reais sem
-        mudar nada nesta tela.
+        "Parado" é cobertura acima de {DIAS_PARADO_FULL} dias.
+        {emDemonstracao() &&
+          " Prazo de envio, armazenagem e retirada ainda são de exemplo — quando a API do canal conectar, passam a ser reais sem mudar nada nesta tela."}
       </div>
 
       <ModalPedidoCompra

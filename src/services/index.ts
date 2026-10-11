@@ -3,30 +3,30 @@
 // dos marketplaces / banco de dados, sem alterar as páginas.
 
 import {
-  ANUNCIOS,
-  CAMPANHAS,
-  ESTOQUE,
-  ESTOQUE_DETALHADO,
-  RESUMO_ESTOQUE,
-  FULFILLMENT_DETALHADO,
-  RESUMO_FULFILLMENT,
-  HISTORICO_PRECOS,
-  HISTORICO_ADS,
-  HISTORICO_TAXAS,
-  COBRANCAS_FULL,
-  LOGS,
+  ANUNCIOS as ANUNCIOS_EXEMPLO,
+  CAMPANHAS as CAMPANHAS_EXEMPLO,
+  ESTOQUE as ESTOQUE_EXEMPLO,
+  ESTOQUE_DETALHADO as ESTOQUE_DETALHADO_EXEMPLO,
+  RESUMO_ESTOQUE as RESUMO_ESTOQUE_EXEMPLO,
+  FULFILLMENT_DETALHADO as FULFILLMENT_DETALHADO_EXEMPLO,
+  RESUMO_FULFILLMENT as RESUMO_FULFILLMENT_EXEMPLO,
+  HISTORICO_PRECOS as HISTORICO_PRECOS_EXEMPLO,
+  HISTORICO_ADS as HISTORICO_ADS_EXEMPLO,
+  HISTORICO_TAXAS as HISTORICO_TAXAS_EXEMPLO,
+  COBRANCAS_FULL as COBRANCAS_FULL_EXEMPLO,
+  LOGS as LOGS_EXEMPLO,
   MARKETPLACES,
-  NOTIFICACOES,
-  OPORTUNIDADES_RECUPERACAO,
-  PEDIDOS,
-  PRODUTOS_CATALOGO,
-  PROMOCOES,
-  MUDANCAS_PRECO_EXEMPLO,
-  FICHAS_ANUNCIO,
-  CONTEUDOS_PUBLICADOS,
-  USUARIOS,
+  NOTIFICACOES as NOTIFICACOES_EXEMPLO,
+  OPORTUNIDADES_RECUPERACAO as OPORTUNIDADES_RECUPERACAO_EXEMPLO,
+  PEDIDOS as PEDIDOS_EXEMPLO,
+  PRODUTOS_CATALOGO as PRODUTOS_CATALOGO_EXEMPLO,
+  PROMOCOES as PROMOCOES_EXEMPLO,
+  MUDANCAS_PRECO_EXEMPLO as MUDANCAS_PRECO_EXEMPLO_EXEMPLO,
+  FICHAS_ANUNCIO as FICHAS_ANUNCIO_EXEMPLO,
+  CONTEUDOS_PUBLICADOS as CONTEUDOS_PUBLICADOS_EXEMPLO,
+  USUARIOS as USUARIOS_EXEMPLO,
   contasDoCanal,
-  getCampanha,
+  getCampanha as getCampanha_EXEMPLO,
   getConta,
   obterContasAtuais,
 } from "@/data/mock";
@@ -66,24 +66,61 @@ import type {
   DetalheAcaoAds,
 } from "@/types";
 import { supabase } from "@/lib/supabase";
+import { emDemonstracao, soNaDemo } from "@/lib/demonstracao";
+import type { AlteracaoPreco, Campanha, Pedido } from "@/types";
+
+// ---------------------------------------------------------------------------
+// Dados de exemplo × dados reais.
+// Os dados fictícios (src/data/mock.ts) só aparecem nas contas marcadas como
+// "Demonstração" no ADMIN. Nas outras, cada lista começa vazia e só recebe o
+// que for real. As listas que as telas também alteram (anúncios, pedidos,
+// histórico de preços) têm a sua versão "real" separada, para uma conta
+// limpa nunca misturar com o exemplo.
+// ---------------------------------------------------------------------------
+const REAIS = {
+  anuncios: [] as Anuncio[],
+  pedidos: [] as Pedido[],
+  historicoPrecos: [] as AlteracaoPreco[],
+};
+const anunciosAtuais = () => (emDemonstracao() ? ANUNCIOS_EXEMPLO : REAIS.anuncios);
+const pedidosAtuais = () => (emDemonstracao() ? PEDIDOS_EXEMPLO : REAIS.pedidos);
+const historicoPrecosAtual = () =>
+  emDemonstracao() ? HISTORICO_PRECOS_EXEMPLO : REAIS.historicoPrecos;
+const campanhasAtuais = (): Campanha[] => soNaDemo(CAMPANHAS_EXEMPLO, []);
+const campanhaAtual = (id: string | null) =>
+  emDemonstracao() ? getCampanha_EXEMPLO(id) : undefined;
+
+const RESUMO_ESTOQUE_VAZIO: typeof RESUMO_ESTOQUE_EXEMPLO = {
+  capitalInvestido: 0,
+  skusAtivos: 0,
+  skusRuptura: 0,
+  valorParado: 0,
+  unidadesParadas: 0,
+};
+const RESUMO_FULFILLMENT_VAZIO: typeof RESUMO_FULFILLMENT_EXEMPLO = {
+  capitalInvestido: 0,
+  skusFull: 0,
+  skusRuptura: 0,
+  unidadesParadas: 0,
+};
 
 export const vendasService = {
-  listar: () => PEDIDOS,
-  buscarPorId: (id: string) => PEDIDOS.find((p) => p.id === id) ?? null,
-  cancelados: () => PEDIDOS.filter((p) => p.status === "cancelado"),
+  listar: () => pedidosAtuais(),
+  buscarPorId: (id: string) => pedidosAtuais().find((p) => p.id === id) ?? null,
+  cancelados: () => pedidosAtuais().filter((p) => p.status === "cancelado"),
 };
 
 export const anunciosService = {
-  listar: () => ANUNCIOS,
-  buscarPorId: (id: string) => ANUNCIOS.find((a) => a.id === id) ?? null,
-  historicoPrecos: () => HISTORICO_PRECOS,
+  listar: () => anunciosAtuais(),
+  buscarPorId: (id: string) => anunciosAtuais().find((a) => a.id === id) ?? null,
+  historicoPrecos: () => historicoPrecosAtual(),
   /** Registra novo preço e guarda a alteração no histórico. */
   alterarPreco: (anuncioId: string, novoPreco: number, usuario: string) => {
-    const anuncio = ANUNCIOS.find((a) => a.id === anuncioId);
+    const anuncio = anunciosAtuais().find((a) => a.id === anuncioId);
     if (!anuncio) return null;
     const anterior = anuncio.precoAtual;
     anuncio.precoAtual = novoPreco;
-    HISTORICO_PRECOS.unshift({
+    historicoPrecosAtual().unshift({
       id: `hp-${Date.now()}`,
       data: new Date().toISOString(),
       sku: anuncio.sku,
@@ -109,9 +146,9 @@ export const anunciosService = {
     // por isso "Receber anúncios" clicado de novo podia duplicar um
     // pendente que já estava esperando "Vincular".
     const skusExistentes = new Set(
-      ANUNCIOS.filter((a) => a.contaId === conta.id).map((a) => a.sku),
+      anunciosAtuais().filter((a) => a.contaId === conta.id).map((a) => a.sku),
     );
-    const catalogoDisponivel = PRODUTOS_CATALOGO.filter((p) => !skusExistentes.has(p.sku));
+    const catalogoDisponivel = soNaDemo(PRODUTOS_CATALOGO_EXEMPLO, []).filter((p) => !skusExistentes.has(p.sku));
     const autoVincula = catalogoDisponivel.length > 0 && Math.random() > 0.5;
     const produtoBase = autoVincula
       ? catalogoDisponivel[Math.floor(Math.random() * catalogoDisponivel.length)]!
@@ -156,7 +193,7 @@ export const anunciosService = {
       roasObjetivo: null,
     };
 
-    ANUNCIOS.push(novoAnuncio);
+    anunciosAtuais().push(novoAnuncio);
     return novoAnuncio;
   },
   /**
@@ -173,7 +210,7 @@ export const anunciosService = {
 
     // Essa conta já tem um anúncio com esse SKU? Não duplica — devolve o
     // que já existe, pendente ou não.
-    const existente = ANUNCIOS.find((a) => a.contaId === conta.id && a.sku === sku);
+    const existente = anunciosAtuais().find((a) => a.contaId === conta.id && a.sku === sku);
     if (existente) return existente;
 
     const precoAtual = Math.round((99 + Math.random() * 300) * 100) / 100;
@@ -206,7 +243,7 @@ export const anunciosService = {
       roasObjetivo: null,
     };
 
-    ANUNCIOS.push(novoAnuncio);
+    anunciosAtuais().push(novoAnuncio);
     return novoAnuncio;
   },
   /** Remove um anúncio sem vínculo da lista — pra descartar duplicata ou
@@ -214,9 +251,9 @@ export const anunciosService = {
    * enquanto o anúncio for fictício: quando vier de verdade da API, o
    * "descartar" muda de sentido (arquivar no marketplace), não é isto. */
   dispensar: (anuncioId: string): boolean => {
-    const indice = ANUNCIOS.findIndex((a) => a.id === anuncioId);
+    const indice = anunciosAtuais().findIndex((a) => a.id === anuncioId);
     if (indice === -1) return false;
-    ANUNCIOS.splice(indice, 1);
+    anunciosAtuais().splice(indice, 1);
     return true;
   },
 };
@@ -269,7 +306,7 @@ export const produtosService = {
    */
   reconciliarComAnuncios: (produtos: Produto[]) => {
     const porSku = new Map(produtos.map((p) => [p.sku, p]));
-    for (const a of ANUNCIOS) {
+    for (const a of anunciosAtuais()) {
       const produto = porSku.get(a.sku);
       if (produto) {
         a.produtoId = produto.id;
@@ -307,7 +344,7 @@ export const produtosService = {
         erro: duplicado ? `Já existe um produto com o SKU "${dados.sku}".` : error.message,
       };
     }
-    for (const a of ANUNCIOS) {
+    for (const a of anunciosAtuais()) {
       if (a.sku === data.sku) {
         a.produtoId = data.id;
         a.cmv = data.cmv;
@@ -322,7 +359,7 @@ export const produtosService = {
     anuncioId: string,
     dados: { cmv: number; ean?: string | null },
   ) => {
-    const anuncio = ANUNCIOS.find((a) => a.id === anuncioId);
+    const anuncio = anunciosAtuais().find((a) => a.id === anuncioId);
     if (!anuncio) return Promise.resolve({ produto: null, erro: "Anúncio não encontrado." });
     return produtosService.criar(perfilId, {
       sku: anuncio.sku,
@@ -335,7 +372,7 @@ export const produtosService = {
    * anúncio passa a vir do produto a partir de agora. Só mexe no anúncio
    * (fictício), não grava nada no Supabase. */
   vincular: (anuncioId: string, produto: Produto) => {
-    const anuncio = ANUNCIOS.find((a) => a.id === anuncioId);
+    const anuncio = anunciosAtuais().find((a) => a.id === anuncioId);
     if (!anuncio) return null;
     anuncio.produtoId = produto.id;
     anuncio.cmv = produto.cmv;
@@ -354,7 +391,7 @@ export const produtosService = {
       .select("id, sku, ean, nome, cmv")
       .single();
     if (error) return { produto: null, erro: error.message };
-    for (const a of ANUNCIOS) {
+    for (const a of anunciosAtuais()) {
       if (a.sku === data.sku) a.cmv = data.cmv;
     }
     return { produto: data, erro: null };
@@ -390,7 +427,7 @@ export const produtosService = {
   /** Quantos anúncios (e em quais marketplaces) usam este produto hoje.
    * Só é confiável depois de `reconciliarComAnuncios`. */
   cobertura: (produtoId: string) => {
-    const vinculados = ANUNCIOS.filter((a) => a.produtoId === produtoId);
+    const vinculados = anunciosAtuais().filter((a) => a.produtoId === produtoId);
     const marketplaces = [...new Set(vinculados.map((a) => a.marketplaceId))];
     return { totalAnuncios: vinculados.length, marketplaces };
   },
@@ -472,7 +509,7 @@ export const alteracoesPrecoService = {
     for (const alt of alteracoes) {
       if (vistos.has(alt.anuncioId)) continue;
       vistos.add(alt.anuncioId);
-      const anuncio = ANUNCIOS.find((a) => a.id === alt.anuncioId);
+      const anuncio = anunciosAtuais().find((a) => a.id === alt.anuncioId);
       if (anuncio) anuncio.precoAtual = alt.precoDepois;
     }
   },
@@ -592,22 +629,22 @@ export const preferenciasService = {
 };
 
 export const promocoesService = {
-  listar: () => PROMOCOES,
+  listar: () => soNaDemo(PROMOCOES_EXEMPLO, []),
 };
 
 /** Histórico de mudanças de preço. Por enquanto só os exemplos fictícios;
  * as aprovações do seller entram pela própria tela de Agentes (vêm das
  * sugestões aprovadas em `eventos_agente`). */
 export const mudancasPrecoService = {
-  exemplos: () => MUDANCAS_PRECO_EXEMPLO,
+  exemplos: () => soNaDemo(MUDANCAS_PRECO_EXEMPLO_EXEMPLO, []),
 };
 
 export const campanhasService = {
-  listar: () => CAMPANHAS,
-  buscarPorId: (id: string | null) => getCampanha(id) ?? null,
+  listar: () => campanhasAtuais(),
+  buscarPorId: (id: string | null) => campanhaAtual(id) ?? null,
   /** Pedidos que saíram por esta campanha. */
   pedidosDaCampanha: (campanhaId: string) =>
-    PEDIDOS.filter((p) => p.campanhaId === campanhaId),
+    pedidosAtuais().filter((p) => p.campanhaId === campanhaId),
 };
 
 /* ------------------------------------------------------------------ */
@@ -720,9 +757,9 @@ async function chavesPendentesEstoque(
 }
 
 export const estoqueService = {
-  listar: () => ESTOQUE,
-  listarDetalhado: () => ESTOQUE_DETALHADO,
-  resumo: () => RESUMO_ESTOQUE,
+  listar: () => soNaDemo(ESTOQUE_EXEMPLO, []),
+  listarDetalhado: () => soNaDemo(ESTOQUE_DETALHADO_EXEMPLO, []),
+  resumo: () => soNaDemo(RESUMO_ESTOQUE_EXEMPLO, RESUMO_ESTOQUE_VAZIO),
 
   /** Como uma linha de `eventos_agente` vira um AlertaEstoque. */
   linhaParaAlerta: linhaParaAlertaEstoque,
@@ -780,8 +817,8 @@ export const estoqueService = {
 };
 
 export const fulfillmentService = {
-  listarDetalhado: () => FULFILLMENT_DETALHADO,
-  resumo: () => RESUMO_FULFILLMENT,
+  listarDetalhado: () => soNaDemo(FULFILLMENT_DETALHADO_EXEMPLO, []),
+  resumo: () => soNaDemo(RESUMO_FULFILLMENT_EXEMPLO, RESUMO_FULFILLMENT_VAZIO),
 
   /** Mesma estrutura do alerta de Estoque — reaproveita o tipo
    * `AlertaEstoque`, só troca o `agente_id` gravado no banco. */
@@ -868,19 +905,19 @@ export const contasService = {
 };
 
 export const notificacoesService = {
-  listar: () => NOTIFICACOES,
+  listar: () => soNaDemo(NOTIFICACOES_EXEMPLO, []),
 };
 
 export const usuariosService = {
-  listar: () => USUARIOS,
+  listar: () => soNaDemo(USUARIOS_EXEMPLO, []),
 };
 
 export const logsService = {
-  listar: () => LOGS,
+  listar: () => soNaDemo(LOGS_EXEMPLO, []),
 };
 
 export const recuperacaoService = {
-  listar: () => OPORTUNIDADES_RECUPERACAO,
+  listar: () => soNaDemo(OPORTUNIDADES_RECUPERACAO_EXEMPLO, []),
 };
 
 /**
@@ -1279,7 +1316,7 @@ export const sacConfigService = {
  * buscar no marketplace — as telas não mudam. */
 export const conteudoPublicadoService = {
   buscar: (sku: string): ConteudoPublicado | null =>
-    CONTEUDOS_PUBLICADOS.find((c) => c.sku === sku) ?? null,
+    soNaDemo(CONTEUDOS_PUBLICADOS_EXEMPLO, []).find((c) => c.sku === sku) ?? null,
 };
 
 /** Informações extras (opcionais) por SKU — o que o SAC e o
@@ -1289,7 +1326,7 @@ export const conteudoPublicadoService = {
 export const fichasService = {
   /** Mapa SKU → descrição completa */
   listar: async (perfilId: string): Promise<Map<string, string>> => {
-    const mapa = new Map(FICHAS_ANUNCIO.map((f) => [f.sku, f.descricaoCompleta]));
+    const mapa = new Map(soNaDemo(FICHAS_ANUNCIO_EXEMPLO, []).map((f) => [f.sku, f.descricaoCompleta]));
     const { data, error } = await supabase
       .from("fichas_anuncio")
       .select("sku, descricao_completa")
@@ -1658,7 +1695,7 @@ function linhaParaAcaoAds(l: {
 
 export const adsService = {
   /** Histórico diário de Ads de todos os anúncios (fictício até a API). */
-  historico: () => HISTORICO_ADS,
+  historico: () => soNaDemo(HISTORICO_ADS_EXEMPLO, []),
 
   listar: async (perfilId: string): Promise<EventoAds[]> => {
     const { data, error } = await supabase
@@ -2095,11 +2132,11 @@ function linhaParaOcorrenciaAuditor(l: {
 export const auditorService = {
   /** Mudanças de taxa que o Auditor já teria detectado. Fictício até a
    * API do canal expor o histórico real de taxas. */
-  historicoTaxas: () => HISTORICO_TAXAS,
+  historicoTaxas: () => soNaDemo(HISTORICO_TAXAS_EXEMPLO, []),
 
   /** Fatura mensal do Full por SKU (armazenagem, retirada, multa).
    * Fictícia até a API do canal expor a fatura real. */
-  cobrancasFull: () => COBRANCAS_FULL,
+  cobrancasFull: () => soNaDemo(COBRANCAS_FULL_EXEMPLO, []),
 
   listar: async (perfilId: string): Promise<OcorrenciaAuditor[]> => {
     const { data, error } = await supabase

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Check, RefreshCw, Search, TriangleAlert } from "lucide-react";
 import { anunciosService } from "@/services";
-import { USUARIO_ATUAL } from "@/data/mock";
+import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { raioXAnuncio, calcularCobertura, type RaioXAnuncio } from "@/lib/finance";
 import { formatBRL, formatDataHora, formatNumero, formatPercentual } from "@/lib/format";
@@ -127,6 +127,8 @@ function LinhaAnuncio({
   aoAlterarPreco: () => void;
 }) {
   const { fiscal, custoOperacionalDetalhado } = useConfiguracoes();
+  const { perfil } = useAuth();
+  const quemAlterou = perfil?.nomeExibicao ?? "Você";
   const [precoSimulado, setPrecoSimulado] = useState<number | null>(null);
   const precoEmUso = precoSimulado ?? anuncio.precoAtual;
 
@@ -292,7 +294,7 @@ function LinhaAnuncio({
               <>
                 <button
                   onClick={() => {
-                    anunciosService.alterarPreco(anuncio.id, precoEmUso, USUARIO_ATUAL.nome);
+                    anunciosService.alterarPreco(anuncio.id, precoEmUso, quemAlterou);
                     toast.success("Preço atualizado e registrado no histórico.");
                     setPrecoSimulado(null);
                     aoAlterarPreco();

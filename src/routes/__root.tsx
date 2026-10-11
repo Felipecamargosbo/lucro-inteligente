@@ -157,7 +157,7 @@ function RootComponent() {
 const PAGINAS_PUBLICAS = ["/termos", "/privacidade"];
 
 function AreaLogada() {
-  const { sessao, carregando } = useAuth();
+  const { sessao, carregando, perfil, carregandoPerfil, demonstracao } = useAuth();
   const caminho = useRouterState({ select: (s) => s.location.pathname });
 
   // O tema fica salvo na conta: ao entrar, vale o da conta (em qualquer
@@ -181,8 +181,16 @@ function AreaLogada() {
     return <Login />;
   }
 
+  // Espera saber se a conta é de demonstração antes de desenhar qualquer
+  // tela — senão uma conta real piscaria dados de exemplo (ou o contrário).
+  if (carregandoPerfil && !perfil) {
+    return <div className="min-h-screen bg-background" />;
+  }
+
   return (
-    <ConfiguracoesProvider>
+    // A `key` remonta a área logada inteira se o modo mudar (ex.: o ADMIN
+    // ligou a demonstração), para nenhuma tela guardar dado do modo anterior.
+    <ConfiguracoesProvider key={demonstracao ? "demo" : "real"}>
       <SelecaoContasProvider>
         <PeriodoProvider>
           <AppShell>

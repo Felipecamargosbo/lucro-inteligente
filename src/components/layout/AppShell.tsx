@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { MenuLateral } from "./MenuLateral";
 import { BarraSuperior } from "./BarraSuperior";
 import { PainelNotificacoes } from "./PainelNotificacoes";
+import { AvisoContaSemDados } from "./AvisoContaSemDados";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [recolhido, setRecolhido] = useState(false);
@@ -12,7 +13,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       <MenuLateral recolhido={recolhido} alternar={() => setRecolhido((v) => !v)} />
       <div className="flex min-w-0 flex-1 flex-col">
         <BarraSuperior aoAbrirNotificacoes={() => setNotificacoesAbertas(true)} />
-        <main className="flex-1 p-6">{children}</main>
+        <main className="flex-1 p-6">
+          <AvisoContaSemDados />
+          {children}
+        </main>
       </div>
       <PainelNotificacoes aberto={notificacoesAbertas} aoFechar={setNotificacoesAbertas} />
     </div>

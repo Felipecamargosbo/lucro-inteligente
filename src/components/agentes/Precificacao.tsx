@@ -1,3 +1,4 @@
+import { emDemonstracao } from "@/lib/demonstracao";
 // Parte da tela de Agentes (src/routes/agentes.tsx). Cada agente tem o seu
 // próprio arquivo aqui, pra poder mexer em um sem tocar nos outros.
 
@@ -183,7 +184,9 @@ export function PainelPrecificacao({
       <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
         Sem API conectada, o agente sugere mas não executa: depois de aprovar, o preço precisa
         ser alterado no marketplace. A margem mínima e a ideal de cada conta vêm das metas em
-        Configurações. Campanhas, estoque e os exemplos da aba Resultados ainda são fictícios.
+        Configurações.
+        {emDemonstracao() &&
+          " Campanhas, estoque e os exemplos da aba Resultados ainda são fictícios."}
       </div>
     </Painel>
   );
