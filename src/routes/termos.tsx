@@ -79,6 +79,7 @@ function TermosDeUso() {
             "Você é responsável por manter seu e-mail e sua senha em segurança e por tudo o que for feito na sua conta. Se perceber acesso indevido, avise a gente na hora.",
             "Ao conectar uma conta de marketplace, você autoriza o NEXO a acessar os dados dessa conta pela integração oficial do marketplace, só para as funções da plataforma. Você pode desconectar a qualquer momento, no NEXO ou no próprio marketplace.",
             "Você declara que tem o direito de conectar as contas de marketplace que adicionar e que segue as regras de cada marketplace.",
+            "Para prestar suporte, a equipe da Planeta97 pode visualizar a sua conta em modo somente leitura (sem alterar nenhum dado, preço ou anúncio). Cada acesso dura no máximo 1 hora e fica registrado.",
             "O NEXO não tem relação com os marketplaces além do uso das integrações oficiais. Mudanças, falhas ou limites nas integrações de terceiros podem afetar funções da plataforma, e não temos controle sobre isso.",
           ]}
         />

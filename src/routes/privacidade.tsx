@@ -154,6 +154,7 @@ function PoliticaDePrivacidade() {
             "Senhas guardadas de forma criptografada.",
             "As autorizações dos marketplaces ficam guardadas com segurança e só são usadas pelas funções do NEXO.",
             "Acesso interno restrito ao mínimo necessário.",
+            "Suporte: para resolver um problema ou tirar uma dúvida sua, nossa equipe pode visualizar a sua conta em modo somente leitura, sem conseguir alterar nada. Esse acesso dura no máximo 1 hora e todo acesso fica registrado.",
           ]}
         />
         <p>

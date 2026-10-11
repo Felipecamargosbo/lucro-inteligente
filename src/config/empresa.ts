@@ -14,5 +14,5 @@ export const EMPRESA = {
   encarregado: "Felipe Camargo",
   foro: "Santa Bárbara d'Oeste/SP",
   // Data da última mudança nos textos. Atualize sempre que mudar algo.
-  atualizadoEm: "5 de outubro de 2026",
+  atualizadoEm: "11 de outubro de 2026",
 };

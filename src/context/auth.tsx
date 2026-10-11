@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
+import { encerrarMarcaDeSuporte, inicioDoSuporte, MODO_SUPORTE, supabase } from "@/lib/supabase";
 import type { Perfil, RecursosPlano } from "@/types";
 import { definirDemonstracao } from "@/lib/demonstracao";
 
@@ -29,6 +29,11 @@ interface AuthContexto {
   demonstracao: boolean;
   /** true enquanto ainda não leu o perfil de quem está logado. */
   carregandoPerfil: boolean;
+  /** true nesta aba quando o ADMIN abriu a conta em modo suporte
+   * (somente leitura). */
+  suporte: boolean;
+  /** Encerra o modo suporte (sai da conta do seller e fecha a aba). */
+  sairDoSuporte: () => Promise<void>;
   carregando: boolean;
   entrar: (email: string, senha: string) => Promise<{ erro: string | null }>;
   cadastrar: (
@@ -141,11 +146,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSessao(data.session);
-      if (data.session) buscarPerfil(data.session.user.id);
-      setCarregando(false);
-    });
+    // Aba aberta pelo ADMIN em modo suporte: entra com o login que veio no
+    // endereço e limpa o endereço (o login não fica visível nem no histórico).
+    if (MODO_SUPORTE && window.location.hash.includes("suporte_access_token=")) {
+      const p = new URLSearchParams(window.location.hash.slice(1));
+      const access_token = p.get("suporte_access_token") ?? "";
+      const refresh_token = p.get("suporte_refresh_token") ?? "";
+      window.history.replaceState(null, "", window.location.pathname);
+      supabase.auth.setSession({ access_token, refresh_token }).then(({ data }) => {
+        setSessao(data.session);
+        if (data.session) buscarPerfil(data.session.user.id);
+        setCarregando(false);
+      });
+    } else {
+      supabase.auth.getSession().then(({ data }) => {
+        setSessao(data.session);
+        if (data.session) buscarPerfil(data.session.user.id);
+        setCarregando(false);
+      });
+    }
 
     const { data: assinatura } = supabase.auth.onAuthStateChange((_evento, novaSessao) => {
       setSessao(novaSessao);
@@ -160,6 +179,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => assinatura.subscription.unsubscribe();
   }, []);
+
+  // O modo suporte dura no máximo 1 hora; depois disso sai sozinho.
+  useEffect(() => {
+    const inicio = inicioDoSuporte();
+    if (!inicio) return;
+    const restante = inicio + 60 * 60 * 1000 - Date.now();
+    const t = window.setTimeout(() => void sairDoSuporte(), Math.max(0, restante));
+    return () => window.clearTimeout(t);
+  }, []);
+
+  async function sairDoSuporte() {
+    await supabase.auth.signOut({ scope: "local" });
+    encerrarMarcaDeSuporte();
+    window.close();
+    // Se o navegador não deixar fechar a aba, volta para a tela de login.
+    window.location.replace("/");
+  }
 
   async function entrar(email: string, senha: string) {
     const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
@@ -270,6 +306,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         recursos,
         demonstracao,
         carregandoPerfil,
+        suporte: MODO_SUPORTE && !!sessao,
+        sairDoSuporte,
         carregando,
         entrar,
         cadastrar,
