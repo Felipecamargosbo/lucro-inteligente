@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Clock, RefreshCw, Settings2, XCircle } from "lucide-react";
 import { vendasService } from "@/services";
-import { mercadoLivreService, type ConexaoMercadoLivre } from "@/services/mercadolivre";
+import { mercadoLivreService } from "@/services/mercadolivre";
+import { shopeeService } from "@/services/shopee";
 import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { CANAIS } from "@/config/navegacao";
@@ -13,6 +14,7 @@ import { formatBRL, formatNumero, formatPercentual, tempoRelativo } from "@/lib/
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { ConexoesMercadoLivre } from "@/components/marketplaces/ConexoesMercadoLivre";
+import { ConexoesShopee } from "@/components/marketplaces/ConexoesShopee";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -66,10 +68,12 @@ function Marketplaces() {
   // Conta limpa (sem demonstração): os números do topo vêm das conexões
   // reais com os marketplaces, não das contas de exemplo.
   const { demonstracao } = useAuth();
-  const [conexoesReais, setConexoesReais] = useState<ConexaoMercadoLivre[]>([]);
+  const [conexoesReais, setConexoesReais] = useState<{ status: string }[]>([]);
   useEffect(() => {
     if (demonstracao) return;
-    mercadoLivreService.listar().then(setConexoesReais);
+    Promise.all([mercadoLivreService.listar(), shopeeService.listar()]).then(([ml, shopee]) =>
+      setConexoesReais([...ml, ...shopee]),
+    );
   }, [demonstracao]);
 
   const conectadas = demonstracao
@@ -142,6 +146,8 @@ function Marketplaces() {
       </div>
 
       <ConexoesMercadoLivre />
+
+      <ConexoesShopee />
 
       {/* Os cards abaixo são das contas de exemplo; numa conta limpa, a
           conexão real fica no quadro do Mercado Livre acima. */}
