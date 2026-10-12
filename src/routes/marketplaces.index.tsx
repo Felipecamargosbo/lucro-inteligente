@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, Clock, RefreshCw, Settings2, XCircle } fro
 import { vendasService } from "@/services";
 import { mercadoLivreService } from "@/services/mercadolivre";
 import { shopeeService } from "@/services/shopee";
+import { tiktokService } from "@/services/tiktok";
 import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { CANAIS } from "@/config/navegacao";
@@ -15,6 +16,7 @@ import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { ConexoesMercadoLivre } from "@/components/marketplaces/ConexoesMercadoLivre";
 import { ConexoesShopee } from "@/components/marketplaces/ConexoesShopee";
+import { ConexoesTikTok } from "@/components/marketplaces/ConexoesTikTok";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -71,8 +73,8 @@ function Marketplaces() {
   const [conexoesReais, setConexoesReais] = useState<{ status: string }[]>([]);
   useEffect(() => {
     if (demonstracao) return;
-    Promise.all([mercadoLivreService.listar(), shopeeService.listar()]).then(([ml, shopee]) =>
-      setConexoesReais([...ml, ...shopee]),
+    Promise.all([mercadoLivreService.listar(), shopeeService.listar(), tiktokService.listar()]).then(
+      ([ml, shopee, tiktok]) => setConexoesReais([...ml, ...shopee, ...tiktok]),
     );
   }, [demonstracao]);
 
@@ -148,6 +150,8 @@ function Marketplaces() {
       <ConexoesMercadoLivre />
 
       <ConexoesShopee />
+
+      <ConexoesTikTok />
 
       {/* Os cards abaixo são das contas de exemplo; numa conta limpa, a
           conexão real fica no quadro do Mercado Livre acima. */}

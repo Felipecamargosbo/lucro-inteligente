@@ -1,7 +1,7 @@
 // Dados REAIS da conta (fora do modo demonstração).
 //
-// Lê do banco o que as funções `mercadolivre-sincronizar` e
-// `shopee-sincronizar` trouxeram dos
+// Lê do banco o que as funções `mercadolivre-sincronizar`,
+// `shopee-sincronizar` e `tiktok-sincronizar` trouxeram dos
 // marketplaces — contas, anúncios e pedidos — e converte para os mesmos
 // formatos que as telas já usam (Anuncio, Pedido, ContaMarketplace). Assim
 // nenhuma tela precisa saber se o dado é de exemplo ou real.
@@ -33,7 +33,7 @@ export interface DadosReais {
 }
 
 export async function carregarDadosReais(perfilId: string): Promise<DadosReais> {
-  const [rContas, rConexoes, rLojasShopee, rAnuncios, rPedidos, rProdutos] = await Promise.all([
+  const [rContas, rConexoes, rLojasShopee, rLojasTikTok, rAnuncios, rPedidos, rProdutos] = await Promise.all([
     supabase
       .from("contas_marketplace")
       .select("id, marketplace_id, nome, status_conexao, credencial_ref, ultima_sincronizacao, ativo")
@@ -41,6 +41,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       .eq("ativo", true),
     supabase.from("ml_conexoes").select("id, status").eq("perfil_id", perfilId),
     supabase.from("shopee_conexoes").select("id, status").eq("perfil_id", perfilId),
+    supabase.from("tiktok_conexoes").select("id, status").eq("perfil_id", perfilId),
     supabase
       .from("anuncios")
       .select(
@@ -59,14 +60,14 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
     supabase.from("produtos").select("sku, cmv").eq("perfil_id", perfilId),
   ]);
 
-  for (const r of [rContas, rConexoes, rLojasShopee, rAnuncios, rPedidos, rProdutos]) {
+  for (const r of [rContas, rConexoes, rLojasShopee, rLojasTikTok, rAnuncios, rPedidos, rProdutos]) {
     if (r.error) console.error("carregarDadosReais:", r.error.message);
   }
 
   // Só entram contas cuja conexão ainda existe (desconectou → some).
-  // (Mercado Livre e Shopee: o credencial_ref aponta para a conexão de cada um.)
+  // (Mercado Livre, Shopee e TikTok Shop: o credencial_ref aponta para a conexão de cada um.)
   const conexoes = new Map(
-    [...(rConexoes.data ?? []), ...(rLojasShopee.data ?? [])].map((c) => [c.id as string, c.status as string]),
+    [...(rConexoes.data ?? []), ...(rLojasShopee.data ?? []), ...(rLojasTikTok.data ?? [])].map((c) => [c.id as string, c.status as string]),
   );
   const linhasContas = (rContas.data ?? []).filter(
     (c) => !c.credencial_ref || conexoes.has(c.credencial_ref as string),

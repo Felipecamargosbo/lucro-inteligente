@@ -5,11 +5,13 @@ import { useAuth } from "@/context/auth";
 import { cn } from "@/lib/utils";
 import { mercadoLivreService } from "@/services/mercadolivre";
 import { diasParaVencerAutorizacao, shopeeService } from "@/services/shopee";
+import { tiktokService } from "@/services/tiktok";
 
 /**
  * Aviso na tela (1 vez por dia) quando alguma conexão com marketplace
  * precisa de ação do seller:
- *  - conta do Mercado Livre ou loja da Shopee que precisa ser conectada de novo;
+ *  - conta do Mercado Livre, loja da Shopee ou do TikTok Shop que precisa ser
+ *    conectada de novo;
  *  - autorização da Shopee vencendo (a Shopee pede renovar a cada 365 dias):
  *    amarelo a partir de 15 dias, vermelho na última semana.
  * Novas plataformas entram aqui do mesmo jeito.
@@ -35,7 +37,7 @@ export function AvisoConexoes() {
     if (!perfil || demonstracao) return;
     setFechado(fechadoHoje());
     let ativo = true;
-    Promise.all([mercadoLivreService.listar(), shopeeService.listar()]).then(([ml, shopee]) => {
+    Promise.all([mercadoLivreService.listar(), shopeeService.listar(), tiktokService.listar()]).then(([ml, shopee, tiktok]) => {
       if (!ativo) return;
       const lista: Pendencia[] = [];
       for (const c of ml) {
@@ -53,6 +55,11 @@ export function AvisoConexoes() {
             texto: `Shopee "${nome}": a autorização vence em ${dias} dia${dias === 1 ? "" : "s"}. Renove para não parar de sincronizar.`,
             urgente: dias <= 7,
           });
+        }
+      }
+      for (const c of tiktok) {
+        if (c.status !== "ativa") {
+          lista.push({ texto: `TikTok Shop "${c.nomeLoja ?? c.shopId}": conecte a loja de novo.`, urgente: true });
         }
       }
       setPendencias(lista);
