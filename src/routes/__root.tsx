@@ -155,7 +155,7 @@ function RootComponent() {
  * dados) só monta depois que existe uma sessão válida.
  */
 // Páginas que abrem sem login e sem o menu do app (Termos e Privacidade).
-const PAGINAS_PUBLICAS = ["/termos", "/privacidade"];
+const PAGINAS_PUBLICAS = ["/termos", "/privacidade", "/seguranca"];
 
 function AreaLogada() {
   const { sessao, carregando, perfil, carregandoPerfil, demonstracao } = useAuth();

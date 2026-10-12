@@ -69,6 +69,9 @@ export function PaginaLegal({
             <Link to="/privacidade" className="hover:text-foreground">
               Política de Privacidade
             </Link>
+            <Link to="/seguranca" className="hover:text-foreground">
+              Segurança
+            </Link>
           </div>
         </div>
       </footer>
