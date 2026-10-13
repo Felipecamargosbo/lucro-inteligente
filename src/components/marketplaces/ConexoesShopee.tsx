@@ -23,7 +23,7 @@ export function ConexoesShopee() {
   const [carregando, setCarregando] = useState(true);
   const [conectando, setConectando] = useState(false);
   const [removendo, setRemovendo] = useState<string | null>(null);
-  // Desconectar apaga os anúncios e pedidos dessa loja: pede um segundo clique.
+  // Desconectar tira a loja das telas: pede um segundo clique.
   const [confirmar, setConfirmar] = useState<string | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
   const demo = emDemonstracao();
@@ -192,10 +192,10 @@ export function ConexoesShopee() {
                       className="h-7 flex-1 gap-1.5 text-[11px]"
                       disabled={removendo === c.id}
                       onClick={() => desconectar(c)}
-                      title={confirmar === c.id ? "Os anúncios e pedidos desta loja serão apagados do sistema." : undefined}
+                      title={confirmar === c.id ? "A loja some das telas. Se conectar de novo, ela volta." : undefined}
                     >
                       {removendo === c.id ? <Loader2 className="size-3.5 animate-spin" /> : <Unplug className="size-3.5" />}
-                      {confirmar === c.id ? "Confirmar? Apaga os dados" : "Desconectar"}
+                      {confirmar === c.id ? "Confirmar desconexão" : "Desconectar"}
                     </Button>
                   </div>
                 </div>
