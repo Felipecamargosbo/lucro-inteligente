@@ -22,6 +22,8 @@ export function ConexoesTikTok() {
   const [carregando, setCarregando] = useState(true);
   const [conectando, setConectando] = useState(false);
   const [removendo, setRemovendo] = useState<string | null>(null);
+  // Desconectar apaga os anúncios e pedidos dessa loja: pede um segundo clique.
+  const [confirmar, setConfirmar] = useState<string | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
   const demo = emDemonstracao();
 
@@ -75,6 +77,12 @@ export function ConexoesTikTok() {
   };
 
   const desconectar = async (c: ConexaoTikTok) => {
+    if (confirmar !== c.id) {
+      setConfirmar(c.id);
+      setTimeout(() => setConfirmar((v) => (v === c.id ? null : v)), 6000);
+      return;
+    }
+    setConfirmar(null);
     setRemovendo(c.id);
     const erro = await tiktokService.desconectar(c.id);
     setRemovendo(null);
@@ -179,13 +187,14 @@ export function ConexoesTikTok() {
                     )}
                     <Button
                       size="sm"
-                      variant="outline"
+                      variant={confirmar === c.id ? "destructive" : "outline"}
                       className="h-7 flex-1 gap-1.5 text-[11px]"
                       disabled={removendo === c.id}
                       onClick={() => desconectar(c)}
+                      title={confirmar === c.id ? "Os anúncios e pedidos desta loja serão apagados do sistema." : undefined}
                     >
                       {removendo === c.id ? <Loader2 className="size-3.5 animate-spin" /> : <Unplug className="size-3.5" />}
-                      Desconectar
+                      {confirmar === c.id ? "Confirmar? Apaga os dados" : "Desconectar"}
                     </Button>
                   </div>
                 </div>

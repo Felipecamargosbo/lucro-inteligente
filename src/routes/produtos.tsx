@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Tag,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import {
@@ -45,6 +46,7 @@ import {
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { DialogVincularProduto } from "@/components/comum/DialogVincularProduto";
+import { DialogImportarCmv } from "@/components/produtos/DialogImportarCmv";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -171,6 +173,7 @@ function Precificacao() {
   const [emEdicaoProduto, setEmEdicaoProduto] = useState<Produto | null>(null);
   const [emExclusao, setEmExclusao] = useState<Produto | null>(null);
   const [receberAberto, setReceberAberto] = useState(false);
+  const [importarCmvAberto, setImportarCmvAberto] = useState(false);
   // Os anúncios ainda vivem fora do React (src/data/mock.ts) — dependem da
   // API do marketplace, que depende do CNPJ. Este contador força a
   // releitura deles depois de cada mudança.
@@ -599,6 +602,10 @@ function Precificacao() {
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" onClick={() => setFaixasAberto(true)}>
               Taxa e frete por faixa
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setImportarCmvAberto(true)}>
+              <Upload className="size-3.5" />
+              Importar CMV
             </Button>
             <Button size="sm" onClick={() => setReceberAberto(true)}>
               <RefreshCw className="size-3.5" />
@@ -1125,6 +1132,18 @@ function Precificacao() {
 
       {faixasAberto && (
         <DialogFaixas faixas={faixas} aoFechar={() => setFaixasAberto(false)} aoSalvar={salvarFaixas} />
+      )}
+
+      {importarCmvAberto && (
+        <DialogImportarCmv
+          anuncios={anuncios}
+          produtos={produtos}
+          aoFechar={() => setImportarCmvAberto(false)}
+          aoConcluir={() => {
+            setImportarCmvAberto(false);
+            carregarProdutos();
+          }}
+        />
       )}
 
       {receberAberto && (
