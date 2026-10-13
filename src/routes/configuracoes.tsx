@@ -249,7 +249,13 @@ function AbaEmpresa() {
 function AbaFiscal() {
   const { fiscal, salvarFiscal } = useConfiguracoes();
   const [regime, setRegime] = useState(fiscal.regime);
-  const [aliquota, setAliquota] = useState(String(fiscal.aliquota * 100));
+  const [aliquota, setAliquota] = useState(String(Math.round(fiscal.aliquota * 10000) / 100));
+  const [salvando, setSalvando] = useState(false);
+  // Quando o valor salvo chega do banco depois da tela abrir, mostra ele.
+  useEffect(() => {
+    setRegime(fiscal.regime);
+    setAliquota(String(Math.round(fiscal.aliquota * 10000) / 100));
+  }, [fiscal]);
 
   return (
     <div className="space-y-5">
@@ -304,14 +310,26 @@ function AbaFiscal() {
       <div className="flex justify-end">
         <Button
           className="bg-brand text-brand-foreground hover:bg-brand/90"
-          onClick={() => {
-            salvarFiscal({ regime, aliquota: (Number(aliquota) || 0) / 100 });
-            toast.success("Configuração fiscal atualizada", {
-              description: "O cálculo de lucro de todo o sistema já reflete esta alíquota.",
+          disabled={salvando}
+          onClick={async () => {
+            const numero = Number(String(aliquota).replace(",", "."));
+            if (!Number.isFinite(numero) || numero < 0 || numero > 100) {
+              toast.error("Alíquota inválida. Use um número de 0 a 100 (ex.: 12).");
+              return;
+            }
+            setSalvando(true);
+            const erro = await salvarFiscal({ regime, aliquota: numero / 100 });
+            setSalvando(false);
+            if (erro) {
+              toast.error("Não consegui salvar a configuração fiscal.", { description: erro });
+              return;
+            }
+            toast.success("Configuração fiscal salva", {
+              description: "O cálculo de lucro de todo o sistema já usa esta alíquota.",
             });
           }}
         >
-          Salvar alterações
+          {salvando ? "Salvando..." : "Salvar alterações"}
         </Button>
       </div>
     </div>

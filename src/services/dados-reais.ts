@@ -64,6 +64,20 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
     if (r.error) console.error("carregarDadosReais:", r.error.message);
   }
 
+  // Alíquota que o seller salvou em Configurações → Fiscal (sem salvar: 10%).
+  let aliquota = IMPOSTO_PADRAO;
+  {
+    const { data, error } = await supabase
+      .from("preferencias_usuario")
+      .select("aliquota_imposto")
+      .eq("perfil_id", perfilId)
+      .maybeSingle();
+    if (!error && data && data.aliquota_imposto !== null && data.aliquota_imposto !== undefined) {
+      const n = Number(data.aliquota_imposto);
+      if (Number.isFinite(n) && n >= 0 && n <= 1) aliquota = n;
+    }
+  }
+
   // Só entram contas cuja conexão ainda existe (desconectou → some).
   // (Mercado Livre, Shopee e TikTok Shop: o credencial_ref aponta para a conexão de cada um.)
   const conexoes = new Map(
@@ -91,7 +105,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       // O custo vem do catálogo (Produtos): é preenchido quando o SKU do
       // anúncio bate com um produto cadastrado (reconciliarComAnuncios).
       cmv: null,
-      impostoPercentual: IMPOSTO_PADRAO,
+      impostoPercentual: aliquota,
       comissaoPercentual: num(a.comissao_percentual),
       taxaFixa: num(a.taxa_fixa),
       freteUnitario: num(a.frete_unitario),
@@ -121,7 +135,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       const comissao = num(p.comissao);
       const cmvUnitario = p.cmv !== null ? num(p.cmv) : (cmvPorSku.get(p.sku as string) ?? 0);
       const cmv = cmvUnitario * quantidade;
-      const impostos = faturamento * IMPOSTO_PADRAO;
+      const impostos = faturamento * aliquota;
       const lucroLiquido = faturamento - cmv - comissao - impostos;
       const status = STATUS_PEDIDO.includes(p.status as StatusPedido)
         ? (p.status as StatusPedido)

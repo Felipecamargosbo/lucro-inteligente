@@ -7,7 +7,7 @@ import {
   definirContasAtuais,
 } from "@/data/mock";
 import { emDemonstracao } from "@/lib/demonstracao";
-import { metasService, obterContasReais } from "@/services";
+import { metasService, obterContasReais, preferenciasService } from "@/services";
 import { useAuth } from "@/context/auth";
 import type {
   ConfiguracaoFiscal,
@@ -34,7 +34,8 @@ interface ConfiguracoesContexto {
   salvarEmpresa: (dados: DadosEmpresa) => void;
 
   fiscal: ConfiguracaoFiscal;
-  salvarFiscal: (dados: ConfiguracaoFiscal) => void;
+  /** Salva na conta. Devolve a mensagem de erro, ou null se deu certo. */
+  salvarFiscal: (dados: ConfiguracaoFiscal) => Promise<string | null>;
 
   /** As empresas (CNPJs) do seller. O DRE fecha uma por vez. */
   empresas: Empresa[];
@@ -120,6 +121,14 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
     aliquota: REGRAS_FINANCEIRAS.impostoPercentual,
   });
 
+  // Regime e alíquota salvos na conta (fora do modo demonstração).
+  useEffect(() => {
+    if (!sessao || demo) return;
+    preferenciasService.carregarFiscal(sessao.user.id).then((salvo) => {
+      if (salvo) setFiscal(salvo);
+    });
+  }, [sessao, demo]);
+
   const [empresas] = useState<Empresa[]>(() =>
     demo
       ? EMPRESAS
@@ -182,7 +191,13 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
       salvarEmpresa: setEmpresa,
 
       fiscal,
-      salvarFiscal: setFiscal,
+      salvarFiscal: async (dados) => {
+        setFiscal(dados);
+        if (!sessao || demo) return null;
+        const erro = await preferenciasService.salvarFiscal(sessao.user.id, dados);
+        if (!erro) window.dispatchEvent(new Event("nexo:dados-reais")); // recalcula o lucro com a nova alíquota
+        return erro;
+      },
 
       empresas,
 
@@ -258,7 +273,7 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
         detalhar(precoVenda).reduce((s, i) => s + i.valor, 0),
       custoOperacionalDetalhado: detalhar,
     };
-  }, [empresa, fiscal, empresas, contas, metasPorConta, custos, sessao]);
+  }, [empresa, fiscal, empresas, contas, metasPorConta, custos, sessao, demo]);
 
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }

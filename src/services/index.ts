@@ -637,6 +637,43 @@ export const preferenciasService = {
     return data?.tema === "claro" ? "claro" : data?.tema === "escuro" ? "escuro" : null;
   },
 
+  /** Regime e alíquota do seller. null = ainda não salvou (fica o padrão de 10%). */
+  carregarFiscal: async (
+    perfilId: string,
+  ): Promise<{ regime: "simples-nacional" | "lucro-presumido" | "lucro-real"; aliquota: number } | null> => {
+    const { data, error } = await supabase
+      .from("preferencias_usuario")
+      .select("regime_tributario, aliquota_imposto")
+      .eq("perfil_id", perfilId)
+      .maybeSingle();
+    if (error) {
+      console.error("preferenciasService.carregarFiscal:", error.message);
+      return null;
+    }
+    if (!data || data.aliquota_imposto === null || data.aliquota_imposto === undefined) return null;
+    const r = data.regime_tributario;
+    return {
+      regime: r === "lucro-presumido" || r === "lucro-real" ? r : "simples-nacional",
+      aliquota: Number(data.aliquota_imposto) || 0,
+    };
+  },
+
+  salvarFiscal: async (
+    perfilId: string,
+    dados: { regime: string; aliquota: number },
+  ): Promise<string | null> => {
+    const { error } = await supabase.from("preferencias_usuario").upsert(
+      {
+        perfil_id: perfilId,
+        regime_tributario: dados.regime,
+        aliquota_imposto: dados.aliquota,
+        atualizado_em: new Date().toISOString(),
+      },
+      { onConflict: "perfil_id" },
+    );
+    return error?.message ?? null;
+  },
+
   salvarTema: async (perfilId: string, tema: "escuro" | "claro"): Promise<string | null> => {
     const { error } = await supabase.from("preferencias_usuario").upsert(
       { perfil_id: perfilId, tema, atualizado_em: new Date().toISOString() },
