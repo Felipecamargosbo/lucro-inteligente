@@ -324,9 +324,9 @@ function AbaFiscal() {
               toast.error("Não consegui salvar a configuração fiscal.", { description: erro });
               return;
             }
-            toast.success("Configuração fiscal salva", {
-              description: "O cálculo de lucro de todo o sistema já usa esta alíquota.",
-            });
+            // Recarrega a página já na aba Fiscal: o que aparece depois vem direto do banco.
+            window.location.hash = "fiscal";
+            window.location.reload();
           }}
         >
           {salvando ? "Salvando..." : "Salvar alterações"}
