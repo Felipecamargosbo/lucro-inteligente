@@ -19,8 +19,7 @@ import type { Anuncio, Produto } from "@/types";
  *
  * 1. "Baixar modelo": um Excel com a coluna A = SKU (já preenchida com os SKUs
  *    dos anúncios) e a coluna B = CMV (vazia, ou com o CMV atual quando o
- *    produto já existe). A coluna C traz o nome do anúncio só para o seller
- *    se achar — ela é ignorada na importação.
+ *    produto já existe).
  * 2. O seller preenche o CMV e sobe o arquivo (.xlsx, .xls ou .csv).
  * 3. Mostra o resumo (novos, atualizados, linhas com problema) e só grava
  *    depois do "Importar". SKU que já tem produto só muda o CMV; SKU novo
@@ -74,13 +73,13 @@ export function DialogImportarCmv({
     try {
       const XLSX = await import("xlsx");
       const skus = [...new Set([...nomePorSku.keys(), ...produtos.map((p) => p.sku)])].sort();
-      const dados: (string | number)[][] = [["SKU", "CMV", "Nome do anúncio (só referência)"]];
+      const dados: (string | number)[][] = [["SKU", "CMV"]];
       for (const sku of skus) {
         const cmv = cmvPorSku.get(sku);
-        dados.push([sku, cmv ? cmv : "", nomePorSku.get(sku)?.nome ?? produtos.find((p) => p.sku === sku)?.nome ?? ""]);
+        dados.push([sku, cmv ? cmv : ""]);
       }
       const aba = XLSX.utils.aoa_to_sheet(dados);
-      aba["!cols"] = [{ wch: 22 }, { wch: 12 }, { wch: 60 }];
+      aba["!cols"] = [{ wch: 22 }, { wch: 12 }];
       const livro = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(livro, aba, "CMV");
       XLSX.writeFile(livro, "modelo-cmv.xlsx");
@@ -179,8 +178,7 @@ export function DialogImportarCmv({
             <div className="min-w-0 flex-1">
               <p className="font-medium">Baixe o modelo</p>
               <p className="text-xs text-muted-foreground">
-                Já vem com os SKUs dos seus anúncios na coluna A. Preencha só a coluna B. A coluna C (nome) é só para você
-                se achar e é ignorada.
+                Já vem com os SKUs dos seus anúncios na coluna A. Preencha só a coluna B (CMV).
               </p>
             </div>
             <Button size="sm" variant="outline" onClick={baixarModelo}>
