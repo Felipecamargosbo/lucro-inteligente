@@ -121,13 +121,13 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
     aliquota: REGRAS_FINANCEIRAS.impostoPercentual,
   });
 
-  // Regime e alíquota salvos na conta (fora do modo demonstração).
+  // Regime e alíquota salvos na conta (vale também para a conta de demonstração).
   useEffect(() => {
-    if (!sessao || demo) return;
+    if (!sessao) return;
     preferenciasService.carregarFiscal(sessao.user.id).then((salvo) => {
       if (salvo) setFiscal(salvo);
     });
-  }, [sessao, demo]);
+  }, [sessao]);
 
   const [empresas] = useState<Empresa[]>(() =>
     demo
@@ -193,7 +193,7 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
       fiscal,
       salvarFiscal: async (dados) => {
         setFiscal(dados);
-        if (!sessao || demo) return null;
+        if (!sessao) return "Faça login de novo para salvar.";
         const erro = await preferenciasService.salvarFiscal(sessao.user.id, dados);
         if (!erro) window.dispatchEvent(new Event("nexo:dados-reais")); // recalcula o lucro com a nova alíquota
         return erro;
