@@ -108,6 +108,7 @@ function resumirContasAds(
 
 interface MetricasAdsCompletas {
   faturamento: number;
+  receitaAds: number;
   investimento: number;
   roas: number;
   acos: number;
@@ -147,6 +148,7 @@ function calcularMetricasAds(pedidosDoEscopo: Pedido[]): MetricasAdsCompletas {
   const lucroPosAds = resumoEscopo.lucroLiquido - investimento;
   return {
     faturamento: resumoEscopo.faturamento,
+    receitaAds: faturamentoAdsEscopo,
     investimento,
     roas,
     acos,
@@ -168,6 +170,7 @@ function calcularMetricasAds(pedidosDoEscopo: Pedido[]): MetricasAdsCompletas {
  * exportação, seja qual for a loja/canal que ela representa. */
 function linhaExportMetricasAds(m: MetricasAdsCompletas): Record<string, string | number> {
   return {
+    "Receita via ADS": formatBRL(m.receitaAds),
     "Faturamento total": formatBRL(m.faturamento),
     "Investimento total": formatBRL(m.investimento),
     ROAS: `${m.roas.toFixed(2)}x`,
@@ -317,9 +320,10 @@ export function Ads() {
 
       <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
         <CardKpi
-          titulo="Faturamento total"
-          valor={formatBRL(resumo.faturamento)}
-          variacaoPercentual={variacao(resumo.faturamento, resumoAnterior.faturamento)}
+          titulo="Receita via ADS"
+          valor={formatBRL(faturamentoAds)}
+          variacaoPercentual={variacao(faturamentoAds, faturamentoAdsAnterior)}
+          dica="Soma das vendas que vieram de anúncios patrocinados (ADS) no período."
         />
         <CardKpi
           titulo="Investimento total"
@@ -373,8 +377,8 @@ export function Ads() {
       </div>
 
       <Painel
-        titulo="Faturamento x investimento"
-        descricao="Linha: faturamento total do dia · Barra: investimento em ADS do dia"
+        titulo="Receita x investimento"
+        descricao="Linha: receita via ADS do dia · Barra: investimento em ADS do dia"
       >
         <div className="h-72 p-4">
           <ResponsiveContainer width="100%" height="100%">
@@ -402,8 +406,8 @@ export function Ads() {
               <Line
                 yAxisId="esq"
                 type="monotone"
-                dataKey="faturamento"
-                name="Faturamento"
+                dataKey="faturamentoAds"
+                name="Receita via ADS"
                 stroke="var(--brand)"
                 strokeWidth={2}
                 dot={false}
