@@ -615,6 +615,250 @@ export const ajustesCustoService = {
   },
 };
 
+/* ------------------------------------------------------------------ */
+/* Preço planejado (Precificação) e envio ao Mercado Livre              */
+/* ------------------------------------------------------------------ */
+
+export type CampoBasePreco = "cheio" | "promo" | "margem";
+export type StatusEnvioPreco = "rascunho" | "enviando" | "enviado" | "erro";
+
+/** O preço que o seller planejou para um anúncio (tabela `precos_planejados`).
+ * O PREÇO CHEIO é o que vai pro canal; o promocional é o alvo da promoção. */
+export interface PrecoPlanejado {
+  anuncioId: string;
+  precoCheio: number | null;
+  /** Desconto em % (ex.: 30 = 30%) */
+  descontoPercentual: number | null;
+  precoPromocional: number | null;
+  campoBase: CampoBasePreco | null;
+  statusEnvio: StatusEnvioPreco;
+  erroEnvio: string | null;
+  precoEnviado: number | null;
+  enviadoEm: string | null;
+  atualizadoEm: string;
+}
+
+function linhaParaPrecoPlanejado(l: Record<string, unknown>): PrecoPlanejado {
+  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return {
+    anuncioId: l.anuncio_id as string,
+    precoCheio: n(l.preco_cheio),
+    descontoPercentual: n(l.desconto_percentual),
+    precoPromocional: n(l.preco_promocional),
+    campoBase: (l.campo_base as CampoBasePreco | null) ?? null,
+    statusEnvio: ((l.status_envio as StatusEnvioPreco) ?? "rascunho"),
+    erroEnvio: (l.erro_envio as string | null) ?? null,
+    precoEnviado: n(l.preco_enviado),
+    enviadoEm: (l.enviado_em as string | null) ?? null,
+    atualizadoEm: (l.atualizado_em as string) ?? new Date().toISOString(),
+  };
+}
+
+/** Na demonstração os planos ficam só na memória (nada vai pro banco). */
+const PLANOS_DEMO = new Map<string, PrecoPlanejado>();
+
+export const precosPlanejadosService = {
+  listar: async (perfilId: string): Promise<Map<string, PrecoPlanejado>> => {
+    if (emDemonstracao()) return new Map(PLANOS_DEMO);
+    const mapa = new Map<string, PrecoPlanejado>();
+    const { data, error } = await supabase.from("precos_planejados").select("*").eq("perfil_id", perfilId);
+    if (error) {
+      console.error("precosPlanejadosService.listar:", error.message);
+      return mapa;
+    }
+    for (const l of data ?? []) mapa.set(l.anuncio_id as string, linhaParaPrecoPlanejado(l));
+    return mapa;
+  },
+
+  /** Grava o plano (volta pra "rascunho": mudou aqui, falta lançar). */
+  salvar: async (
+    perfilId: string,
+    anuncio: Anuncio,
+    plano: Pick<PrecoPlanejado, "precoCheio" | "descontoPercentual" | "precoPromocional" | "campoBase">,
+  ): Promise<string | null> => {
+    const agora = new Date().toISOString();
+    if (emDemonstracao()) {
+      PLANOS_DEMO.set(anuncio.id, {
+        anuncioId: anuncio.id,
+        ...plano,
+        statusEnvio: "rascunho",
+        erroEnvio: null,
+        precoEnviado: null,
+        enviadoEm: null,
+        atualizadoEm: agora,
+      });
+      return null;
+    }
+    const { error } = await supabase.from("precos_planejados").upsert(
+      {
+        perfil_id: perfilId,
+        anuncio_id: anuncio.id,
+        conta_id: anuncio.contaId,
+        preco_cheio: plano.precoCheio,
+        desconto_percentual: plano.descontoPercentual,
+        preco_promocional: plano.precoPromocional,
+        campo_base: plano.campoBase,
+        status_envio: "rascunho",
+        erro_envio: null,
+        atualizado_em: agora,
+      },
+      { onConflict: "perfil_id,anuncio_id" },
+    );
+    return error?.message ?? null;
+  },
+
+  remover: async (perfilId: string, anuncioId: string): Promise<string | null> => {
+    if (emDemonstracao()) {
+      PLANOS_DEMO.delete(anuncioId);
+      return null;
+    }
+    const { error } = await supabase
+      .from("precos_planejados")
+      .delete()
+      .eq("perfil_id", perfilId)
+      .eq("anuncio_id", anuncioId);
+    return error?.message ?? null;
+  },
+};
+
+/** Desconto padrão de cada conta (ex.: 30%): na Precificação o seller só
+ * digita o preço promocional e o preço cheio sai sozinho. */
+export const preferenciasPrecoService = {
+  listar: async (perfilId: string): Promise<Record<string, number>> => {
+    if (emDemonstracao()) return {};
+    const { data, error } = await supabase
+      .from("preferencias_preco_conta")
+      .select("conta_id, desconto_padrao")
+      .eq("perfil_id", perfilId);
+    if (error) return {};
+    const saida: Record<string, number> = {};
+    for (const l of data ?? []) {
+      if (l.desconto_padrao !== null && l.desconto_padrao !== undefined) {
+        saida[l.conta_id as string] = Number(l.desconto_padrao);
+      }
+    }
+    return saida;
+  },
+  salvar: async (perfilId: string, contaId: string, desconto: number | null): Promise<string | null> => {
+    if (emDemonstracao()) return null;
+    const { error } = await supabase.from("preferencias_preco_conta").upsert(
+      { perfil_id: perfilId, conta_id: contaId, desconto_padrao: desconto, atualizado_em: new Date().toISOString() },
+      { onConflict: "perfil_id,conta_id" },
+    );
+    return error?.message ?? null;
+  },
+};
+
+/** Custos do canal num preço qualquer (o próprio ML calcula). */
+export interface CustosNoPreco {
+  preco: number;
+  frete: number | null;
+  taxaFixa: number | null;
+  comissaoPercentual: number | null;
+}
+
+async function chamarPrecosMl<T>(corpo: Record<string, unknown>): Promise<{ dados: T | null; erro: string | null }> {
+  const { data, error } = await supabase.functions.invoke("mercadolivre-precos", { method: "POST", body: corpo });
+  if (error) {
+    // O corpo do erro traz o motivo do Mercado Livre.
+    let motivo = "Não consegui falar com o servidor. Tente de novo.";
+    try {
+      const ctx = (error as { context?: Response }).context;
+      if (ctx) {
+        const j = await ctx.json();
+        if (j?.erro) motivo = String(j.erro);
+      }
+    } catch {
+      // mantém a mensagem padrão
+    }
+    return { dados: null, erro: motivo };
+  }
+  if (data?.erro) return { dados: null, erro: String(data.erro) };
+  return { dados: data as T, erro: null };
+}
+
+/** Tudo que vai pro Mercado Livre a partir da Precificação e das Promoções. */
+export const precosMlService = {
+  custos: async (anuncioId: string, precos: number[]): Promise<CustosNoPreco[]> => {
+    if (emDemonstracao()) return [];
+    const r = await chamarPrecosMl<{ custos: CustosNoPreco[] }>({ acao: "frete", anuncioId, precos });
+    return r.dados?.custos ?? [];
+  },
+
+  /** Lança o preço cheio no canal. Devolve o resultado de cada anúncio. */
+  lancar: async (
+    itens: { anuncioId: string; preco: number }[],
+  ): Promise<{ anuncioId: string; ok: boolean; erro?: string }[]> => {
+    if (emDemonstracao()) {
+      await new Promise((ok) => setTimeout(ok, 800));
+      for (const i of itens) {
+        const plano = PLANOS_DEMO.get(i.anuncioId);
+        if (plano) PLANOS_DEMO.set(i.anuncioId, { ...plano, statusEnvio: "enviado", precoEnviado: i.preco, enviadoEm: new Date().toISOString() });
+        const a = anunciosAtuais().find((x) => x.id === i.anuncioId);
+        if (a) a.precoAtual = i.preco;
+      }
+      return itens.map((i) => ({ anuncioId: i.anuncioId, ok: true }));
+    }
+    const r = await chamarPrecosMl<{ resultados: { anuncioId: string; ok: boolean; erro?: string }[] }>({
+      acao: "lancar",
+      itens,
+    });
+    if (r.erro) return itens.map((i) => ({ anuncioId: i.anuncioId, ok: false, erro: r.erro ?? undefined }));
+    return r.dados?.resultados ?? [];
+  },
+
+  participar: async (p: {
+    anuncioId: string;
+    idPromocao: string;
+    tipo: string;
+    preco?: number;
+    offerId?: string | null;
+  }): Promise<string | null> => {
+    if (emDemonstracao()) return null;
+    const r = await chamarPrecosMl({ acao: "participar", ...p });
+    return r.erro;
+  },
+
+  sair: async (p: { anuncioId: string; idPromocao: string; tipo: string; offerId?: string | null }): Promise<string | null> => {
+    if (emDemonstracao()) return null;
+    const r = await chamarPrecosMl({ acao: "sair", ...p });
+    return r.erro;
+  },
+
+  /** Cria uma campanha própria (desconto por porcentagem) no canal. */
+  criar: async (p: {
+    nome: string;
+    inicio: string;
+    fim: string;
+    itens: { anuncioId: string; preco: number }[];
+  }): Promise<{ erro: string | null; resultados: { anuncioId: string; ok: boolean; erro?: string }[] }> => {
+    if (emDemonstracao()) return { erro: null, resultados: p.itens.map((i) => ({ anuncioId: i.anuncioId, ok: true })) };
+    const r = await chamarPrecosMl<{ resultados: { anuncioId: string; ok: boolean; erro?: string }[] }>({
+      acao: "criar",
+      ...p,
+    });
+    return { erro: r.erro, resultados: r.dados?.resultados ?? [] };
+  },
+};
+
+/** Lê de novo os anúncios no canal (todos, ou só os ids do ML passados). */
+export async function atualizarAnunciosDoCanal(idsMl: string[] = []): Promise<{ erro: string | null; resumo: string }> {
+  if (emDemonstracao()) {
+    await new Promise((ok) => setTimeout(ok, 600));
+    return { erro: null, resumo: "Anúncios de exemplo atualizados." };
+  }
+  const { data, error } = await supabase.functions.invoke("mercadolivre-sincronizar", {
+    method: "POST",
+    body: { anuncios: true, itens: idsMl },
+  });
+  if (error) return { erro: "Não consegui falar com o servidor. Tente de novo.", resumo: "" };
+  const resultados = (data?.resultados ?? []) as { ok: boolean; conta: string; anuncios?: number; erro?: string }[];
+  const falha = resultados.find((r) => !r.ok);
+  if (falha) return { erro: `${falha.conta}: ${falha.erro}`, resumo: "" };
+  const total = resultados.reduce((s, r) => s + (r.anuncios ?? 0), 0);
+  return { erro: null, resumo: `${total} anúncio${total === 1 ? "" : "s"} atualizado${total === 1 ? "" : "s"}.` };
+}
+
 /** Regras de taxa fixa e frete por faixa de preço, por canal (tabela
  * `faixas_preco_canal`). Canal sem regra = taxa e frete do próprio anúncio. */
 export const faixasPrecoService = {

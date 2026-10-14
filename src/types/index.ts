@@ -375,6 +375,14 @@ export interface Anuncio {
   situacaoCanal?: string | null;
   /** Anúncios com o mesmo código dividem o mesmo estoque no canal. */
   grupoEstoque?: string | null;
+  /** Código do anúncio no canal (ex.: MLB4552785169). */
+  idExterno?: string | null;
+  /** Status cru no canal (ex.: active, paused, under_review, closed). */
+  statusCanal?: string | null;
+  /** Quando o anúncio foi lido do canal pela última vez. */
+  atualizadoEm?: string | null;
+  /** Promoção valendo agora no canal (o cliente paga `preco`). */
+  promocaoAtiva?: PromocaoAtiva | null;
   /** Avaliações do produto no canal (dados reais) */
   avaliacao?: { nota: number | null; total: number; ruins: number; comentarios: string[] } | null;
   precoAtual: number;
@@ -479,6 +487,18 @@ export interface AlteracaoPreco {
   usuario: string;
 }
 
+/** A promoção que está valendo num anúncio agora. */
+export interface PromocaoAtiva {
+  nome: string;
+  /** Tipo da promoção no canal (DEAL, SMART, SELLER_CAMPAIGN...) */
+  tipo: string | null;
+  /** O que o cliente paga */
+  preco: number;
+  /** O preço cheio riscado */
+  precoCheio: number;
+  fim: string | null;
+}
+
 export interface Promocao {
   id: string;
   marketplaceId: MarketplaceId;
@@ -510,6 +530,16 @@ export interface Promocao {
   link?: string | null;
   /** Tipo do anúncio (Clássico, Premium) — o mesmo SKU pode ter os dois */
   tipoAnuncio?: string | null;
+  /** Anúncio no Planeta97 */
+  anuncioId?: string;
+  contaId?: string;
+  /** Id e tipo da promoção no canal (pra entrar e sair dela) */
+  idPromocao?: string;
+  tipoPromocao?: string | null;
+  offerId?: string | null;
+  inicio?: string | null;
+  /** Parte do desconto que o seller banca, em % (campanhas co-participadas) */
+  descontoVendedorPercentual?: number | null;
 }
 
 export interface ItemEstoque {

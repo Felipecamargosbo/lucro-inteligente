@@ -131,6 +131,14 @@ function taxaAfiliado(a: Anuncio): number {
   return a.precoAtual > 0 ? a.custoAfiliadoUnitario / a.precoAtual : 0;
 }
 
+/** Custos que o próprio canal informou para um preço específico (frete,
+ * taxa fixa e comissão). null/ausente = usa o do anúncio ou das faixas. */
+export interface CustosCanal {
+  frete?: number | null;
+  taxaFixa?: number | null;
+  comissaoPercentual?: number | null;
+}
+
 /** Todos os custos do anúncio vendido a `preco`, já com os ajustes. */
 export function detalharPreco(
   a: Anuncio,
@@ -139,10 +147,14 @@ export function detalharPreco(
   cfg: ConfigPrecificacao,
   /** Só pro cálculo de preço pela margem: força uma faixa específica */
   forcarFaixa?: number,
+  /** Custos que o canal informou nesse preço (valem mais que as faixas) */
+  canal?: CustosCanal | null,
 ): Detalhamento {
   const cmv = a.cmv ?? 0;
-  const { taxaFixa, frete } = taxaEFrete(a, preco, cfg, forcarFaixa);
-  const comissao = preco * a.comissaoPercentual;
+  const base = taxaEFrete(a, preco, cfg, forcarFaixa);
+  const taxaFixa = canal?.taxaFixa ?? base.taxaFixa;
+  const frete = canal?.frete ?? base.frete;
+  const comissao = preco * (canal?.comissaoPercentual ?? a.comissaoPercentual);
   const imposto = preco * cfg.aliquotaImposto;
   const ads = adsNoPreco(a, ajuste, preco);
 

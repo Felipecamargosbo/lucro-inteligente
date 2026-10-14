@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
+  AlertTriangle,
   Check,
   ChevronDown,
   ChevronRight,
@@ -9,6 +10,8 @@ import {
   Loader2,
   Pencil,
   RefreshCw,
+  RotateCcw,
+  Send,
   Tag,
   Trash2,
   Upload,
@@ -21,8 +24,26 @@ import {
   anunciosService,
   contasService,
   produtosService,
+  precosPlanejadosService,
+  preferenciasPrecoService,
+  precosMlService,
+  atualizarAnunciosDoCanal,
   type AlteracaoPrecoRegistrada,
+  type CampoBasePreco,
+  type PrecoPlanejado,
 } from "@/services";
+import { emDemonstracao } from "@/lib/demonstracao";
+import { custosEm, limparCustos, pedirCustos, useVersaoCustos } from "@/lib/custos-canal";
+import {
+  DESCONTO_MAX_ML,
+  DESCONTO_MIN_ML,
+  LIMITE_FRETE_GRATIS_ML,
+  cheioDoPromo,
+  contaDaLinha,
+  precoPelaMargem,
+  promoDoCheio,
+  type ContaDaLinha,
+} from "@/lib/linha-preco";
 import { useAuth } from "@/context/auth";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { useSelecaoContas } from "@/context/selecao-contas";
@@ -106,6 +127,10 @@ interface LinhaAnuncio {
   /** Todos os custos no preço de hoje, já com o ajuste */
   det: Detalhamento;
   limites: Limites;
+  /** Preço cheio, promoção, situação no canal e contas da linha */
+  conta: ContaDaLinha;
+  plano: PrecoPlanejado | null;
+  descontoPadrao: number | null;
 }
 
 interface GrupoProduto {
@@ -166,9 +191,6 @@ function Precificacao() {
   const [editandoCategoria, setEditandoCategoria] = useState<string | null>(null);
   const [valorCategoria, setValorCategoria] = useState("");
 
-  /** O que o seller está digitando em cada anúncio: preço novo ou margem */
-  const [rascunhos, setRascunhos] = useState<Record<string, { modo: ModoEdicao; texto: string }>>({});
-  const [aplicando, setAplicando] = useState<string | null>(null);
 
   const [emVinculo, setEmVinculo] = useState<Anuncio | null>(null);
   const [emEdicaoProduto, setEmEdicaoProduto] = useState<Produto | null>(null);
@@ -189,22 +211,38 @@ function Precificacao() {
   const [faixasAberto, setFaixasAberto] = useState(false);
   /** Margem digitada na linha do produto, pra preencher em todos os canais */
   const [margemTodos, setMargemTodos] = useState<Record<string, string>>({});
-  const [aplicandoTodos, setAplicandoTodos] = useState<string | null>(null);
   /** Última mudança de preço feita aqui, por anúncio — o preço fica colorido */
   const [precosAlterados, setPrecosAlterados] = useState<Map<string, AlteracaoPrecoRegistrada>>(
     new Map(),
   );
+  /** Preço planejado de cada anúncio (cheio, desconto, promocional) */
+  const [planos, setPlanos] = useState<Map<string, PrecoPlanejado>>(new Map());
+  /** Desconto padrão de cada conta, em % */
+  const [descontosPadrao, setDescontosPadrao] = useState<Record<string, number>>({});
+  /** Anúncios sendo lançados no canal agora */
+  const [enviando, setEnviando] = useState<Set<string>>(new Set());
+  /** "todos" ou o id do anúncio sendo atualizado do canal */
+  const [atualizando, setAtualizando] = useState<string | null>(null);
+  const [promoFiltro, setPromoFiltro] = useState<FiltroPromocao>("todos");
+  /** Lançamento esperando confirmação (anúncio em promoção) */
+  const [confirmarLancamento, setConfirmarLancamento] = useState<LinhaAnuncio[] | null>(null);
+  const versaoCustos = useVersaoCustos();
+  const gravacoes = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const carregarProdutos = useCallback(async () => {
     if (!sessao) return;
-    const [lista, alteracoes, mapaAjustes, regrasFaixas] = await Promise.all([
+    const [lista, alteracoes, mapaAjustes, regrasFaixas, mapaPlanos, padroes] = await Promise.all([
       produtosService.listar(sessao.user.id),
       alteracoesPrecoService.listar(sessao.user.id),
       ajustesCustoService.listar(sessao.user.id),
       faixasPrecoService.listar(sessao.user.id),
+      precosPlanejadosService.listar(sessao.user.id),
+      preferenciasPrecoService.listar(sessao.user.id),
     ]);
     setAjustes(mapaAjustes);
     setFaixas(regrasFaixas);
+    setPlanos(mapaPlanos);
+    setDescontosPadrao(padroes);
     const ultimas = new Map<string, AlteracaoPrecoRegistrada>();
     // A lista vem da mais nova pra mais antiga: a primeira de cada anúncio vale.
     for (const alt of alteracoes) if (!ultimas.has(alt.anuncioId)) ultimas.set(alt.anuncioId, alt);
@@ -212,7 +250,9 @@ function Precificacao() {
     // Casa cada produto real com os anúncios pelo SKU (o CMV vem do produto)
     // e reaplica os preços que o seller já mudou aqui.
     produtosService.reconciliarComAnuncios(lista);
-    alteracoesPrecoService.aplicarNosAnuncios(alteracoes);
+    // Com o canal conectado, o preço de cada anúncio é o que está lá (lido
+    // na sincronização). Só a demonstração reaplica os preços salvos aqui.
+    if (emDemonstracao()) alteracoesPrecoService.aplicarNosAnuncios(alteracoes);
     setProdutos(lista);
     setCarregandoProdutos(false);
     setTick((n) => n + 1);
@@ -224,15 +264,17 @@ function Precificacao() {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const anuncios = useMemo(() => anunciosService.listar().slice(), [tick]);
+  /** Sem inativos e sem o tradicional que tem o mesmo produto em catálogo. */
+  const visiveis = useMemo(() => anunciosVisiveis(anuncios), [anuncios]);
   const pendentes = useMemo(
     () =>
-      anuncios
+      visiveis
         .filter((a) => !a.produtoId)
         .filter((a) => semRestricaoDeConta || contasSelecionadas.has(a.contaId))
         .filter((a) => passaNoTipo(a, tipoFiltro))
         // Faturamento perdido primeiro: resolver o que mais vende rende mais
         .sort((a, b) => b.precoAtual * b.unidadesVendidas - a.precoAtual * a.unidadesVendidas),
-    [anuncios, semRestricaoDeConta, contasSelecionadas, tipoFiltro],
+    [visiveis, semRestricaoDeConta, contasSelecionadas, tipoFiltro],
   );
 
   /** Quantos anúncios dividem o mesmo estoque no canal (mesmo produto do
@@ -279,7 +321,7 @@ function Precificacao() {
 
   const grupos = useMemo<GrupoProduto[]>(() => {
     return produtos.map((p) => {
-      const vinculados = anuncios.filter((a) => a.produtoId === p.id);
+      const vinculados = visiveis.filter((a) => a.produtoId === p.id);
       const naSelecao = (
         semRestricaoDeConta ? vinculados : vinculados.filter((a) => contasSelecionadas.has(a.contaId))
       ).filter((a) => passaNoTipo(a, tipoFiltro));
@@ -290,16 +332,33 @@ function Precificacao() {
         // em todo canal de uma vez.
         const comCmv = { ...a, cmv: p.cmv };
         const ajuste = ajustes.get(a.id) ?? AJUSTE_PADRAO;
+        const plano = planos.get(a.id) ?? null;
+        const descontoPadrao = descontosPadrao[a.contaId] ?? null;
+        const conta = contaDaLinha({
+          anuncio: a,
+          comCmv,
+          ajuste,
+          cfg,
+          plano,
+          descontoPadrao,
+          margemMinima,
+          custos: (preco) => custosEm(a.id, preco),
+          enviando: enviando.has(a.id),
+        });
         return {
           anuncio: a,
           comCmv,
           nomeConta: contasService.buscar(a.contaId)?.nome ?? "—",
           margemMinima,
           ajuste,
-          det: detalharPreco(comCmv, a.precoAtual, ajuste, cfg),
+          // O que vale na linha: a simulação (azul) ou o que está no canal.
+          det: conta.det,
           limites: limitesComAjuste(comCmv, margemMinima, ajuste, cfg),
+          conta,
+          plano,
+          descontoPadrao,
         };
-      });
+      }).filter((l) => passaNaPromocao(l.conta, promoFiltro));
       const qtdAbaixo = linhas.filter((l) => l.limites.abaixoDoMinimo).length;
       const temPrejuizo = linhas.some((l) => l.limites.emPrejuizo);
       return {
@@ -323,6 +382,12 @@ function Precificacao() {
     ajustes,
     cfg,
     tipoFiltro,
+    visiveis,
+    planos,
+    descontosPadrao,
+    enviando,
+    versaoCustos,
+    promoFiltro,
   ]);
 
   const gruposFiltrados = useMemo(() => {
@@ -331,7 +396,7 @@ function Precificacao() {
       // Com um canal/conta marcado lá em cima, some o produto sem anúncio nele.
       if (!semRestricaoDeConta && g.linhas.length === 0) return false;
       // Filtrando por tipo (catálogo/tradicional), some o produto sem anúncio desse tipo.
-      if (tipoFiltro !== "todos" && g.linhas.length === 0) return false;
+      if ((tipoFiltro !== "todos" || promoFiltro !== "todos") && g.linhas.length === 0) return false;
       if (situacaoFiltro !== "todos" && g.situacao !== situacaoFiltro) return false;
       if (categoriaFiltro === SEM_CATEGORIA && g.produto.categoria) return false;
       if (
@@ -381,7 +446,7 @@ function Precificacao() {
     return ordemDasLinhas
       ? ordenada.map((g) => ({ ...g, linhas: [...g.linhas].sort(ordemDasLinhas) }))
       : ordenada;
-  }, [grupos, busca, situacaoFiltro, categoriaFiltro, ordenar, semRestricaoDeConta, tipoFiltro]);
+  }, [grupos, busca, situacaoFiltro, categoriaFiltro, ordenar, semRestricaoDeConta, tipoFiltro, promoFiltro]);
 
   /** Agrupado por categoria: uma faixa por categoria, "Sem categoria" no fim. */
   const secoes = useMemo(() => {
@@ -404,6 +469,22 @@ function Precificacao() {
   const abaixoMinimo = todasLinhas.filter((l) => l.limites.abaixoDoMinimo && !l.limites.emPrejuizo).length;
   const margemMedia =
     todasLinhas.length > 0 ? todasLinhas.reduce((s, l) => s + l.det.margem, 0) / todasLinhas.length : 0;
+  /** Mudou aqui e ainda não foi pro canal (ou o canal recusou) */
+  const alterados = todasLinhas.filter((l) => l.conta.envio === "alterado" || l.conta.envio === "erro");
+  const recusados = todasLinhas.filter((l) => l.conta.envio === "erro").length;
+  /** Promoção planejada e nenhuma valendo: o cliente está pagando o cheio */
+  const semPromocaoAtiva = todasLinhas.filter((l) => l.conta.estadoPromocao === "sem-promocao").length;
+  const promoOutroValor = todasLinhas.filter((l) => l.conta.estadoPromocao === "outro-valor").length;
+  /** Contas do Mercado Livre (o desconto padrão vale pra elas) */
+  const contasDescontoPadrao = useMemo(() => {
+    const ids = [...new Set(visiveis.filter((a) => a.marketplaceId === "mercado-livre").map((a) => a.contaId))];
+    return ids.map((id) => ({ id, nome: contasService.buscar(id)?.nome ?? "Conta" }));
+  }, [visiveis]);
+  /** Última leitura dos anúncios no canal */
+  const ultimaLeitura = visiveis.reduce<string | null>(
+    (maior, a) => (a.atualizadoEm && (!maior || a.atualizadoEm > maior) ? a.atualizadoEm : maior),
+    null,
+  );
 
   /* ---------------------------- ações ---------------------------- */
 
@@ -455,98 +536,176 @@ function Precificacao() {
     );
   };
 
-  const aplicarPreco = async (
+  /* ------------------- preço planejado e envio ao canal ------------------- */
+
+  /** Muda o plano de um anúncio na hora (a linha recalcula) e grava no banco
+   * logo depois que o seller para de digitar. null = volta ao preço do canal. */
+  const mudarPlano = (
     linha: LinhaAnuncio,
-    precoNovo: number,
-    /** true = sem aviso a cada anúncio (usado no "Aplicar em todos") */
-    silencioso = false,
-  ): Promise<boolean> => {
-    if (!sessao) return false;
+    plano: Pick<PrecoPlanejado, "precoCheio" | "descontoPercentual" | "precoPromocional" | "campoBase"> | null,
+  ) => {
+    if (!sessao) return;
     const a = linha.anuncio;
-    const antes = a.precoAtual;
-    setAplicando(a.id);
-    const erro = await alteracoesPrecoService.registrar(sessao.user.id, a, precoNovo, perfil?.nomeExibicao ?? "Você");
-    setAplicando(null);
-    if (erro) {
-      toast.error(
-        erro.includes("alteracoes_preco")
-          ? "A tabela de mudanças de preço ainda não existe — rode o SQL da tela Precificação no Supabase."
-          : `Não consegui salvar o preço: ${erro}`,
-      );
-      return false;
-    }
-    setRascunhos((atual) => {
-      const novo = { ...atual };
-      delete novo[a.id];
+    setPlanos((atual) => {
+      const novo = new Map(atual);
+      if (plano === null) novo.delete(a.id);
+      else
+        novo.set(a.id, {
+          anuncioId: a.id,
+          ...plano,
+          statusEnvio: "rascunho",
+          erroEnvio: null,
+          precoEnviado: atual.get(a.id)?.precoEnviado ?? null,
+          enviadoEm: atual.get(a.id)?.enviadoEm ?? null,
+          atualizadoEm: new Date().toISOString(),
+        });
       return novo;
     });
-    setPrecosAlterados((atual) =>
-      new Map(atual).set(a.id, {
-        id: `local-${Date.now()}`,
-        anuncioId: a.id,
-        contaId: a.contaId,
-        sku: a.sku,
-        produto: a.produto,
-        marketplaceId: a.marketplaceId,
-        precoAntes: antes,
-        precoDepois: precoNovo,
-        data: new Date().toISOString(),
-      }),
+    const anterior = gravacoes.current.get(a.id);
+    if (anterior) clearTimeout(anterior);
+    gravacoes.current.set(
+      a.id,
+      setTimeout(async () => {
+        gravacoes.current.delete(a.id);
+        const erro =
+          plano === null
+            ? await precosPlanejadosService.remover(sessao.user.id, a.id)
+            : await precosPlanejadosService.salvar(sessao.user.id, a, plano);
+        if (erro) toast.error(`Não consegui salvar o preço planejado: ${erro}`);
+      }, 700),
     );
-    setTick((n) => n + 1);
-    if (!silencioso) {
-      toast.success(`${a.produto} (${linha.nomeConta}): de ${formatBRL(antes)} para ${formatBRL(precoNovo)}.`, {
-        description:
-          "Salvo no Planeta97. Sem a API do marketplace ainda, altere também o preço lá no anúncio.",
-      });
-    }
-    return true;
   };
 
-  /** Margem do produto → preenche o campo "%" de todos os anúncios dele
-   * (cada canal calcula o próprio preço). Nada é salvo até Aplicar. */
+  /** Preço pela margem em todos os anúncios do produto (cada canal calcula
+   * o seu). Nada vai pro canal até "Lançar". */
   const preencherMargemTodos = (g: GrupoProduto) => {
-    const texto = (margemTodos[g.produto.id] ?? "").trim();
-    if (lerNumero(texto) === null) {
+    const m = lerNumero((margemTodos[g.produto.id] ?? "").trim());
+    if (m === null) {
       toast.error("Digite a margem, por exemplo 25.");
       return;
     }
-    setRascunhos((atual) => {
-      const novo = { ...atual };
-      for (const l of g.linhas) novo[l.anuncio.id] = { modo: "margem", texto };
+    let semPreco = 0;
+    for (const l of g.linhas) {
+      const { preco } = precoPelaMargem(l.comCmv, m / 100, l.ajuste, cfg, (x) => custosEm(l.anuncio.id, x));
+      if (preco === null) {
+        semPreco++;
+        continue;
+      }
+      const desconto = l.plano?.descontoPercentual ?? l.descontoPadrao ?? 0;
+      mudarPlano(
+        l,
+        desconto > 0
+          ? {
+              precoCheio: cheioDoPromo(preco, desconto),
+              descontoPercentual: l.plano?.descontoPercentual ?? null,
+              precoPromocional: preco,
+              campoBase: "margem",
+            }
+          : { precoCheio: preco, descontoPercentual: l.plano?.descontoPercentual ?? null, precoPromocional: null, campoBase: "margem" },
+      );
+    }
+    if (semPreco > 0) toast.error(`${semPreco} anúncio(s) não chegam nessa margem com as taxas de hoje.`);
+  };
+
+  /** Lança o preço cheio planejado no canal. Anúncio com promoção valendo
+   * pede confirmação antes (subir o preço tira a promoção, regra do ML). */
+  const pedirLancamento = (linhas: LinhaAnuncio[]) => {
+    const prontas = linhas.filter((l) => (l.conta.envio === "alterado" || l.conta.envio === "erro") && l.conta.planoCheio);
+    if (prontas.length === 0) return;
+    const arriscadas = prontas.filter(
+      (l) => l.anuncio.promocaoAtiva && (l.conta.planoCheio ?? 0) > l.conta.cheioCanal,
+    );
+    if (arriscadas.length > 0) setConfirmarLancamento(prontas);
+    else void lancar(prontas);
+  };
+
+  const lancar = async (linhas: LinhaAnuncio[]) => {
+    setConfirmarLancamento(null);
+    const ids = linhas.map((l) => l.anuncio.id);
+    setEnviando((atual) => new Set([...atual, ...ids]));
+    const resultados = await precosMlService.lancar(
+      linhas.map((l) => ({ anuncioId: l.anuncio.id, preco: l.conta.planoCheio! })),
+    );
+    setEnviando((atual) => {
+      const novo = new Set(atual);
+      for (const id of ids) novo.delete(id);
       return novo;
     });
-  };
-
-  /** O preço que o campo de um anúncio está pedindo (null = nada válido). */
-  const precoDoRascunho = (l: LinhaAnuncio): number | null => {
-    const r = rascunhos[l.anuncio.id];
-    if (!r || !r.texto.trim()) return null;
-    const n = lerNumero(r.texto);
-    if (n === null) return null;
-    const preco =
-      r.modo === "preco" ? (n > 0 ? Math.round(n * 100) / 100 : null) : precoParaMargem(l.comCmv, n / 100, l.ajuste, cfg);
-    return preco !== null && Math.abs(preco - l.anuncio.precoAtual) >= 0.01 ? preco : null;
-  };
-
-  /** Aplica de uma vez todos os anúncios do produto que têm preço novo. */
-  const aplicarTodos = async (g: GrupoProduto) => {
-    const prontos = g.linhas
-      .map((l) => ({ l, preco: precoDoRascunho(l) }))
-      .filter((x): x is { l: LinhaAnuncio; preco: number } => x.preco !== null);
-    if (prontos.length === 0) return;
-    setAplicandoTodos(g.produto.id);
+    const agora = new Date().toISOString();
     let ok = 0;
-    for (const { l, preco } of prontos) {
-      if (await aplicarPreco(l, preco, true)) ok++;
+    const erros: string[] = [];
+    setPlanos((atual) => {
+      const novo = new Map(atual);
+      for (const r of resultados) {
+        const plano = novo.get(r.anuncioId);
+        if (!plano) continue;
+        novo.set(r.anuncioId, {
+          ...plano,
+          statusEnvio: r.ok ? "enviado" : "erro",
+          erroEnvio: r.ok ? null : (r.erro ?? "O canal recusou."),
+          precoEnviado: r.ok ? plano.precoCheio : plano.precoEnviado,
+          enviadoEm: r.ok ? agora : plano.enviadoEm,
+        });
+      }
+      return novo;
+    });
+    for (const r of resultados) {
+      const l = linhas.find((x) => x.anuncio.id === r.anuncioId);
+      if (!l) continue;
+      if (r.ok) {
+        ok++;
+        // O canal agora cobra o cheio novo (subir o preço tira a promoção).
+        const a = l.anuncio;
+        const novoCheio = l.conta.planoCheio!;
+        if (a.promocaoAtiva && novoCheio > a.promocaoAtiva.precoCheio) a.promocaoAtiva = null;
+        if (a.promocaoAtiva) a.promocaoAtiva = { ...a.promocaoAtiva, precoCheio: novoCheio };
+        else a.precoAtual = novoCheio;
+        // Os anúncios do mesmo produto (catálogo + tradicional) vão juntos.
+        for (const irmao of anuncios) {
+          if (irmao.id !== a.id && a.grupoEstoque && irmao.grupoEstoque === a.grupoEstoque && !irmao.promocaoAtiva) {
+            irmao.precoAtual = novoCheio;
+          }
+        }
+      } else erros.push(`${l.anuncio.produto}: ${r.erro ?? "o canal recusou"}`);
     }
-    setAplicandoTodos(null);
-    if (ok > 0) {
-      toast.success(`${g.produto.nome}: preço novo aplicado em ${ok} anúncio${ok > 1 ? "s" : ""}.`, {
-        description:
-          "Salvo no Planeta97. Sem a API do marketplace ainda, altere também os preços lá nos anúncios.",
+    setTick((n) => n + 1);
+    if (ok > 0) toast.success(`Preço lançado no Mercado Livre em ${ok} anúncio${ok > 1 ? "s" : ""}.`);
+    if (erros.length > 0)
+      toast.error(`O Mercado Livre recusou ${erros.length} anúncio${erros.length > 1 ? "s" : ""}.`, {
+        description: erros.slice(0, 3).join(" · "),
       });
+  };
+
+  /** Lê de novo do canal: todos os anúncios ou só um. */
+  const atualizarDoCanal = async (linha?: LinhaAnuncio) => {
+    setAtualizando(linha ? linha.anuncio.id : "todos");
+    const idsMl = linha ? [linha.anuncio.idExterno ?? ""].filter(Boolean) : [];
+    const { erro, resumo } = await atualizarAnunciosDoCanal(idsMl);
+    setAtualizando(null);
+    if (erro) {
+      toast.error(erro);
+      return;
     }
+    limparCustos();
+    toast.success(resumo, { description: "Recarregando os dados do canal..." });
+    // Recarrega os dados reais (anúncios, taxas, frete e promoções).
+    window.dispatchEvent(new Event("nexo:dados-reais"));
+  };
+
+  const salvarDescontoPadrao = async (contaId: string, valor: number | null) => {
+    if (!sessao) return;
+    const erro = await preferenciasPrecoService.salvar(sessao.user.id, contaId, valor);
+    if (erro) {
+      toast.error(`Não consegui salvar: ${erro}`);
+      return;
+    }
+    setDescontosPadrao((atual) => {
+      const novo = { ...atual };
+      if (valor === null) delete novo[contaId];
+      else novo[contaId] = valor;
+      return novo;
+    });
+    toast.success(valor === null ? "Desconto padrão removido." : `Desconto padrão: ${valor}%.`);
   };
 
   /** Salva as faixas de preço de um canal. */
@@ -620,10 +779,30 @@ function Precificacao() {
               <Upload className="size-3.5" />
               Importar CMV
             </Button>
-            <Button size="sm" onClick={() => setReceberAberto(true)}>
-              <RefreshCw className="size-3.5" />
+            <PopoverDescontoPadrao
+              contas={contasDescontoPadrao}
+              valores={descontosPadrao}
+              aoSalvar={salvarDescontoPadrao}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={atualizando !== null}
+              onClick={() => atualizarDoCanal()}
+              title="Lê de novo no canal o preço, a comissão, a taxa fixa, o frete, a situação e as promoções de todos os anúncios"
+            >
+              <RefreshCw className={cn("size-3.5", atualizando === "todos" && "animate-spin")} />
+              Atualizar anúncios
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setReceberAberto(true)}>
               Receber anúncios
             </Button>
+            {alterados.length > 0 && (
+              <Button size="sm" onClick={() => pedirLancamento(alterados)} disabled={enviando.size > 0}>
+                {enviando.size > 0 ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
+                Lançar alterados ({alterados.length})
+              </Button>
+            )}
             <ExportarDados
               nomeArquivo="precificacao"
               linhas={grupos.flatMap((g) =>
@@ -633,6 +812,12 @@ function Precificacao() {
                   Categoria: g.produto.categoria ?? "",
                   Canal: l.anuncio.marketplaceId,
                   Conta: l.nomeConta,
+                  "Preço cheio no canal": l.conta.cheioCanal.toFixed(2),
+                  "Cliente paga agora": l.conta.precoCliente.toFixed(2),
+                  "Preço cheio planejado": l.conta.planoCheio?.toFixed(2) ?? "",
+                  "Desconto %": l.conta.desconto ? String(l.conta.desconto) : "",
+                  "Promocional planejado": l.conta.planoPromo?.toFixed(2) ?? "",
+                  Promoção: ROTULO_ESTADO_PROMO[l.conta.estadoPromocao],
                   Preço: l.det.preco.toFixed(2),
                   CMV: l.det.cmv.toFixed(2),
                   Comissão: l.det.comissao.toFixed(2),
@@ -666,6 +851,44 @@ function Precificacao() {
             cor={abaixoMinimo > 0 ? "text-warning" : undefined}
           />
           <Resumo rotulo="Margem média dos anúncios" valor={formatPercentual(margemMedia)} />
+        </div>
+
+        {/* Situação no canal: leitura, promoções que não estão valendo, recusas */}
+        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-[11px]">
+          <span className="text-muted-foreground">
+            {ultimaLeitura ? `Anúncios lidos do canal ${tempoAtras(ultimaLeitura)}` : "Anúncios ainda não lidos do canal"}
+          </span>
+          {semPromocaoAtiva > 0 && (
+            <button
+              onClick={() => setPromoFiltro("sem-promocao")}
+              className="inline-flex items-center gap-1.5 rounded-md border border-loss/40 bg-loss-soft/40 px-2 py-1 font-semibold text-loss"
+              title="Esses anúncios têm desconto planejado aqui, mas nenhuma promoção valendo no canal: o cliente paga o preço cheio"
+            >
+              <AlertTriangle className="size-3.5" />
+              {semPromocaoAtiva} anúncio{semPromocaoAtiva > 1 ? "s" : ""} sem promoção ativa — o cliente paga o preço cheio
+            </button>
+          )}
+          {promoOutroValor > 0 && (
+            <button
+              onClick={() => setPromoFiltro("outro-valor")}
+              className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 font-semibold text-warning"
+            >
+              {promoOutroValor} em promoção num valor diferente do planejado
+            </button>
+          )}
+          {recusados > 0 && (
+            <button
+              onClick={() => setPromoFiltro("alterados")}
+              className="inline-flex items-center gap-1.5 rounded-md border border-loss/40 px-2 py-1 font-semibold text-loss"
+            >
+              {recusados} lançamento{recusados > 1 ? "s" : ""} recusado{recusados > 1 ? "s" : ""} pelo canal
+            </button>
+          )}
+          {promoFiltro !== "todos" && (
+            <button onClick={() => setPromoFiltro("todos")} className="text-muted-foreground underline">
+              Mostrar todos
+            </button>
+          )}
         </div>
 
         {/* Anúncios sem produto vinculado (a busca também procura aqui) */}
@@ -759,6 +982,20 @@ function Precificacao() {
               </SelectContent>
             </Select>
           </Filtro>
+          <Filtro rotulo="Promoção">
+            <Select value={promoFiltro} onValueChange={(v) => setPromoFiltro(v as FiltroPromocao)}>
+              <SelectTrigger className="h-8 w-52 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todas</SelectItem>
+                <SelectItem value="ativa">Promoção ativa</SelectItem>
+                <SelectItem value="outro-valor">Ativa em outro valor</SelectItem>
+                <SelectItem value="sem-promocao">Sem promoção ativa</SelectItem>
+                <SelectItem value="alterados">Mudou aqui, falta lançar</SelectItem>
+              </SelectContent>
+            </Select>
+          </Filtro>
           <Filtro rotulo="Tipo de anúncio">
             <Select value={tipoFiltro} onValueChange={(v) => setTipoFiltro(v as FiltroTipoAnuncio)}>
               <SelectTrigger className="h-8 w-40 text-xs">
@@ -817,7 +1054,13 @@ function Precificacao() {
             <thead>
               <tr className="border-b bg-muted/50 text-[9px] uppercase tracking-wide text-muted-foreground">
                 <th className="px-3 py-2.5 font-bold">Canal / conta</th>
-                <th className="px-2 py-2.5 text-right font-bold">Preço</th>
+                <th className="px-2 py-2.5 text-right font-bold" title="O preço que vai pro canal (o botão Lançar manda este)">
+                  Preço cheio
+                </th>
+                <th className="px-2 py-2.5 text-right font-bold">Desc. %</th>
+                <th className="px-2 py-2.5 text-right font-bold" title="O preço com desconto. Verde = promoção valendo; amarelo = valendo em outro valor; riscado = sem promoção">
+                  Preço promo
+                </th>
                 <th className="px-2 py-2.5 text-right font-bold">CMV</th>
                 <th className="px-2 py-2.5 text-right font-bold">Comissão</th>
                 <th className="px-2 py-2.5 text-right font-bold">Taxa fixa</th>
@@ -829,9 +1072,7 @@ function Precificacao() {
                 <th className="px-2 py-2.5 text-right font-bold">Margem</th>
                 <th className="px-2 py-2.5 text-right font-bold">Mínimo</th>
                 <th className="px-2 py-2.5 text-right font-bold">Empate</th>
-                <th className="px-2 py-2.5 text-right font-bold">Preço final</th>
-                <th className="border-l px-2 py-2.5 font-bold">Novo preço ou margem</th>
-                <th className="px-3 py-2.5 text-right font-bold"></th>
+                <th className="border-l px-3 py-2.5 text-right font-bold">No canal</th>
               </tr>
             </thead>
             <tbody>
@@ -983,15 +1224,16 @@ function Precificacao() {
                                   >
                                     Preencher
                                   </Button>
-                                  {g.linhas.some((l) => precoDoRascunho(l) !== null) && (
+                                  {g.linhas.filter((l) => l.conta.envio === "alterado" || l.conta.envio === "erro").length > 1 && (
                                     <Button
                                       size="sm"
                                       className="h-7 text-[11px]"
-                                      disabled={aplicandoTodos === p.id}
-                                      onClick={() => aplicarTodos(g)}
+                                      disabled={g.linhas.some((l) => l.conta.envio === "enviando")}
+                                      onClick={() => pedirLancamento(g.linhas)}
                                     >
-                                      {aplicandoTodos === p.id && <Loader2 className="size-3.5 animate-spin" />}
-                                      Aplicar em todos ({g.linhas.filter((l) => precoDoRascunho(l) !== null).length})
+                                      <Send className="size-3.5" />
+                                      Lançar todos (
+                                      {g.linhas.filter((l) => l.conta.envio === "alterado" || l.conta.envio === "erro").length})
                                     </Button>
                                   )}
                                 </span>
@@ -1024,14 +1266,11 @@ function Precificacao() {
                               key={l.anuncio.id}
                               linha={l}
                               cfg={cfg}
-                              alteracaoPreco={precosAlterados.get(l.anuncio.id) ?? null}
                               aoSalvarAjuste={(ajuste, todos) => salvarAjuste(l, ajuste, todos)}
-                              rascunho={rascunhos[l.anuncio.id] ?? { modo: "preco", texto: "" }}
-                              aoMudarRascunho={(r) =>
-                                setRascunhos((atual) => ({ ...atual, [l.anuncio.id]: r }))
-                              }
-                              aplicando={aplicando === l.anuncio.id}
-                              aoAplicar={(preco) => aplicarPreco(l, preco)}
+                              aoMudarPlano={(plano) => mudarPlano(l, plano)}
+                              aoLancar={() => pedirLancamento([l])}
+                              aoAtualizar={() => atualizarDoCanal(l)}
+                              atualizando={atualizando === l.anuncio.id || atualizando === "todos"}
                             />
                           ))}
                         {aberto && g.linhas.length === 0 && (
@@ -1109,20 +1348,54 @@ function Precificacao() {
               <span className="size-2 rounded-full bg-loss" /> Abaixo do empate — prejuízo
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="font-semibold text-brand">R$ 0,00</span> Valor que você mudou (preço
-              aplicado aqui, Ads ou Outros)
+              <span className="font-semibold text-brand">R$ 0,00</span> Simulação: você mudou e ainda não lançou
+              (Ads e Outros ajustados também ficam nesta cor)
             </span>
             <span className="ml-auto">A margem mínima de cada conta vem das metas em Configurações.</span>
           </div>
+          <div className="flex flex-wrap gap-4">
+            <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-brand" /> Mudou aqui, falta lançar</span>
+            <span className="flex items-center gap-1.5"><span className="size-2 animate-pulse rounded-full bg-warning" /> Enviando ao canal</span>
+            <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-profit" /> Igual ao canal (confirmado)</span>
+            <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-loss" /> O canal recusou (passe o mouse pra ver o motivo)</span>
+          </div>
           <p>
-            <strong>Ads</strong> e <strong>Outros</strong>: clique no valor pra escolher o que entra na conta
-            (Ads automático, fixo, em % ou nenhum; marcar/desmarcar cada custo e somar um custo extra).{" "}
-            <strong>Mínimo</strong> = menor preço que respeita a margem mínima; <strong>Empate</strong> =
-            preço de lucro zero. No preço novo, comissão e imposto acompanham o preço; frete, taxa fixa
-            e Ads ficam iguais aos de hoje (no Mercado Livre, cruzar os R$ 79 pode mudar o frete).
+            <strong>Preço cheio</strong> é o que vai pro canal no botão <strong>Lançar</strong>. Digite o preço
+            promocional que você quer e o desconto: o preço cheio sai sozinho (ex.: R$ 78,99 com 30% → R$ 112,84).
+            Ou digite o preço cheio, ou a margem — o campo que você digitou fica com contorno azul. A promoção em si
+            é criada na tela <strong>Promoções</strong>. <strong>Lucro e margem</strong> mostram sempre o que o cliente
+            paga agora no canal; enquanto você não lança, a linha mostra a simulação em azul.{" "}
+            <strong>Frete, taxa fixa e comissão</strong> vêm do próprio Mercado Livre em cada preço (a partir de
+            R$ 79 o frete grátis é obrigatório e o seu frete sobe). <strong>Mínimo</strong> = menor preço que
+            respeita a margem mínima; <strong>Empate</strong> = preço de lucro zero. <strong>Ads</strong> e{" "}
+            <strong>Outros</strong>: clique no valor pra escolher o que entra na conta.
           </p>
         </div>
       </Painel>
+
+      {confirmarLancamento && (
+        <Dialog open onOpenChange={(v) => !v && setConfirmarLancamento(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Lançar o preço cheio no Mercado Livre?</DialogTitle>
+              <DialogDescription>
+                {confirmarLancamento.filter((l) => l.anuncio.promocaoAtiva && (l.conta.planoCheio ?? 0) > l.conta.cheioCanal).length}{" "}
+                anúncio(s) estão em promoção agora. Pela regra do Mercado Livre, subir o preço cheio tira o anúncio da
+                promoção atual. Depois, crie a promoção de novo na tela Promoções.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmarLancamento(null)}>
+                Cancelar
+              </Button>
+              <Button onClick={() => lancar(confirmarLancamento)}>
+                <Send className="size-3.5" />
+                Lançar {confirmarLancamento.length} anúncio{confirmarLancamento.length > 1 ? "s" : ""}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {emVinculo && (
         <DialogVincularProduto
@@ -1345,51 +1618,244 @@ function SelosTipoAnuncio({ anuncio: a, dividemEstoque = 0 }: { anuncio: Anuncio
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Visibilidade, filtros e textos da linha                             */
+/* ------------------------------------------------------------------ */
+
+/** Situações do canal que não vendem (somem da Precificação). */
+const INATIVOS_CANAL = new Set(["under_review", "inactive", "closed"]);
+
+/** Sem os inativos e sem o anúncio tradicional que tem o mesmo produto em
+ * catálogo: no ML os dois andam juntos (mesmo preço e estoque), então só o
+ * de catálogo aparece. */
+function anunciosVisiveis(lista: Anuncio[]): Anuncio[] {
+  const ativos = lista.filter((a) => !a.statusCanal || !INATIVOS_CANAL.has(a.statusCanal));
+  const comCatalogo = new Set(
+    ativos.filter((a) => a.catalogo === true && a.grupoEstoque).map((a) => a.grupoEstoque as string),
+  );
+  return ativos.filter((a) => !(a.catalogo === false && a.grupoEstoque && comCatalogo.has(a.grupoEstoque)));
+}
+
+type FiltroPromocao = "todos" | "ativa" | "outro-valor" | "sem-promocao" | "alterados";
+
+function passaNaPromocao(c: ContaDaLinha, filtro: FiltroPromocao): boolean {
+  switch (filtro) {
+    case "todos":
+      return true;
+    case "alterados":
+      return c.envio === "alterado" || c.envio === "erro";
+    default:
+      return c.estadoPromocao === filtro;
+  }
+}
+
+const ROTULO_ESTADO_PROMO: Record<ContaDaLinha["estadoPromocao"], string> = {
+  ativa: "Ativa",
+  "outro-valor": "Ativa em outro valor",
+  "sem-promocao": "Sem promoção ativa",
+  nenhuma: "Sem promoção",
+};
+
+function tempoAtras(iso: string): string {
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return "agora há pouco";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `há ${h} h`;
+  return `em ${new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}`;
+}
+
+const dataCurta = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : null;
+
+/** Número editável na própria linha: mostra o valor; ao clicar, vira campo.
+ * Cada tecla já recalcula a linha. */
+function CampoValor({
+  valor,
+  aoMudar,
+  casas = 2,
+  placeholder,
+  destaque,
+  className,
+  titulo,
+}: {
+  valor: number | null;
+  aoMudar: (n: number | null) => void;
+  casas?: number;
+  placeholder?: string;
+  /** contorno azul: é o campo que o seller digitou */
+  destaque?: boolean;
+  className?: string;
+  titulo?: string;
+}) {
+  const [texto, setTexto] = useState<string | null>(null);
+  const exibido = valor === null || !Number.isFinite(valor) ? "" : valor.toFixed(casas).replace(".", ",");
+  return (
+    <input
+      inputMode="decimal"
+      title={titulo}
+      value={texto ?? exibido}
+      placeholder={placeholder}
+      onFocus={(e) => {
+        setTexto(exibido);
+        e.currentTarget.select();
+      }}
+      onChange={(e) => {
+        setTexto(e.target.value);
+        if (e.target.value.trim() === "") aoMudar(null);
+        else {
+          const n = lerNumero(e.target.value);
+          if (n !== null) aoMudar(n);
+        }
+      }}
+      onBlur={() => setTexto(null)}
+      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      className={cn(
+        "num h-7 w-[84px] rounded-md border border-transparent bg-transparent px-1.5 text-right text-xs outline-none transition-colors hover:border-border focus:border-ring focus:bg-background",
+        destaque && "border-brand ring-1 ring-brand/40",
+        className,
+      )}
+    />
+  );
+}
+
+type PlanoEditavel = Pick<PrecoPlanejado, "precoCheio" | "descontoPercentual" | "precoPromocional" | "campoBase">;
+
 function LinhaDoAnuncio({
   linha,
   cfg,
-  rascunho,
-  aoMudarRascunho,
-  aplicando,
-  aoAplicar,
   aoSalvarAjuste,
-  alteracaoPreco,
+  aoMudarPlano,
+  aoLancar,
+  aoAtualizar,
+  atualizando,
 }: {
   linha: LinhaAnuncio;
   cfg: ConfigPrecificacao;
-  /** Última mudança de preço feita nesta tela (null = preço original) */
-  alteracaoPreco: AlteracaoPrecoRegistrada | null;
-  rascunho: { modo: ModoEdicao; texto: string };
-  aoMudarRascunho: (r: { modo: ModoEdicao; texto: string }) => void;
-  aplicando: boolean;
-  aoAplicar: (preco: number) => void;
   aoSalvarAjuste: (ajuste: AjusteCusto, todosDoProduto: boolean) => Promise<boolean>;
+  aoMudarPlano: (plano: PlanoEditavel | null) => void;
+  aoLancar: () => void;
+  aoAtualizar: () => void;
+  atualizando: boolean;
 }) {
-  const { anuncio: a, comCmv, det: d, limites, margemMinima, ajuste } = linha;
+  const { anuncio: a, comCmv, det: v, limites, margemMinima, ajuste, conta: c, plano } = linha;
+  const base: CampoBasePreco | null = plano?.campoBase ?? null;
+  const descGuardado = plano?.descontoPercentual ?? null;
+  const [margemDigitada, setMargemDigitada] = useState<number | null>(null);
+  const [margemImpossivel, setMargemImpossivel] = useState(false);
+  const versaoCustos = useVersaoCustos();
 
-  // O que o seller digitou vira um preço novo — direto (modo preço) ou
-  // calculado a partir da margem pedida (modo margem).
-  const numero = lerNumero(rascunho.texto);
-  let precoNovo: number | null = null;
-  let impossivel = false;
-  if (numero !== null && rascunho.texto.trim() !== "") {
-    if (rascunho.modo === "preco") {
-      precoNovo = numero > 0 ? Math.round(numero * 100) / 100 : null;
-    } else {
-      precoNovo = precoParaMargem(comCmv, numero / 100, ajuste, cfg);
-      impossivel = precoNovo === null;
+  // Pede ao canal o frete/taxas nos preços novos (espera parar de digitar).
+  useEffect(() => {
+    const precos = [c.precoCalculo, c.planoPromo, c.planoCheio].filter(
+      (x): x is number => typeof x === "number" && x > 0 && Math.abs(x - a.precoAtual) >= 0.005,
+    );
+    if (precos.length === 0) return;
+    const t = setTimeout(() => precos.forEach((p) => pedirCustos(a.id, p)), 500);
+    return () => clearTimeout(t);
+  }, [a.id, a.precoAtual, c.precoCalculo, c.planoPromo, c.planoCheio]);
+
+  const aplicarMargem = (m: number) => {
+    const { preco } = precoPelaMargem(comCmv, m / 100, ajuste, cfg, (x) => custosEm(a.id, x));
+    setMargemImpossivel(preco === null);
+    if (preco === null) return;
+    const novo: PlanoEditavel =
+      c.desconto > 0
+        ? { precoCheio: cheioDoPromo(preco, c.desconto), descontoPercentual: descGuardado, precoPromocional: preco, campoBase: "margem" }
+        : { precoCheio: preco, descontoPercentual: descGuardado, precoPromocional: null, campoBase: "margem" };
+    const igual =
+      plano?.campoBase === "margem" &&
+      Math.abs((plano.precoCheio ?? 0) - (novo.precoCheio ?? 0)) < 0.005 &&
+      Math.abs((plano.precoPromocional ?? 0) - (novo.precoPromocional ?? 0)) < 0.005;
+    if (!igual) aoMudarPlano(novo);
+  };
+
+  // Chegou o frete do canal no preço achado pela margem: refaz a conta.
+  useEffect(() => {
+    if (margemDigitada !== null && base === "margem") aplicarMargem(margemDigitada);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [versaoCustos]);
+
+  const mudarCheio = (n: number | null) => {
+    setMargemDigitada(null);
+    if (n === null || n <= 0) {
+      aoMudarPlano(null);
+      return;
     }
-  }
-  const mudou = precoNovo !== null && Math.abs(precoNovo - a.precoAtual) >= 0.01;
-  // Com um preço novo digitado (ou calculado pela margem), a linha inteira
-  // passa a mostrar as contas nesse preço: comissão, imposto, Ads, outros,
-  // lucro e margem acompanham. Apagou o campo, volta ao preço de hoje.
-  const v = precoNovo !== null ? detalharPreco(comCmv, precoNovo, ajuste, cfg) : d;
+    aoMudarPlano({
+      precoCheio: n,
+      descontoPercentual: descGuardado,
+      precoPromocional: c.desconto > 0 ? promoDoCheio(n, c.desconto) : null,
+      campoBase: "cheio",
+    });
+  };
+
+  const mudarDesconto = (n: number | null) => {
+    const d = n ?? linha.descontoPadrao ?? 0;
+    // Com o promocional como base, ele fica e o cheio muda (78,99: 30% → 112,84; 20% → 98,74).
+    const promoBase =
+      base === "promo" || base === "margem" ? (plano?.precoPromocional ?? plano?.precoCheio ?? null) : null;
+    if (promoBase !== null) {
+      aoMudarPlano({
+        precoCheio: cheioDoPromo(promoBase, d),
+        descontoPercentual: n,
+        precoPromocional: d > 0 ? promoBase : null,
+        campoBase: base,
+      });
+      return;
+    }
+    const cheio = plano?.precoCheio ?? c.cheioCanal;
+    aoMudarPlano({
+      precoCheio: cheio,
+      descontoPercentual: n,
+      precoPromocional: d > 0 ? promoDoCheio(cheio, d) : null,
+      campoBase: "cheio",
+    });
+  };
+
+  const mudarPromo = (n: number | null) => {
+    setMargemDigitada(null);
+    if (n === null || n <= 0) {
+      if (plano) aoMudarPlano({ precoCheio: plano.precoCheio, descontoPercentual: descGuardado, precoPromocional: null, campoBase: "cheio" });
+      return;
+    }
+    aoMudarPlano({
+      precoCheio: cheioDoPromo(n, c.desconto),
+      descontoPercentual: descGuardado,
+      precoPromocional: c.desconto > 0 ? n : null,
+      campoBase: "promo",
+    });
+  };
+
+  const mudarMargem = (n: number | null) => {
+    if (n === null) return;
+    setMargemDigitada(n);
+    aplicarMargem(n);
+  };
+
+  const sim = c.simulacao;
   const ponto = v.lucro < 0 ? "bg-loss" : v.margem < margemMinima ? "bg-warning" : "bg-profit";
   const corMargem = v.lucro < 0 ? "text-loss" : v.margem < margemMinima ? "text-warning" : "text-profit";
+  const ativa = a.promocaoAtiva ?? null;
+  const custosPendentes = sim && Math.abs(c.precoCalculo - a.precoAtual) >= 0.005 && custosEm(a.id, c.precoCalculo) === undefined;
+  const textoPequeno = "mt-0.5 block text-[9px] leading-tight";
+
+  // Comparação pequena embaixo do lucro e da margem.
+  let comparacao: { rotulo: string; det: Detalhamento } | null = null;
+  if (sim) comparacao = { rotulo: "agora", det: c.detAgora };
+  else if (c.detPlanoPromo && c.estadoPromocao === "sem-promocao") comparacao = { rotulo: "na promo", det: c.detPlanoPromo };
+  else if (c.detPlanoPromo && c.estadoPromocao === "outro-valor") comparacao = { rotulo: "planejado", det: c.detPlanoPromo };
+
+  const situacao = {
+    alterado: { cor: "bg-brand", texto: "Mudou aqui, falta lançar no canal" },
+    enviando: { cor: "bg-warning animate-pulse", texto: "Enviando ao canal..." },
+    igual: { cor: "bg-profit", texto: plano?.enviadoEm ? `Igual ao canal (lançado em ${dataCurta(plano.enviadoEm)})` : "Igual ao canal" },
+    erro: { cor: "bg-loss", texto: `O canal recusou: ${plano?.erroEnvio ?? "sem motivo"}` },
+    "sem-plano": { cor: "bg-muted-foreground/30", texto: "Preço do canal (nada planejado aqui)" },
+  }[c.envio];
 
   return (
-    <tr className="border-t border-border/40 text-xs transition-colors hover:bg-muted/20">
+    <tr className={cn("border-t border-border/40 text-xs transition-colors hover:bg-muted/20", sim && "bg-brand/[0.03]")}>
       <td className="px-3 py-2">
         <div className="flex items-center gap-2 pl-5">
           <span className={cn("size-1.5 shrink-0 rounded-full", ponto)} />
@@ -1398,107 +1864,264 @@ function LinhaDoAnuncio({
           <SelosTipoAnuncio anuncio={a} />
         </div>
       </td>
-      <td
-        className={cn("num px-2 py-2 text-right font-semibold", alteracaoPreco && COR_ALTERADO)}
-        title={
-          alteracaoPreco
-            ? `Preço mudado aqui em ${new Date(alteracaoPreco.data).toLocaleDateString("pt-BR")}: de ${formatBRL(alteracaoPreco.precoAntes)} para ${formatBRL(alteracaoPreco.precoDepois)}. Sem API ainda, confira se mudou também no marketplace.`
-            : undefined
-        }
-      >
-        {formatBRL(d.preco)}
+
+      {/* Preço cheio: o que vai pro canal */}
+      <td className="px-1 py-1.5 text-right align-top">
+        <CampoValor
+          valor={c.planoCheio ?? c.cheioCanal}
+          aoMudar={mudarCheio}
+          destaque={base === "cheio"}
+          className={cn("font-semibold", (c.envio === "alterado" || c.envio === "erro") && COR_ALTERADO)}
+          titulo="Preço cheio: é o que vai pro canal no botão Lançar"
+        />
+        {(c.envio === "alterado" || c.envio === "erro") && (
+          <span className={cn(textoPequeno, "text-muted-foreground")}>no canal {formatBRL(c.cheioCanal)}</span>
+        )}
       </td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(d.cmv)}</td>
+
+      {/* Desconto % */}
+      <td className="px-1 py-1.5 text-right align-top">
+        <CampoValor
+          valor={descGuardado}
+          aoMudar={mudarDesconto}
+          casas={0}
+          placeholder={linha.descontoPadrao ? `${linha.descontoPadrao}` : "0"}
+          titulo={linha.descontoPadrao ? `Vazio = desconto padrão da conta (${linha.descontoPadrao}%)` : "Desconto da promoção, em %"}
+          className="w-14"
+        />
+        {c.descontoForaDoMl ? (
+          <span className={cn(textoPequeno, "text-loss")}>
+            ML: {DESCONTO_MIN_ML}% a {DESCONTO_MAX_ML}%
+          </span>
+        ) : c.descontoMaximo !== null ? (
+          <span
+            className={cn(textoPequeno, c.desconto > c.descontoMaximo ? "text-loss" : "text-muted-foreground")}
+            title={`Maior desconto que ainda deixa a margem mínima da conta (${formatPercentual(margemMinima)})`}
+          >
+            até {c.descontoMaximo.toLocaleString("pt-BR")}%
+          </span>
+        ) : null}
+      </td>
+
+      {/* Preço promocional: o plano + a situação da promoção no canal */}
+      <td className="px-1 py-1.5 text-right align-top">
+        <div
+          className={cn(
+            "inline-block rounded-md border px-0.5 py-0.5 text-right",
+            c.estadoPromocao === "ativa" && "border-profit/60 bg-profit/10",
+            c.estadoPromocao === "outro-valor" && "border-warning/60 bg-warning/10",
+            c.estadoPromocao === "sem-promocao" && "border-dashed border-loss/60",
+            c.estadoPromocao === "nenhuma" && "border-transparent",
+          )}
+        >
+          <CampoValor
+            valor={c.planoPromo ?? (ativa && !plano ? ativa.preco : null)}
+            aoMudar={mudarPromo}
+            placeholder="—"
+            destaque={base === "promo"}
+            className={cn(
+              "font-semibold",
+              c.estadoPromocao === "ativa" && "text-profit",
+              c.estadoPromocao === "outro-valor" && "text-warning",
+              c.estadoPromocao === "sem-promocao" && "text-muted-foreground line-through decoration-loss",
+            )}
+            titulo="Preço promocional: o que o cliente paga com a promoção"
+          />
+          {c.estadoPromocao === "ativa" && ativa && (
+            <span className={cn(textoPequeno, "max-w-[120px] truncate px-1 text-profit")} title={ativa.nome}>
+              Ativa · {ativa.nome}
+              {ativa.fim ? ` até ${dataCurta(ativa.fim)}` : ""}
+            </span>
+          )}
+          {c.estadoPromocao === "outro-valor" && ativa && (
+            <span className={cn(textoPequeno, "max-w-[120px] px-1 text-warning")} title={ativa.nome}>
+              Ativa a {formatBRL(ativa.preco)}
+            </span>
+          )}
+          {c.estadoPromocao === "sem-promocao" && (
+            <span className={cn(textoPequeno, "inline-flex items-center gap-0.5 px-1 font-semibold text-loss")}>
+              <AlertTriangle className="size-2.5" /> Sem promoção
+            </span>
+          )}
+        </div>
+      </td>
+
+      <td className="num px-2 py-2 text-right align-top text-muted-foreground">{formatBRL(v.cmv)}</td>
       <td
-        className="num px-2 py-2 text-right text-muted-foreground"
-        title={`${formatPercentual(a.comissaoPercentual)} do preço`}
+        className={cn("num px-2 py-2 text-right align-top", sim ? "text-brand" : "text-muted-foreground")}
+        title={`${formatPercentual(v.preco > 0 ? v.comissao / v.preco : 0)} do preço`}
       >
         {formatBRL(v.comissao)}
       </td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(v.taxaFixa)}</td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(v.frete)}</td>
-      <td className="px-2 py-2 text-right">
+      <td className={cn("num px-2 py-2 text-right align-top", sim ? "text-brand" : "text-muted-foreground")}>
+        {formatBRL(v.taxaFixa)}
+      </td>
+      <td
+        className={cn("num px-2 py-2 text-right align-top", sim ? "text-brand" : "text-muted-foreground")}
+        title={
+          c.cruzou79
+            ? `Passou da linha dos R$ ${LIMITE_FRETE_GRATIS_ML}: o frete muda (hoje ${formatBRL(c.detAgora.frete)}).`
+            : "Frete que o canal cobra de você nesse preço"
+        }
+      >
+        {custosPendentes ? <Loader2 className="ml-auto size-3 animate-spin" /> : formatBRL(v.frete)}
+        {c.cruzou79 && (
+          <span className={cn(textoPequeno, "font-semibold text-warning")}>
+            {c.precoCalculo >= LIMITE_FRETE_GRATIS_ML ? "≥ R$ 79" : "< R$ 79"}
+          </span>
+        )}
+      </td>
+      <td className="px-2 py-2 text-right align-top">
         <PopoverAds anuncio={a} ajuste={ajuste} valorAtual={v.ads} aoSalvar={aoSalvarAjuste} />
       </td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">{formatBRL(v.imposto)}</td>
-      <td className="px-2 py-2 text-right">
+      <td className={cn("num px-2 py-2 text-right align-top", sim ? "text-brand" : "text-muted-foreground")}>
+        {formatBRL(v.imposto)}
+      </td>
+      <td className="px-2 py-2 text-right align-top">
         <PopoverOutros det={v} ajuste={ajuste} aoSalvar={aoSalvarAjuste} />
       </td>
-      <td className={cn("num px-2 py-2 text-right font-bold", v.lucro < 0 ? "text-loss" : "")}>
+      <td className={cn("num px-2 py-2 text-right align-top font-bold", sim ? "text-brand" : v.lucro < 0 ? "text-loss" : "")}>
         {formatBRL(v.lucro)}
+        {comparacao && (
+          <span className={cn(textoPequeno, "font-normal text-muted-foreground")}>
+            {comparacao.rotulo} {formatBRL(comparacao.det.lucro)}
+          </span>
+        )}
       </td>
-      <td className={cn("num px-2 py-2 text-right font-bold", corMargem)}>{formatPercentual(v.margem)}</td>
+      <td className="px-1 py-1.5 text-right align-top">
+        <CampoValor
+          valor={margemImpossivel ? null : v.margem * 100}
+          aoMudar={mudarMargem}
+          casas={1}
+          placeholder="impossível"
+          destaque={base === "margem"}
+          className={cn("w-16 font-bold", sim ? "text-brand" : corMargem)}
+          titulo="Digite a margem que você quer: o preço sai sozinho"
+        />
+        {comparacao && (
+          <span className={cn(textoPequeno, "text-muted-foreground")}>
+            {comparacao.rotulo} {formatPercentual(comparacao.det.margem)}
+          </span>
+        )}
+      </td>
       <td
-        className="num px-2 py-2 text-right"
+        className="num px-2 py-2 text-right align-top"
         title={`Margem mínima desta conta: ${formatPercentual(margemMinima)}`}
       >
         {limites.precoMinimo !== null ? formatBRL(limites.precoMinimo) : "—"}
       </td>
-      <td className="num px-2 py-2 text-right text-loss">
+      <td className="num px-2 py-2 text-right align-top text-loss">
         {limites.precoEmpate !== null ? formatBRL(limites.precoEmpate) : "—"}
       </td>
-      <td className="num px-2 py-2 text-right font-bold">
-        {impossivel ? (
-          <span className="text-[10px] font-normal text-loss">Margem impossível</span>
-        ) : (
-          formatBRL(v.preco)
-        )}
-      </td>
 
-      {/* Edição: por preço ou por margem */}
-      <td className="border-l px-2 py-2">
-        <div className="flex items-center gap-1">
-          <div className="flex rounded-md bg-muted p-0.5">
-            {(
-              [
-                ["preco", "R$"],
-                ["margem", "%"],
-              ] as const
-            ).map(([modo, rotulo]) => (
-              <button
-                key={modo}
-                onClick={() => aoMudarRascunho({ modo, texto: "" })}
-                title={modo === "preco" ? "Digitar o preço novo" : "Digitar a margem que você quer"}
-                className={cn(
-                  "rounded px-1.5 py-0.5 text-[10px] font-bold",
-                  rascunho.modo === modo ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
-                )}
-              >
-                {rotulo}
-              </button>
-            ))}
-          </div>
-          <Input
-            inputMode="decimal"
-            value={rascunho.texto}
-            onChange={(e) => aoMudarRascunho({ ...rascunho, texto: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && mudou && precoNovo !== null) aoAplicar(precoNovo);
-            }}
-            placeholder={
-              rascunho.modo === "preco"
-                ? d.preco.toFixed(2).replace(".", ",")
-                : (d.margem * 100).toFixed(1).replace(".", ",")
-            }
-            className="num h-7 w-24 px-2 text-right text-xs"
-          />
+      {/* Situação no canal + ações */}
+      <td className="border-l px-2 py-1.5 align-top">
+        <div className="flex items-center justify-end gap-1.5">
+          <span className={cn("size-2.5 shrink-0 rounded-full", situacao.cor)} title={situacao.texto} />
+          {(c.envio === "alterado" || c.envio === "erro") && (
+            <Button size="sm" className="h-7 px-2 text-[11px]" onClick={aoLancar} title="Mandar o preço cheio pro canal">
+              <Send className="size-3.5" />
+              Lançar
+            </Button>
+          )}
+          {c.envio === "enviando" && <Loader2 className="size-3.5 animate-spin text-warning" />}
+          <button
+            onClick={aoAtualizar}
+            disabled={atualizando}
+            title="Ler de novo este anúncio no canal (preço, taxas, frete e situação)"
+            className="text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={cn("size-3.5", atualizando && "animate-spin")} />
+          </button>
+          {plano && (
+            <button
+              onClick={() => aoMudarPlano(null)}
+              title="Descartar o que você planejou aqui e voltar ao preço do canal"
+              className="text-muted-foreground transition-colors hover:text-loss"
+            >
+              <RotateCcw className="size-3.5" />
+            </button>
+          )}
         </div>
-      </td>
-      <td className="px-3 py-2 text-right">
-        <Button
-          size="sm"
-          variant={mudou ? "default" : "outline"}
-          className="h-7 text-[11px]"
-          disabled={!mudou || aplicando}
-          onClick={() => precoNovo !== null && aoAplicar(precoNovo)}
-        >
-          {aplicando ? <Loader2 className="size-3.5 animate-spin" /> : null}
-          Aplicar
-        </Button>
+        {c.envio === "erro" && (
+          <span className={cn(textoPequeno, "max-w-[160px] text-right text-loss")} title={plano?.erroEnvio ?? ""}>
+            {(plano?.erroEnvio ?? "").slice(0, 60)}
+          </span>
+        )}
       </td>
     </tr>
   );
 }
+
+/** Desconto padrão por conta: com ele, o seller só digita o preço
+ * promocional e o preço cheio sai sozinho. */
+function PopoverDescontoPadrao({
+  contas,
+  valores,
+  aoSalvar,
+}: {
+  contas: { id: string; nome: string }[];
+  valores: Record<string, number>;
+  aoSalvar: (contaId: string, valor: number | null) => Promise<void>;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [textos, setTextos] = useState<Record<string, string>>({});
+  if (contas.length === 0) return null;
+  const algum = contas.some((c) => valores[c.id] !== undefined);
+  return (
+    <Popover
+      open={aberto}
+      onOpenChange={(v) => {
+        setAberto(v);
+        if (v) setTextos(Object.fromEntries(contas.map((c) => [c.id, valores[c.id] !== undefined ? String(valores[c.id]) : ""])));
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="outline">
+          Desconto padrão
+          {algum && contas.length === 1 && `: ${valores[contas[0]!.id]}%`}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 space-y-3">
+        <p className="text-[11px] text-muted-foreground">
+          Com um desconto padrão, em cada anúncio você só digita o preço promocional e o preço cheio sai sozinho
+          (ex.: 30% → R$ 78,99 vira cheio de R$ 112,84). Dá pra mudar o % em cada linha. O Mercado Livre aceita de{" "}
+          {DESCONTO_MIN_ML}% a {DESCONTO_MAX_ML}%.
+        </p>
+        {contas.map((c) => (
+          <div key={c.id} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-xs">{c.nome}</span>
+            <Input
+              inputMode="decimal"
+              value={textos[c.id] ?? ""}
+              onChange={(e) => setTextos((t) => ({ ...t, [c.id]: e.target.value }))}
+              placeholder="30"
+              className="num h-8 w-16 text-right text-xs"
+            />
+            <span className="text-xs text-muted-foreground">%</span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-[11px]"
+              onClick={async () => {
+                const t = (textos[c.id] ?? "").trim();
+                const n = t === "" ? null : lerNumero(t);
+                if (t !== "" && (n === null || n < 0 || n >= 100)) {
+                  toast.error("Digite um desconto entre 0 e 99.");
+                  return;
+                }
+                await aoSalvar(c.id, n);
+              }}
+            >
+              Salvar
+            </Button>
+          </div>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 
 /* ------------------------------------------------------------------ */
 /* Clicar e editar: Ads                                                */

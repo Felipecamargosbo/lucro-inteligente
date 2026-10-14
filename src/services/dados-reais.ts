@@ -16,6 +16,7 @@ import type {
   ItemEstoqueDetalhado,
   OportunidadeRecuperacao,
   Promocao,
+  PromocaoAtiva,
   MarketplaceId,
   Pedido,
   StatusAnuncio,
@@ -26,7 +27,6 @@ import type {
 /** Alíquota usada enquanto o seller não configura o regime dele. */
 const IMPOSTO_PADRAO = 0.1;
 
-/** Nome que o seller conhece para cada tipo de anúncio do Mercado Livre. */
 /** Situação do anúncio no canal em português; null quando está ativo normal. */
 function situacaoNoCanal(status: string | null, sub: string[] | null): string | null {
   const subs = Array.isArray(sub) ? sub : [];
@@ -38,6 +38,7 @@ function situacaoNoCanal(status: string | null, sub: string[] | null): string | 
   return null;
 }
 
+/** Nome que o seller conhece para cada tipo de anúncio do Mercado Livre. */
 const TIPO_ANUNCIO: Record<string, string> = { gold_special: "Clássico", gold_pro: "Premium", free: "Grátis" };
 
 const STATUS_ANUNCIO: StatusAnuncio[] = ["ativo", "pausado", "sem-estoque"];
@@ -107,7 +108,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       supabase
         .from("anuncios")
         .select(
-          "id, conta_id, produto_id, id_externo, sku, ean, titulo, preco_atual, preco_cheio, em_promocao, comissao_percentual, taxa_fixa, frete_unitario, custo_midia_unitario, custo_afiliado_unitario, origem_taxas, status, unidades_vendidas, data_ultima_venda, estoque, logistica, modalidade, link, nota_media, avaliacoes_total, avaliacoes_ruins, avaliacoes_comentarios, descricao, atributos, catalogo, status_ml, sub_status_ml, user_product_id",
+          "id, conta_id, produto_id, id_externo, sku, ean, titulo, preco_atual, preco_cheio, em_promocao, comissao_percentual, taxa_fixa, frete_unitario, custo_midia_unitario, custo_afiliado_unitario, origem_taxas, status, unidades_vendidas, data_ultima_venda, estoque, logistica, modalidade, link, nota_media, avaliacoes_total, avaliacoes_ruins, avaliacoes_comentarios, descricao, atributos, catalogo, status_ml, sub_status_ml, user_product_id, atualizado_em",
         )
         .eq("perfil_id", perfilId)
         .order("id")
@@ -131,7 +132,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       supabase
         .from("promocoes_canal")
         .select(
-          "id, conta_id, id_promocao, tipo, nome, fim, prazo_adesao, anuncio_id, status_item, preco_original, preco_promocional, preco_minimo, preco_maximo, desconto_canal_percentual",
+          "id, conta_id, id_promocao, tipo, nome, inicio, fim, prazo_adesao, anuncio_id, status_item, preco_original, preco_promocional, preco_minimo, preco_maximo, desconto_canal_percentual, desconto_vendedor_percentual, offer_id",
         )
         .eq("perfil_id", perfilId)
         .order("id")
@@ -192,6 +193,42 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
     (rPromocoes.data ?? []).map((p) => p.anuncio_id as string | null).filter(Boolean) as string[],
   );
 
+  // Promoção em andamento no canal, por anúncio (a de menor preço vale).
+  const campanhaAtivaPorAnuncio = new Map<string, Record<string, unknown>>();
+  for (const p of rPromocoes.data ?? []) {
+    if (p.status_item !== "started" || !p.anuncio_id) continue;
+    const atual = campanhaAtivaPorAnuncio.get(p.anuncio_id as string);
+    if (!atual || num(p.preco_promocional) < num(atual.preco_promocional)) {
+      campanhaAtivaPorAnuncio.set(p.anuncio_id as string, p);
+    }
+  }
+  /** O que o cliente paga hoje: o canal mostra preço riscado (original) quando
+   * há promoção valendo, qualquer que seja ela. */
+  const promocaoAtivaDe = (a: Record<string, unknown>): PromocaoAtiva | null => {
+    const camp = campanhaAtivaPorAnuncio.get(a.id as string);
+    const preco = num(a.preco_atual);
+    const cheio = a.preco_cheio === null || a.preco_cheio === undefined ? null : num(a.preco_cheio);
+    if (cheio !== null && cheio > preco) {
+      return {
+        nome: (camp?.nome as string) ?? "Desconto no preço",
+        tipo: (camp?.tipo as string) ?? null,
+        preco,
+        precoCheio: cheio,
+        fim: (camp?.fim as string | null) ?? null,
+      };
+    }
+    if (camp && num(camp.preco_promocional) > 0 && num(camp.preco_promocional) < preco) {
+      return {
+        nome: (camp.nome as string) ?? "Promoção",
+        tipo: (camp.tipo as string) ?? null,
+        preco: num(camp.preco_promocional),
+        precoCheio: preco,
+        fim: (camp.fim as string | null) ?? null,
+      };
+    }
+    return null;
+  };
+
   const anuncios: Anuncio[] = (rAnuncios.data ?? [])
     .filter((a) => marketplaceDaConta.has(a.conta_id as string))
     .map((a) => ({
@@ -205,6 +242,10 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       catalogo: a.catalogo === null || a.catalogo === undefined ? null : Boolean(a.catalogo),
       situacaoCanal: situacaoNoCanal(a.status_ml as string | null, a.sub_status_ml as string[] | null),
       grupoEstoque: (a.user_product_id as string | null) ?? null,
+      idExterno: (a.id_externo as string | null) ?? null,
+      statusCanal: (a.status_ml as string | null) ?? null,
+      atualizadoEm: (a.atualizado_em as string | null) ?? null,
+      promocaoAtiva: promocaoAtivaDe(a),
       avaliacao:
         a.avaliacoes_total === null || a.avaliacoes_total === undefined
           ? null
@@ -421,6 +462,16 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       descontoCanalPercentual: p.desconto_canal_percentual === null ? null : num(p.desconto_canal_percentual),
       link: linkPorAnuncio.get(a.id) ?? null,
       tipoAnuncio: a.tipoAnuncio ?? null,
+      anuncioId: a.id,
+      contaId: a.contaId,
+      idPromocao: (p.id_promocao as string) ?? undefined,
+      tipoPromocao: (p.tipo as string | null) ?? null,
+      offerId: (p.offer_id as string | null) ?? null,
+      inicio: (p.inicio as string | null) ?? null,
+      descontoVendedorPercentual:
+        p.desconto_vendedor_percentual === null || p.desconto_vendedor_percentual === undefined
+          ? null
+          : num(p.desconto_vendedor_percentual),
     });
   }
 
