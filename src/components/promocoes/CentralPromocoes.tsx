@@ -11,8 +11,16 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, CalendarDays, ExternalLink, Loader2, Plus, Search } from "lucide-react";
-import { anunciosService, precosMlService, promocoesService } from "@/services";
+import { AlertTriangle, CalendarDays, CheckCircle2, ExternalLink, Loader2, Plus, RefreshCw, Search, XCircle } from "lucide-react";
+import {
+  anunciosService,
+  contasService,
+  precosMlService,
+  promocoesCriadasService,
+  promocoesService,
+  type PromocaoCriada,
+} from "@/services";
+import { useAuth } from "@/context/auth";
 import { useBasePrecificacao } from "@/hooks/use-base-precificacao";
 import { pedirCustos, custosEm, useVersaoCustos } from "@/lib/custos-canal";
 import {
@@ -83,8 +91,38 @@ export function CentralPromocoes() {
   const [filtro, setFiltro] = useState<FiltroSituacao>("todos");
   const [campanhaFiltro, setCampanhaFiltro] = useState<string>("todas");
   const [pagina, setPagina] = useState(0);
-  const [criarAberto, setCriarAberto] = useState(false);
+  /** null = fechado; "nova" = criar; ou a promoção pra colocar anúncios */
+  const [dialogo, setDialogo] = useState<null | "nova" | PromocaoCriada>(null);
   const [tick, setTick] = useState(0);
+  const { sessao } = useAuth();
+  /** Promoções criadas pelo painel (com a situação no canal) */
+  const [criadas, setCriadas] = useState<PromocaoCriada[]>([]);
+  const [verificando, setVerificando] = useState<string | null>(null);
+  /** Anúncios marcados na lista, pra colocar numa promoção de uma vez */
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [destino, setDestino] = useState<string>("");
+
+  const carregarCriadas = async () => {
+    if (!sessao) return;
+    setCriadas(await promocoesCriadasService.listar(sessao.user.id));
+  };
+  useEffect(() => {
+    void carregarCriadas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessao, tick]);
+
+  const verificar = async (c: PromocaoCriada) => {
+    if (!c.idPromocao) return;
+    setVerificando(c.id);
+    const r = await precosMlService.verificar(c.idPromocao);
+    setVerificando(null);
+    if (r.erro) toast.error(`"${c.nome}": ${r.erro}`);
+    else
+      toast.success(`"${c.nome}" está criada no Mercado Livre`, {
+        description: `${ROTULO_STATUS_CANAL[r.status ?? ""] ?? r.status ?? "—"} · ${r.anuncios} anúncio(s)`,
+      });
+    await carregarCriadas();
+  };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const anuncios = useMemo(() => anunciosVisiveis(anunciosService.listar()), [tick, base.pronto]);
@@ -298,12 +336,73 @@ export function CentralPromocoes() {
         titulo="Campanhas"
         descricao="As do Mercado Livre e as suas, com as datas"
         acoes={
-          <Button size="sm" onClick={() => setCriarAberto(true)}>
+          <Button size="sm" onClick={() => setDialogo("nova")}>
             <Plus className="size-3.5" />
             Criar promoção
           </Button>
         }
       >
+        {criadas.length > 0 && (
+          <div className="border-b">
+            <p className="px-4 pt-3 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+              Suas promoções (criadas aqui)
+            </p>
+            <div className="divide-y">
+              {criadas.map((c) => (
+                <div key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-xs">
+                  {c.status === "criada" ? (
+                    <CheckCircle2 className="size-4 shrink-0 text-profit" />
+                  ) : c.status === "erro" ? (
+                    <XCircle className="size-4 shrink-0 text-loss" />
+                  ) : (
+                    <Loader2 className="size-4 shrink-0 animate-spin text-warning" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold">
+                      {c.nome}
+                      {c.desconto !== null && <span className="font-normal text-muted-foreground"> · {formatNumero(c.desconto)}%</span>}
+                      <span className="font-normal text-muted-foreground">
+                        {" "}
+                        · {dataCurta(c.inicio)} → {dataCurta(c.fim)}
+                      </span>
+                    </p>
+                    {c.status === "criada" && (
+                      <p className="text-[10px] text-profit">
+                        Criada no Mercado Livre · {ROTULO_STATUS_CANAL[c.statusCanal ?? ""] ?? c.statusCanal ?? "—"} ·{" "}
+                        {c.anuncios} anúncio(s)
+                      </p>
+                    )}
+                    {c.status === "criando" && <p className="text-[10px] text-warning">Mandando pro Mercado Livre...</p>}
+                    {c.status === "erro" && (
+                      <p className="text-[10px] text-loss" title={c.erro ?? ""}>
+                        Deu problema: {c.erro ?? "sem motivo"}
+                      </p>
+                    )}
+                  </div>
+                  {c.idPromocao && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[11px]"
+                      disabled={verificando === c.id}
+                      onClick={() => verificar(c)}
+                      title="Confere no Mercado Livre se a promoção está criada e quantos anúncios tem"
+                    >
+                      <RefreshCw className={cn("size-3.5", verificando === c.id && "animate-spin")} />
+                      Verificar no ML
+                    </Button>
+                  )}
+                  {c.status === "criada" && c.idPromocao && (
+                    <Button size="sm" className="h-7 text-[11px]" onClick={() => setDialogo(c)}>
+                      <Plus className="size-3.5" />
+                      Colocar anúncios
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {campanhas.length === 0 ? (
           <p className="p-5 text-xs text-muted-foreground">Nenhuma campanha aberta no canal agora.</p>
         ) : (
@@ -389,6 +488,63 @@ export function CentralPromocoes() {
           </span>
         </div>
 
+        {/* Marcar vários anúncios e colocar numa promoção sua */}
+        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/20 px-4 py-2 text-[11px]">
+          <Checkbox
+            checked={visiveis.length > 0 && visiveis.every((i) => marcados.has(i.anuncio.id))}
+            onCheckedChange={(v) =>
+              setMarcados((atual) => {
+                const novo = new Set(atual);
+                for (const i of visiveis) {
+                  if (v) novo.add(i.anuncio.id);
+                  else novo.delete(i.anuncio.id);
+                }
+                return novo;
+              })
+            }
+          />
+          <span className="text-muted-foreground">Marcar os desta página</span>
+          {marcados.size > 0 && (
+            <>
+              <span className="ml-3 font-semibold">{marcados.size} marcado(s)</span>
+              {criadas.some((c) => c.status === "criada") ? (
+                <>
+                  <Select value={destino} onValueChange={setDestino}>
+                    <SelectTrigger className="h-7 w-56 text-[11px]">
+                      <SelectValue placeholder="Escolha a promoção" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {criadas
+                        .filter((c) => c.status === "criada" && c.idPromocao)
+                        .map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.nome} ({formatNumero(c.desconto ?? 0)}%)
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    className="h-7 text-[11px]"
+                    disabled={!destino}
+                    onClick={() => {
+                      const c = criadas.find((x) => x.id === destino);
+                      if (c) setDialogo(c);
+                    }}
+                  >
+                    Colocar na promoção
+                  </Button>
+                </>
+              ) : (
+                <span className="text-muted-foreground">Crie uma promoção primeiro (botão “Criar promoção”).</span>
+              )}
+              <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setMarcados(new Set())}>
+                Limpar
+              </Button>
+            </>
+          )}
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1250px] text-left">
             <thead>
@@ -407,7 +563,22 @@ export function CentralPromocoes() {
             </thead>
             <tbody>
               {visiveis.map((i) => (
-                <BlocoAnuncio key={i.anuncio.id} item={i} avaliar={avaliar} aoAgir={aposAcao} noPreco={base.noPreco} />
+                <BlocoAnuncio
+                  key={i.anuncio.id}
+                  item={i}
+                  avaliar={avaliar}
+                  aoAgir={aposAcao}
+                  noPreco={base.noPreco}
+                  marcado={marcados.has(i.anuncio.id)}
+                  aoMarcar={(v) =>
+                    setMarcados((atual) => {
+                      const novo = new Set(atual);
+                      if (v) novo.add(i.anuncio.id);
+                      else novo.delete(i.anuncio.id);
+                      return novo;
+                    })
+                  }
+                />
               ))}
               {visiveis.length === 0 && (
                 <tr>
@@ -445,13 +616,16 @@ export function CentralPromocoes() {
         </p>
       </Painel>
 
-      {criarAberto && (
-        <DialogCriarPromocao
+      {dialogo && (
+        <DialogPromocaoPropria
           itens={itens}
           noPreco={base.noPreco}
-          aoFechar={() => setCriarAberto(false)}
+          campanha={dialogo === "nova" ? null : dialogo}
+          marcadosIniciais={marcados}
+          aoFechar={() => setDialogo(null)}
           aoConcluir={() => {
-            setCriarAberto(false);
+            setDialogo(null);
+            setMarcados(new Set());
             aposAcao();
           }}
         />
@@ -493,7 +667,11 @@ function BlocoAnuncio({
   avaliar,
   aoAgir,
   noPreco,
+  marcado,
+  aoMarcar,
 }: {
+  marcado: boolean;
+  aoMarcar: (v: boolean) => void;
   noPreco: NoPreco;
   item: ItemPromocao;
   avaliar: (i: ItemPromocao, p: Promocao) => {
@@ -522,6 +700,7 @@ function BlocoAnuncio({
       <tr className={cn("border-t-2 border-border border-l-4 bg-muted/30", estilo)}>
         <td colSpan={10} className="px-3 py-2">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Checkbox checked={marcado} onCheckedChange={(v) => aoMarcar(v === true)} />
             <span className="max-w-[380px] truncate text-xs font-bold" title={a.produto}>
               {a.produto}
             </span>
@@ -766,108 +945,168 @@ function PopoverParticipar({
   );
 }
 
-/** Criar promoção pelo painel. Desconto por % vai direto pro canal; os
- * outros tipos abrem a tela certa do Mercado Livre. */
-function DialogCriarPromocao({
+const ROTULO_STATUS_CANAL: Record<string, string> = {
+  pending: "agendada",
+  started: "ativa",
+  finished: "terminada",
+  candidate: "aguardando",
+};
+
+/** Desconto da sua campanha no Mercado Livre: de 10% a 70%. */
+const DESCONTO_MIN_CAMPANHA = 10;
+const DESCONTO_MAX_CAMPANHA = 70;
+
+/** Preço com desconto do anúncio na promoção: o planejado na Precificação
+ * (quando o % é o mesmo) ou o cheio que está no canal com o %. */
+function precoNaPromocao(i: ItemPromocao, desconto: number): number {
+  if (i.conta.planoPromo && Math.abs(desconto - i.conta.desconto) < 0.001) return i.conta.planoPromo;
+  return centavos(i.conta.cheioCanal * (1 - desconto / 100));
+}
+
+/**
+ * Criar uma promoção sua (desconto por porcentagem) — com ou sem anúncios —
+ * ou colocar anúncios numa promoção sua que já existe. Tudo vai direto pro
+ * Mercado Livre. Desconto por quantidade e cupom abrem a tela do ML.
+ */
+function DialogPromocaoPropria({
   itens,
   noPreco,
+  campanha,
+  marcadosIniciais,
   aoFechar,
   aoConcluir,
 }: {
   itens: ItemPromocao[];
   noPreco: NoPreco;
+  /** null = criar nova; senão, colocar anúncios nesta */
+  campanha: PromocaoCriada | null;
+  marcadosIniciais: Set<string>;
   aoFechar: () => void;
   aoConcluir: () => void;
 }) {
   const hoje = new Date();
   const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const contasMl = useMemo(() => {
+    const ids = [...new Set(itens.filter((i) => i.anuncio.marketplaceId === "mercado-livre").map((i) => i.anuncio.contaId))];
+    return ids.map((id) => ({ id, nome: contasService.buscar(id)?.nome ?? "Conta" }));
+  }, [itens]);
   const [tipo, setTipo] = useState<"percentual" | "quantidade" | "cupom">("percentual");
+  const [contaId, setContaId] = useState(campanha?.contaId ?? contasMl[0]?.id ?? "");
   const [nome, setNome] = useState("");
-  const [descontoTexto, setDescontoTexto] = useState("");
+  const [descontoTexto, setDescontoTexto] = useState(campanha?.desconto ? String(campanha.desconto) : "");
   const [inicio, setInicio] = useState(iso(hoje));
-  const [fim, setFim] = useState(iso(new Date(hoje.getTime() + 29 * 86400000)));
+  const [fim, setFim] = useState(iso(new Date(hoje.getTime() + 30 * 86400000)));
   const [busca, setBusca] = useState("");
   const [enviando, setEnviando] = useState(false);
-  // Já vêm marcados os que têm desconto planejado e estão sem promoção.
-  const [marcados, setMarcados] = useState<Set<string>>(
-    () => new Set(itens.filter((i) => i.conta.estadoPromocao === "sem-promocao").map((i) => i.anuncio.id)),
-  );
+  const [marcados, setMarcados] = useState<Set<string>>(() => new Set(marcadosIniciais));
   const desconto = lerNumero(descontoTexto);
-
-  // Preço com desconto de cada anúncio: o planejado (quando o % é o mesmo)
-  // ou o cheio do canal com o % digitado.
-  const precoDe = (i: ItemPromocao): number | null => {
-    const d = desconto ?? i.conta.desconto;
-    if (!d) return null;
-    if (desconto === null && i.conta.planoPromo) return i.conta.planoPromo;
-    if (i.conta.planoPromo && Math.abs(d - i.conta.desconto) < 0.001) return i.conta.planoPromo;
-    return centavos((i.conta.planoCheio ?? i.conta.cheioCanal) * (1 - d / 100));
-  };
+  const descontoOk = desconto !== null && desconto >= DESCONTO_MIN_CAMPANHA && desconto <= DESCONTO_MAX_CAMPANHA;
 
   const termo = busca.trim().toLowerCase();
-  const lista = itens.filter(
-    (i) => i.anuncio.marketplaceId === "mercado-livre" && (!termo || `${i.anuncio.produto} ${i.anuncio.sku}`.toLowerCase().includes(termo)),
-  );
-  const escolhidos = itens.filter((i) => marcados.has(i.anuncio.id));
+  const daConta = itens.filter((i) => i.anuncio.marketplaceId === "mercado-livre" && i.anuncio.contaId === contaId);
+  const lista = daConta.filter((i) => !termo || `${i.anuncio.produto} ${i.anuncio.sku}`.toLowerCase().includes(termo));
+  const escolhidos = daConta.filter((i) => marcados.has(i.anuncio.id));
   const dias = (new Date(fim).getTime() - new Date(inicio).getTime()) / 86400000;
-  const descontoInvalido = desconto !== null && (desconto < DESCONTO_MIN_ML || desconto > DESCONTO_MAX_ML);
-
-  const criar = async () => {
-    if (!nome.trim()) return toast.error("Dê um nome para a promoção (só você vê).");
-    if (dias < 0 || dias > 31) return toast.error("A promoção pode durar no máximo 1 mês.");
-    if (descontoInvalido) return toast.error(`O Mercado Livre aceita desconto de ${DESCONTO_MIN_ML}% a ${DESCONTO_MAX_ML}%.`);
-    const comPreco = escolhidos.map((i) => ({ anuncioId: i.anuncio.id, preco: precoDe(i) })).filter((x) => x.preco);
-    if (comPreco.length === 0) return toast.error("Escolha os anúncios e o desconto.");
-    setEnviando(true);
-    const { erro, resultados } = await precosMlService.criar({
-      nome: nome.trim(),
-      inicio,
-      fim,
-      itens: comPreco as { anuncioId: string; preco: number }[],
+  const marcar = (id: string, v: boolean) =>
+    setMarcados((atual) => {
+      const novo = new Set(atual);
+      if (v) novo.add(id);
+      else novo.delete(id);
+      return novo;
     });
+
+  const enviar = async () => {
+    if (!descontoOk)
+      return toast.error(`O desconto da sua promoção no Mercado Livre vai de ${DESCONTO_MIN_CAMPANHA}% a ${DESCONTO_MAX_CAMPANHA}%.`);
+    const itensEnvio = escolhidos.map((i) => ({ anuncioId: i.anuncio.id, preco: precoNaPromocao(i, desconto!) }));
+    setEnviando(true);
+    if (campanha) {
+      if (!campanha.idPromocao) {
+        setEnviando(false);
+        return;
+      }
+      if (itensEnvio.length === 0) {
+        setEnviando(false);
+        return toast.error("Marque os anúncios que vão entrar.");
+      }
+      const r = await precosMlService.adicionar({ idPromocao: campanha.idPromocao, itens: itensEnvio });
+      setEnviando(false);
+      if (r.erro) return toast.error(r.erro);
+      avisarResultados(r.resultados, `em "${campanha.nome}"`);
+      return aoConcluir();
+    }
+    if (!nome.trim()) {
+      setEnviando(false);
+      return toast.error("Dê um nome para a promoção (só você vê).");
+    }
+    if (dias < 0 || dias > 31) {
+      setEnviando(false);
+      return toast.error("A promoção pode durar no máximo 31 dias.");
+    }
+    const r = await precosMlService.criar({ contaId, nome: nome.trim(), desconto: desconto!, inicio, fim, itens: itensEnvio });
     setEnviando(false);
-    if (erro) return toast.error(erro);
+    if (r.erro) {
+      toast.error(`O Mercado Livre não criou a promoção: ${r.erro}`);
+      return aoConcluir();
+    }
+    toast.success(`Promoção "${nome.trim()}" criada no Mercado Livre.`);
+    if (itensEnvio.length) avisarResultados(r.resultados, `em "${nome.trim()}"`);
+    aoConcluir();
+  };
+
+  const avisarResultados = (resultados: { anuncioId: string; ok: boolean; erro?: string }[], onde: string) => {
     const ok = resultados.filter((r) => r.ok).length;
     const falhas = resultados.filter((r) => !r.ok);
-    toast.success(`Promoção "${nome.trim()}" criada com ${ok} anúncio(s).`);
-    if (falhas.length) toast.error(`${falhas.length} anúncio(s) recusados pelo canal`, { description: falhas[0]?.erro });
-    aoConcluir();
+    if (ok) toast.success(`${ok} anúncio(s) colocado(s) ${onde}.`);
+    if (falhas.length) {
+      const nomeDe = (id: string) => itens.find((i) => i.anuncio.id === id)?.anuncio.produto ?? id;
+      toast.error(`${falhas.length} anúncio(s) recusado(s) pelo Mercado Livre`, {
+        description: falhas
+          .slice(0, 3)
+          .map((f) => `${nomeDe(f.anuncioId)}: ${f.erro ?? "recusado"}`)
+          .join(" · "),
+      });
+    }
   };
 
   return (
     <Dialog open onOpenChange={(v) => !v && aoFechar()}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Criar promoção</DialogTitle>
-          <DialogDescription>Cria direto no Mercado Livre, sem precisar entrar lá.</DialogDescription>
+          <DialogTitle>{campanha ? `Colocar anúncios em "${campanha.nome}"` : "Criar promoção"}</DialogTitle>
+          <DialogDescription>
+            {campanha
+              ? `Desconto de ${formatNumero(campanha.desconto ?? 0)}% · ${dataCurta(campanha.inicio)} → ${dataCurta(campanha.fim)}. Vai direto pro Mercado Livre.`
+              : "Cria direto no Mercado Livre. Os anúncios são opcionais: dá pra criar só a promoção e colocar os anúncios depois."}
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-2 sm:grid-cols-3">
-          {(
-            [
-              ["percentual", "Desconto por porcentagem", "Vários anúncios, até 1 mês"],
-              ["quantidade", "Desconto por quantidade", "Leve 2 ou mais"],
-              ["cupom", "Cupom", "Para todos os compradores"],
-            ] as const
-          ).map(([id, titulo, sub]) => (
-            <button
-              key={id}
-              onClick={() => setTipo(id)}
-              className={cn("rounded-lg border p-3 text-left", tipo === id && "border-brand bg-brand/5")}
-            >
-              <p className="text-xs font-semibold">{titulo}</p>
-              <p className="text-[10px] text-muted-foreground">{sub}</p>
-            </button>
-          ))}
-        </div>
+        {!campanha && (
+          <div className="grid gap-2 sm:grid-cols-3">
+            {(
+              [
+                ["percentual", "Desconto por porcentagem", "Até 1 mês, com ou sem anúncios"],
+                ["quantidade", "Desconto por quantidade", "Leve 2 ou mais"],
+                ["cupom", "Cupom", "Para todos os compradores"],
+              ] as const
+            ).map(([id, titulo, sub]) => (
+              <button
+                key={id}
+                onClick={() => setTipo(id)}
+                className={cn("rounded-lg border p-3 text-left", tipo === id && "border-brand bg-brand/5")}
+              >
+                <p className="text-xs font-semibold">{titulo}</p>
+                <p className="text-[10px] text-muted-foreground">{sub}</p>
+              </button>
+            ))}
+          </div>
+        )}
 
-        {tipo !== "percentual" ? (
+        {!campanha && tipo !== "percentual" ? (
           <div className="space-y-3 rounded-lg border bg-muted/30 p-4 text-xs">
             <p>
-              {tipo === "quantidade"
-                ? "O desconto por quantidade ainda é criado na tela do Mercado Livre (a API não oferece essa criação)."
-                : "O cupom ainda é criado na tela do Mercado Livre (a API não oferece essa criação)."}{" "}
-              Depois de criado, ele aparece aqui nas Campanhas na próxima atualização.
+              {tipo === "quantidade" ? "O desconto por quantidade" : "O cupom"} ainda é criado na tela do Mercado Livre (a
+              API não oferece essa criação). Depois de criado, ele aparece aqui nas Campanhas na próxima atualização.
             </p>
             <Button asChild size="sm" variant="outline">
               <a href={tipo === "quantidade" ? LINK_ML.quantidade : LINK_ML.cupom} target="_blank" rel="noreferrer">
@@ -878,35 +1117,87 @@ function DialogCriarPromocao({
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-4">
-              <div className="space-y-1 sm:col-span-2">
-                <Label className="text-xs">Nome (só você vê)</Label>
-                <Input value={nome} maxLength={25} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Semana do cabelo" />
+            {!campanha && (
+              <div className="grid gap-3 sm:grid-cols-4">
+                <div className="space-y-1 sm:col-span-2">
+                  <Label className="text-xs">Nome (só você vê)</Label>
+                  <Input value={nome} maxLength={25} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Outubro" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Início</Label>
+                  <Input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Fim (até 31 dias)</Label>
+                  <Input type="date" value={fim} onChange={(e) => setFim(e.target.value)} />
+                </div>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Início</Label>
-                <Input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Fim (até 1 mês)</Label>
-                <Input type="date" value={fim} onChange={(e) => setFim(e.target.value)} />
-              </div>
-            </div>
+            )}
             <div className="flex flex-wrap items-end gap-3">
+              {!campanha && contasMl.length > 1 && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Conta</Label>
+                  <Select value={contaId} onValueChange={setContaId}>
+                    <SelectTrigger className="h-9 w-48 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {contasMl.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-1">
                 <Label className="text-xs">Desconto %</Label>
                 <Input
                   value={descontoTexto}
                   onChange={(e) => setDescontoTexto(e.target.value)}
-                  placeholder="o planejado"
-                  className="num w-28 text-right"
+                  disabled={!!campanha}
+                  placeholder="ex.: 20"
+                  className={cn("num w-28 text-right", descontoTexto && !descontoOk && "border-loss")}
                 />
               </div>
-              <p className="max-w-md text-[11px] text-muted-foreground">
-                Vazio = usa o desconto planejado de cada anúncio na Precificação. O Mercado Livre aceita de{" "}
-                {DESCONTO_MIN_ML}% a {DESCONTO_MAX_ML}%.
-                {descontoInvalido && <span className="text-loss"> Desconto fora do permitido.</span>}
+              <p className="max-w-sm text-[11px] text-muted-foreground">
+                No Mercado Livre, o desconto da sua promoção vai de {DESCONTO_MIN_CAMPANHA}% a {DESCONTO_MAX_CAMPANHA}%.
+                {descontoTexto && !descontoOk && <span className="text-loss"> Fora do permitido.</span>}
               </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-semibold">
+                Anúncios {campanha ? "pra colocar" : "(opcional)"} · {escolhidos.length} marcado(s)
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px]"
+                onClick={() =>
+                  setMarcados(
+                    (atual) =>
+                      new Set([
+                        ...atual,
+                        ...daConta.filter((i) => i.conta.estadoPromocao === "sem-promocao").map((i) => i.anuncio.id),
+                      ]),
+                  )
+                }
+              >
+                Marcar os sem promoção
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px]"
+                onClick={() => setMarcados((atual) => new Set([...atual, ...lista.map((i) => i.anuncio.id)]))}
+              >
+                Marcar todos da lista
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setMarcados(new Set())}>
+                Desmarcar
+              </Button>
               <Input
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
@@ -914,13 +1205,13 @@ function DialogCriarPromocao({
                 className="ml-auto h-8 w-48 text-xs"
               />
             </div>
-            <div className="max-h-[340px] overflow-y-auto rounded-lg border">
+            <div className="max-h-[320px] overflow-y-auto rounded-lg border">
               <table className="w-full text-left text-xs">
                 <thead className="sticky top-0 bg-muted text-[9px] uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="px-2 py-2"></th>
                     <th className="px-2 py-2">Anúncio</th>
-                    <th className="px-2 py-2 text-right">Preço cheio</th>
+                    <th className="px-2 py-2 text-right">Cheio no ML</th>
                     <th className="px-2 py-2 text-right">Com desconto</th>
                     <th className="px-2 py-2 text-right">Lucro</th>
                     <th className="px-2 py-2 text-right">Margem</th>
@@ -928,30 +1219,28 @@ function DialogCriarPromocao({
                 </thead>
                 <tbody>
                   {lista.map((i) => {
-                    const preco = precoDe(i);
+                    const preco = descontoOk ? precoNaPromocao(i, desconto!) : null;
                     const det = preco ? noPreco(i.anuncio, preco) : null;
+                    const faltaLancar = i.conta.planoCheio !== null && Math.abs(i.conta.planoCheio - i.conta.cheioCanal) >= 0.01;
                     return (
                       <tr key={i.anuncio.id} className="border-t">
                         <td className="px-2 py-1.5">
-                          <Checkbox
-                            checked={marcados.has(i.anuncio.id)}
-                            onCheckedChange={(v) =>
-                              setMarcados((atual) => {
-                                const novo = new Set(atual);
-                                if (v) novo.add(i.anuncio.id);
-                                else novo.delete(i.anuncio.id);
-                                return novo;
-                              })
-                            }
-                          />
+                          <Checkbox checked={marcados.has(i.anuncio.id)} onCheckedChange={(v) => marcar(i.anuncio.id, v === true)} />
                         </td>
-                        <td className="max-w-[260px] truncate px-2 py-1.5" title={i.anuncio.produto}>
-                          {i.anuncio.produto}
+                        <td className="max-w-[260px] px-2 py-1.5">
+                          <p className="truncate" title={i.anuncio.produto}>
+                            {i.anuncio.produto}
+                          </p>
                           {i.conta.estadoPromocao === "sem-promocao" && (
-                            <span className="ml-1 text-[9px] font-semibold text-loss">sem promoção</span>
+                            <span className="text-[9px] font-semibold text-loss">sem promoção ativa</span>
+                          )}
+                          {faltaLancar && (
+                            <span className="ml-1 text-[9px] font-semibold text-brand" title="O preço cheio planejado ainda não foi lançado: o desconto vale sobre o cheio que está no ML">
+                              cheio planejado não lançado
+                            </span>
                           )}
                         </td>
-                        <td className="num px-2 py-1.5 text-right">{formatBRL(i.conta.planoCheio ?? i.conta.cheioCanal)}</td>
+                        <td className="num px-2 py-1.5 text-right">{formatBRL(i.conta.cheioCanal)}</td>
                         <td className="num px-2 py-1.5 text-right font-semibold">{preco ? formatBRL(preco) : "—"}</td>
                         <td className={cn("num px-2 py-1.5 text-right", det && det.lucro < 0 && "text-loss")}>
                           {det ? formatBRL(det.lucro) : "—"}
@@ -967,13 +1256,16 @@ function DialogCriarPromocao({
                       </tr>
                     );
                   })}
+                  {lista.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">
+                        Nenhum anúncio desta conta com esse nome.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
-            <p className="text-[10px] text-muted-foreground">
-              Atenção: se o preço cheio planejado ainda não foi lançado, lance antes na Precificação — o desconto é
-              aplicado sobre o preço cheio que está no Mercado Livre.
-            </p>
           </div>
         )}
 
@@ -981,10 +1273,14 @@ function DialogCriarPromocao({
           <Button variant="outline" onClick={aoFechar}>
             Fechar
           </Button>
-          {tipo === "percentual" && (
-            <Button onClick={criar} disabled={enviando || escolhidos.length === 0}>
+          {(campanha || tipo === "percentual") && (
+            <Button onClick={enviar} disabled={enviando || (!!campanha && escolhidos.length === 0)}>
               {enviando && <Loader2 className="size-3.5 animate-spin" />}
-              Criar com {escolhidos.length} anúncio(s)
+              {campanha
+                ? `Colocar ${escolhidos.length} anúncio(s)`
+                : escolhidos.length > 0
+                  ? `Criar promoção com ${escolhidos.length} anúncio(s)`
+                  : "Criar promoção (sem anúncios)"}
             </Button>
           )}
         </DialogFooter>

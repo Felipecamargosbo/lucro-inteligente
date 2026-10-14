@@ -825,19 +825,88 @@ export const precosMlService = {
     return r.erro;
   },
 
-  /** Cria uma campanha própria (desconto por porcentagem) no canal. */
+  /** Cria uma campanha própria (desconto por porcentagem) no canal. Os
+   * anúncios são opcionais: dá pra criar vazia e colocar depois. */
   criar: async (p: {
+    contaId: string;
     nome: string;
+    desconto: number;
     inicio: string;
     fim: string;
     itens: { anuncioId: string; preco: number }[];
-  }): Promise<{ erro: string | null; resultados: { anuncioId: string; ok: boolean; erro?: string }[] }> => {
+  }): Promise<{ erro: string | null; idPromocao: string | null; resultados: ResultadoEnvio[] }> => {
+    if (emDemonstracao())
+      return { erro: null, idPromocao: "DEMO", resultados: p.itens.map((i) => ({ anuncioId: i.anuncioId, ok: true })) };
+    const r = await chamarPrecosMl<{ idPromocao: string; resultados: ResultadoEnvio[] }>({ acao: "criar", ...p });
+    return { erro: r.erro, idPromocao: r.dados?.idPromocao ?? null, resultados: r.dados?.resultados ?? [] };
+  },
+
+  /** Coloca anúncios numa campanha própria já criada. */
+  adicionar: async (p: {
+    idPromocao: string;
+    itens: { anuncioId: string; preco: number }[];
+  }): Promise<{ erro: string | null; resultados: ResultadoEnvio[] }> => {
     if (emDemonstracao()) return { erro: null, resultados: p.itens.map((i) => ({ anuncioId: i.anuncioId, ok: true })) };
-    const r = await chamarPrecosMl<{ resultados: { anuncioId: string; ok: boolean; erro?: string }[] }>({
-      acao: "criar",
-      ...p,
-    });
+    const r = await chamarPrecosMl<{ resultados: ResultadoEnvio[] }>({ acao: "adicionar", ...p });
     return { erro: r.erro, resultados: r.dados?.resultados ?? [] };
+  },
+
+  /** Confere no canal se a campanha própria está criada (e quantos anúncios tem). */
+  verificar: async (idPromocao: string): Promise<{ erro: string | null; status: string | null; anuncios: number }> => {
+    if (emDemonstracao()) return { erro: null, status: "started", anuncios: 0 };
+    const r = await chamarPrecosMl<{ status: string | null; anuncios: number }>({ acao: "verificar", idPromocao });
+    return { erro: r.erro, status: r.dados?.status ?? null, anuncios: r.dados?.anuncios ?? 0 };
+  },
+};
+
+export interface ResultadoEnvio {
+  anuncioId: string;
+  ok: boolean;
+  erro?: string;
+}
+
+/** Promoções que o seller criou pelo Planeta97 (tabela `promocoes_criadas`). */
+export interface PromocaoCriada {
+  id: string;
+  contaId: string | null;
+  idPromocao: string | null;
+  nome: string;
+  desconto: number | null;
+  inicio: string | null;
+  fim: string | null;
+  /** criando = mandando pro canal; criada = o canal confirmou; erro = recusou */
+  status: "criando" | "criada" | "erro";
+  /** Situação no canal: pending (agendada), started (ativa), finished */
+  statusCanal: string | null;
+  erro: string | null;
+  anuncios: number;
+  atualizadoEm: string;
+}
+
+export const promocoesCriadasService = {
+  listar: async (perfilId: string): Promise<PromocaoCriada[]> => {
+    if (emDemonstracao()) return [];
+    const { data, error } = await supabase
+      .from("promocoes_criadas")
+      .select("*")
+      .eq("perfil_id", perfilId)
+      .order("criado_em", { ascending: false })
+      .limit(100);
+    if (error) return [];
+    return (data ?? []).map((l) => ({
+      id: l.id as string,
+      contaId: (l.conta_id as string | null) ?? null,
+      idPromocao: (l.id_promocao as string | null) ?? null,
+      nome: l.nome as string,
+      desconto: l.desconto_percentual === null ? null : Number(l.desconto_percentual),
+      inicio: (l.inicio as string | null) ?? null,
+      fim: (l.fim as string | null) ?? null,
+      status: (l.status as PromocaoCriada["status"]) ?? "criando",
+      statusCanal: (l.status_ml as string | null) ?? null,
+      erro: (l.erro as string | null) ?? null,
+      anuncios: Number(l.anuncios ?? 0),
+      atualizadoEm: l.atualizado_em as string,
+    }));
   },
 };
 
