@@ -145,7 +145,9 @@ function calcularMetricasAds(pedidosDoEscopo: Pedido[]): MetricasAdsCompletas {
   const ctr = impressoes > 0 ? cliques / impressoes : 0;
   const conversao = cliques > 0 ? qtdPedidosAds / cliques : 0;
   const ticketMedioAds = qtdPedidosAds > 0 ? faturamentoAdsEscopo / qtdPedidosAds : 0;
-  const lucroPosAds = resumoEscopo.lucroLiquido - investimento;
+  // Só o que veio de ADS: lucro das vendas via ADS menos o investimento.
+  const lucroVendasAds = resumir(pedidosAdsEscopo).lucroLiquido;
+  const lucroPosAds = lucroVendasAds - investimento;
   return {
     faturamento: resumoEscopo.faturamento,
     receitaAds: faturamentoAdsEscopo,
@@ -161,7 +163,7 @@ function calcularMetricasAds(pedidosDoEscopo: Pedido[]): MetricasAdsCompletas {
     ticketMedioAds,
     cpm,
     tacos,
-    lucroLiquido: resumoEscopo.lucroLiquido,
+    lucroLiquido: lucroVendasAds,
     lucroPosAds,
   };
 }
@@ -184,8 +186,8 @@ function linhaExportMetricasAds(m: MetricasAdsCompletas): Record<string, string 
     "Ticket médio via ADS": formatBRL(m.ticketMedioAds),
     "CPM (estimado)": formatBRL(m.cpm),
     TACOS: formatPercentual(m.tacos),
-    "Lucro antes de ADS": formatBRL(m.lucroLiquido),
-    "Lucro pós-ADS": formatBRL(m.lucroPosAds),
+    "Lucro das vendas via ADS": formatBRL(m.lucroLiquido),
+    "Lucro via ADS (descontado o investimento)": formatBRL(m.lucroPosAds),
   };
 }
 
@@ -231,7 +233,9 @@ export function Ads() {
   const ctr = totalImpressoes > 0 ? totalCliques / totalImpressoes : 0;
   const taxaConversao = totalCliques > 0 ? qtdPedidosAds / totalCliques : 0;
   const ticketMedioAds = qtdPedidosAds > 0 ? faturamentoAds / qtdPedidosAds : 0;
-  const lucroPosAds = resumo.lucroLiquido - investimento;
+  // Só o que veio de ADS: lucro das vendas via ADS menos o investimento.
+  const lucroVendasAds = resumir(pedidosAds).lucroLiquido;
+  const lucroPosAds = lucroVendasAds - investimento;
 
   const porCanal = useMemo(() => {
     return CANAIS.map((canal) => {
@@ -369,9 +373,10 @@ export function Ads() {
           dica="Investimento ÷ faturamento TOTAL (não só o de ADS). É o termômetro de quanto a mídia pesa no seu resultado geral."
         />
         <CardKpi
-          titulo="Lucro pós-ADS"
+          titulo="Lucro via ADS"
           valor={formatBRL(lucroPosAds)}
-          detalhe={`Lucro antes de ADS: ${formatBRL(resumo.lucroLiquido)}`}
+          detalhe={`Lucro das vendas via ADS ${formatBRL(lucroVendasAds)} − investimento ${formatBRL(investimento)}`}
+          dica="Quanto sobrou só das vendas que vieram de ADS, depois de pagar o investimento. Vendas sem ADS não entram aqui."
           destaque
         />
       </div>
