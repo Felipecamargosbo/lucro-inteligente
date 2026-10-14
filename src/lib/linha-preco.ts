@@ -177,3 +177,175 @@ export function precoPelaMargem(
   };
   return { preco: precoParaMargem(ajustado, margem, ajuste, { ...cfg, faixas: {} }), refinado: true };
 }
+
+/** Situações do canal que não vendem (somem da Precificação e das Promoções). */
+const INATIVOS_CANAL = new Set(["under_review", "inactive", "closed"]);
+
+/** Sem os inativos e sem o anúncio tradicional que tem o mesmo produto em
+ * catálogo: no ML os dois andam juntos (mesmo preço e estoque), então só o
+ * de catálogo aparece. */
+export function anunciosVisiveis(lista: Anuncio[]): Anuncio[] {
+  const ativos = lista.filter((a) => !a.statusCanal || !INATIVOS_CANAL.has(a.statusCanal));
+  const comCatalogo = new Set(
+    ativos.filter((a) => a.catalogo === true && a.grupoEstoque).map((a) => a.grupoEstoque as string),
+  );
+  return ativos.filter((a) => !(a.catalogo === false && a.grupoEstoque && comCatalogo.has(a.grupoEstoque)));
+}
+
+/** Nome que o seller conhece para cada tipo de promoção do Mercado Livre. */
+export const ROTULO_TIPO_PROMOCAO: Record<string, string> = {
+  DEAL: "Campanha do Mercado Livre",
+  SMART: "Campanha automática",
+  MARKETPLACE_CAMPAIGN: "Co-participada (ML ajuda)",
+  LIGHTNING: "Oferta relâmpago",
+  DOD: "Oferta do dia",
+  PRICE_DISCOUNT: "Desconto individual",
+  SELLER_CAMPAIGN: "Sua campanha (desconto por %)",
+  VOLUME: "Desconto por quantidade",
+  PRICE_MATCHING: "Preço competitivo",
+  PRICE_MATCHING_MELI_ALL: "Preço competitivo",
+  UNHEALTHY_STOCK: "Estoque parado (Full)",
+  PRE_NEGOTIATED: "Pré-negociada",
+  SELLER_COUPON_CAMPAIGN: "Cupom",
+};
+
+/** Promoções em que o seller escolhe o preço (as outras têm preço fixo do ML). */
+export const PROMOCAO_COM_PRECO = new Set(["DEAL", "LIGHTNING", "DOD", "SELLER_CAMPAIGN", "PRICE_DISCOUNT"]);
+
+/* ------------------------------------------------------------------ */
+/* Avisos de preço e promoção (Agente de Precificação e Gestor)        */
+/* ------------------------------------------------------------------ */
+
+export interface AvisoPreco {
+  id: string;
+  gravidade: "vermelho" | "amarelo" | "verde";
+  titulo: string;
+  texto: string;
+  /** Tela onde resolver */
+  destino: "/produtos" | "/promocoes";
+  /** Alguns anúncios de exemplo */
+  exemplos: string[];
+  quantidade: number;
+}
+
+export interface LinhaParaAviso {
+  anuncio: Anuncio;
+  conta: ContaDaLinha;
+  margemMinima: number;
+}
+
+const exemplosDe = (l: LinhaParaAviso[]) => l.slice(0, 3).map((x) => x.anuncio.produto);
+
+/** O que o seller precisa olhar em preço e promoção hoje. */
+export function avisosPrecoPromocao(
+  linhas: LinhaParaAviso[],
+  propostasQueCabem: { campanha: string; quantidade: number }[],
+): AvisoPreco[] {
+  const avisos: AvisoPreco[] = [];
+  const dias = (iso: string | null | undefined) =>
+    iso ? Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000) : null;
+
+  const vencendo = linhas.filter((l) => {
+    const d = dias(l.anuncio.promocaoAtiva?.fim);
+    return d !== null && d >= 0 && d <= 2;
+  });
+  if (vencendo.length)
+    avisos.push({
+      id: "vencendo",
+      gravidade: "amarelo",
+      titulo: `${vencendo.length} promoção(ões) vencem em até 2 dias`,
+      texto: "Quando vencer, o preço volta para o cheio e as vendas costumam cair. Renove na tela Promoções.",
+      destino: "/promocoes",
+      exemplos: exemplosDe(vencendo),
+      quantidade: vencendo.length,
+    });
+
+  const semPromo = linhas.filter((l) => l.conta.estadoPromocao === "sem-promocao");
+  if (semPromo.length)
+    avisos.push({
+      id: "sem-promocao",
+      gravidade: "vermelho",
+      titulo: `${semPromo.length} anúncio(s) sem promoção ativa`,
+      texto:
+        "Têm desconto planejado na Precificação, mas nenhuma promoção valendo: o cliente está pagando o preço cheio. Crie a promoção na tela Promoções.",
+      destino: "/promocoes",
+      exemplos: exemplosDe(semPromo),
+      quantidade: semPromo.length,
+    });
+
+  const outroValor = linhas.filter((l) => l.conta.estadoPromocao === "outro-valor");
+  if (outroValor.length)
+    avisos.push({
+      id: "outro-valor",
+      gravidade: "amarelo",
+      titulo: `${outroValor.length} anúncio(s) em promoção num valor diferente do planejado`,
+      texto: "A margem que vale é a do preço real da promoção. Confira se ainda cabe na sua margem mínima.",
+      destino: "/promocoes",
+      exemplos: exemplosDe(outroValor),
+      quantidade: outroValor.length,
+    });
+
+  const abaixo = linhas.filter(
+    (l) => l.anuncio.promocaoAtiva && (l.conta.simulacao ? l.conta.detAgora : l.conta.det).margem < l.margemMinima,
+  );
+  if (abaixo.length)
+    avisos.push({
+      id: "promo-abaixo",
+      gravidade: "vermelho",
+      titulo: `${abaixo.length} promoção(ões) abaixo da margem mínima`,
+      texto: "O desconto dessas promoções come mais do que a sua margem mínima permite.",
+      destino: "/promocoes",
+      exemplos: exemplosDe(abaixo),
+      quantidade: abaixo.length,
+    });
+
+  const recusados = linhas.filter((l) => l.conta.envio === "erro");
+  if (recusados.length)
+    avisos.push({
+      id: "recusados",
+      gravidade: "vermelho",
+      titulo: `O Mercado Livre recusou ${recusados.length} preço(s) lançado(s)`,
+      texto: "Abra a Precificação e passe o mouse na bolinha vermelha pra ver o motivo de cada um.",
+      destino: "/produtos",
+      exemplos: exemplosDe(recusados),
+      quantidade: recusados.length,
+    });
+
+  const faltaLancar = linhas.filter((l) => l.conta.envio === "alterado");
+  if (faltaLancar.length)
+    avisos.push({
+      id: "falta-lancar",
+      gravidade: "amarelo",
+      titulo: `${faltaLancar.length} preço(s) mudado(s) aqui e ainda não lançado(s)`,
+      texto: "O Mercado Livre continua com o preço antigo até você clicar em Lançar.",
+      destino: "/produtos",
+      exemplos: exemplosDe(faltaLancar),
+      quantidade: faltaLancar.length,
+    });
+
+  const frete = linhas.filter((l) => l.conta.simulacao && l.conta.cruzou79);
+  if (frete.length)
+    avisos.push({
+      id: "frete-79",
+      gravidade: "amarelo",
+      titulo: `${frete.length} preço(s) planejado(s) cruzam a linha dos R$ ${LIMITE_FRETE_GRATIS_ML}`,
+      texto: "A partir de R$ 79 o frete grátis é obrigatório e o frete que você paga sobe. A conta da linha já usa o frete novo.",
+      destino: "/produtos",
+      exemplos: exemplosDe(frete),
+      quantidade: frete.length,
+    });
+
+  const cabem = propostasQueCabem.filter((p) => p.quantidade > 0);
+  if (cabem.length)
+    avisos.push({
+      id: "campanhas-que-cabem",
+      gravidade: "verde",
+      titulo: `Campanhas do Mercado Livre que cabem na sua margem`,
+      texto: cabem.map((c) => `${c.campanha}: ${c.quantidade} anúncio(s)`).join(" · "),
+      destino: "/promocoes",
+      exemplos: [],
+      quantidade: cabem.reduce((s, c) => s + c.quantidade, 0),
+    });
+
+  return avisos;
+}

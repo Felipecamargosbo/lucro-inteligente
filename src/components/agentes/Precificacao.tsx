@@ -3,6 +3,8 @@ import { emDemonstracao } from "@/lib/demonstracao";
 // próprio arquivo aqui, pra poder mexer em um sem tocar nos outros.
 
 import { useState, type ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
+import type { AvisoPreco } from "@/lib/linha-preco";
 import {
   Bot,
   Check,
@@ -33,7 +35,7 @@ import { ESTILO_SEMAFORO } from "./comum";
 
 const NOME_AGENTE = "Agente de Precificação";
 
-type AbaPreco = "sugestoes" | "campanhas" | "canal" | "resultados" | "historico";
+type AbaPreco = "avisos" | "sugestoes" | "campanhas" | "canal" | "resultados" | "historico";
 
 const pct = (n: number) => formatPercentual(n);
 
@@ -56,7 +58,9 @@ export function PainelPrecificacao({
   campanhas,
   precosPorCanal,
   resultados,
+  avisos = [],
 }: {
+  avisos?: AvisoPreco[];
   pendentes: EventoAgente[];
   decididos: EventoAgente[];
   aprovadas: number;
@@ -66,12 +70,13 @@ export function PainelPrecificacao({
   precosPorCanal: PrecoPorCanalSku[];
   resultados: ResultadoMudancaPreco[];
 }) {
-  const [aba, setAba] = useState<AbaPreco>("sugestoes");
+  const [aba, setAba] = useState<AbaPreco>(avisos.some((a) => a.gravidade !== "verde") ? "avisos" : "sugestoes");
   const subir = pendentes.filter((e) => e.direcao === "subir").length;
   const baixar = pendentes.length - subir;
   const canaisAbaixo = precosPorCanal.reduce((s, p) => s + p.abaixoDoPiso, 0);
 
   const ABAS: [AbaPreco, string][] = [
+    ["avisos", `Preço e promoção (${avisos.filter((a) => a.gravidade !== "verde").length})`],
     ["sugestoes", `Sugestões (${pendentes.length})`],
     ["campanhas", `Campanhas (${campanhas.length})`],
     ["canal", `Preço por canal${canaisAbaixo > 0 ? ` (${canaisAbaixo})` : ""}`],
@@ -177,6 +182,7 @@ export function PainelPrecificacao({
         </div>
       )}
 
+      {aba === "avisos" && <ListaAvisos avisos={avisos} />}
       {aba === "campanhas" && <ListaCampanhas campanhas={campanhas} />}
       {aba === "canal" && <ListaPrecoPorCanal lista={precosPorCanal} />}
       {aba === "resultados" && <ListaResultados resultados={resultados} />}
@@ -589,6 +595,44 @@ function ListaResultados({ resultados }: { resultados: ResultadoMudancaPreco[] }
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Avisos de preço e promoção (os mesmos da Precificação e Promoções)  */
+/* ------------------------------------------------------------------ */
+
+function ListaAvisos({ avisos }: { avisos: AvisoPreco[] }) {
+  if (avisos.length === 0) {
+    return (
+      <Vazio>
+        Tudo em dia: nenhuma promoção vencendo, nenhum anúncio sem promoção e nenhum preço esperando lançamento.
+      </Vazio>
+    );
+  }
+  return (
+    <div className="divide-y">
+      {avisos.map((a) => (
+        <div key={a.id} className="flex flex-wrap items-start gap-3 px-4 py-3">
+          <span
+            className={cn(
+              "mt-1 size-2.5 shrink-0 rounded-full",
+              a.gravidade === "vermelho" ? "bg-loss" : a.gravidade === "amarelo" ? "bg-warning" : "bg-profit",
+            )}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold">{a.titulo}</p>
+            <p className="text-[11px] text-muted-foreground">{a.texto}</p>
+            {a.exemplos.length > 0 && (
+              <p className="mt-0.5 truncate text-[10px] text-muted-foreground">Ex.: {a.exemplos.join(" · ")}</p>
+            )}
+          </div>
+          <Button asChild size="sm" variant="outline" className="h-7 text-[11px]">
+            <Link to={a.destino}>{a.destino === "/promocoes" ? "Abrir Promoções" : "Abrir Precificação"}</Link>
+          </Button>
+        </div>
+      ))}
     </div>
   );
 }

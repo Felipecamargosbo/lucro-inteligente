@@ -38,6 +38,7 @@ import {
   DESCONTO_MAX_ML,
   DESCONTO_MIN_ML,
   LIMITE_FRETE_GRATIS_ML,
+  anunciosVisiveis,
   cheioDoPromo,
   contaDaLinha,
   precoPelaMargem,
@@ -65,6 +66,7 @@ import {
   type ModoAds,
 } from "@/lib/precificacao";
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
+import { getMarketplace } from "@/data/mock";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { DialogVincularProduto } from "@/components/comum/DialogVincularProduto";
 import { DialogImportarCmv } from "@/components/produtos/DialogImportarCmv";
@@ -224,6 +226,8 @@ function Precificacao() {
   /** "todos" ou o id do anúncio sendo atualizado do canal */
   const [atualizando, setAtualizando] = useState<string | null>(null);
   const [promoFiltro, setPromoFiltro] = useState<FiltroPromocao>("todos");
+  /** "geral" = todos os canais lado a lado; ou um canal (cada um com as suas regras) */
+  const [abaCanal, setAbaCanal] = useState<"geral" | MarketplaceId | null>(null);
   /** Lançamento esperando confirmação (anúncio em promoção) */
   const [confirmarLancamento, setConfirmarLancamento] = useState<LinhaAnuncio[] | null>(null);
   const versaoCustos = useVersaoCustos();
@@ -266,15 +270,24 @@ function Precificacao() {
   const anuncios = useMemo(() => anunciosService.listar().slice(), [tick]);
   /** Sem inativos e sem o tradicional que tem o mesmo produto em catálogo. */
   const visiveis = useMemo(() => anunciosVisiveis(anuncios), [anuncios]);
+  /** Canais com anúncio (cada um vira uma aba) */
+  const canais = useMemo(() => {
+    const contagem = new Map<MarketplaceId, number>();
+    for (const a of visiveis) contagem.set(a.marketplaceId, (contagem.get(a.marketplaceId) ?? 0) + 1);
+    return [...contagem.entries()].sort((x, y) => y[1] - x[1]);
+  }, [visiveis]);
+  const aba: "geral" | MarketplaceId =
+    abaCanal ?? (canais.some(([id]) => id === "mercado-livre") ? "mercado-livre" : (canais[0]?.[0] ?? "geral"));
   const pendentes = useMemo(
     () =>
       visiveis
         .filter((a) => !a.produtoId)
         .filter((a) => semRestricaoDeConta || contasSelecionadas.has(a.contaId))
         .filter((a) => passaNoTipo(a, tipoFiltro))
+        .filter((a) => aba === "geral" || a.marketplaceId === aba)
         // Faturamento perdido primeiro: resolver o que mais vende rende mais
         .sort((a, b) => b.precoAtual * b.unidadesVendidas - a.precoAtual * a.unidadesVendidas),
-    [visiveis, semRestricaoDeConta, contasSelecionadas, tipoFiltro],
+    [visiveis, semRestricaoDeConta, contasSelecionadas, tipoFiltro, aba],
   );
 
   /** Quantos anúncios dividem o mesmo estoque no canal (mesmo produto do
@@ -324,7 +337,9 @@ function Precificacao() {
       const vinculados = visiveis.filter((a) => a.produtoId === p.id);
       const naSelecao = (
         semRestricaoDeConta ? vinculados : vinculados.filter((a) => contasSelecionadas.has(a.contaId))
-      ).filter((a) => passaNoTipo(a, tipoFiltro));
+      )
+        .filter((a) => aba === "geral" || a.marketplaceId === aba)
+        .filter((a) => passaNoTipo(a, tipoFiltro));
       const linhas: LinhaAnuncio[] = naSelecao.map((a) => {
         const metas = metasPorConta[a.contaId] ?? null;
         const margemMinima = metas?.margemMinima ?? FAIXAS_MARGEM_PADRAO.margemMinima;
@@ -388,6 +403,7 @@ function Precificacao() {
     enviando,
     versaoCustos,
     promoFiltro,
+    aba,
   ]);
 
   const gruposFiltrados = useMemo(() => {
@@ -396,7 +412,8 @@ function Precificacao() {
       // Com um canal/conta marcado lá em cima, some o produto sem anúncio nele.
       if (!semRestricaoDeConta && g.linhas.length === 0) return false;
       // Filtrando por tipo (catálogo/tradicional), some o produto sem anúncio desse tipo.
-      if ((tipoFiltro !== "todos" || promoFiltro !== "todos") && g.linhas.length === 0) return false;
+      if ((tipoFiltro !== "todos" || promoFiltro !== "todos" || aba !== "geral") && g.linhas.length === 0)
+        return false;
       if (situacaoFiltro !== "todos" && g.situacao !== situacaoFiltro) return false;
       if (categoriaFiltro === SEM_CATEGORIA && g.produto.categoria) return false;
       if (
@@ -446,7 +463,7 @@ function Precificacao() {
     return ordemDasLinhas
       ? ordenada.map((g) => ({ ...g, linhas: [...g.linhas].sort(ordemDasLinhas) }))
       : ordenada;
-  }, [grupos, busca, situacaoFiltro, categoriaFiltro, ordenar, semRestricaoDeConta, tipoFiltro, promoFiltro]);
+  }, [grupos, busca, situacaoFiltro, categoriaFiltro, ordenar, semRestricaoDeConta, tipoFiltro, promoFiltro, aba]);
 
   /** Agrupado por categoria: uma faixa por categoria, "Sem categoria" no fim. */
   const secoes = useMemo(() => {
@@ -470,7 +487,9 @@ function Precificacao() {
   const margemMedia =
     todasLinhas.length > 0 ? todasLinhas.reduce((s, l) => s + l.det.margem, 0) / todasLinhas.length : 0;
   /** Mudou aqui e ainda não foi pro canal (ou o canal recusou) */
-  const alterados = todasLinhas.filter((l) => l.conta.envio === "alterado" || l.conta.envio === "erro");
+  const alterados = todasLinhas.filter(
+    (l) => (l.conta.envio === "alterado" || l.conta.envio === "erro") && l.anuncio.marketplaceId === "mercado-livre",
+  );
   const recusados = todasLinhas.filter((l) => l.conta.envio === "erro").length;
   /** Promoção planejada e nenhuma valendo: o cliente está pagando o cheio */
   const semPromocaoAtiva = todasLinhas.filter((l) => l.conta.estadoPromocao === "sem-promocao").length;
@@ -610,7 +629,12 @@ function Precificacao() {
   /** Lança o preço cheio planejado no canal. Anúncio com promoção valendo
    * pede confirmação antes (subir o preço tira a promoção, regra do ML). */
   const pedirLancamento = (linhas: LinhaAnuncio[]) => {
-    const prontas = linhas.filter((l) => (l.conta.envio === "alterado" || l.conta.envio === "erro") && l.conta.planoCheio);
+    const prontas = linhas.filter(
+      (l) =>
+        (l.conta.envio === "alterado" || l.conta.envio === "erro") &&
+        l.conta.planoCheio &&
+        l.anuncio.marketplaceId === "mercado-livre",
+    );
     if (prontas.length === 0) return;
     const arriscadas = prontas.filter(
       (l) => l.anuncio.promocaoAtiva && (l.conta.planoCheio ?? 0) > l.conta.cheioCanal,
@@ -836,6 +860,26 @@ function Precificacao() {
           </div>
         }
       >
+        {/* Abas: Geral (todos os canais lado a lado) e uma por canal */}
+        <div className="flex flex-wrap gap-1 border-b px-4 pt-3">
+          {([["geral", visiveis.length] as const, ...canais] as const).map(([id, qtd]) => (
+            <button
+              key={id}
+              onClick={() => {
+                setAbaCanal(id);
+                setPromoFiltro("todos");
+              }}
+              className={cn(
+                "-mb-px rounded-t-md border-b-2 px-3 py-2 text-xs font-semibold transition-colors",
+                aba === id ? "border-brand text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {id === "geral" ? "Geral" : getMarketplace(id).nome}{" "}
+              <span className="font-normal text-muted-foreground">({formatNumero(qtd)})</span>
+            </button>
+          ))}
+        </div>
+
         {/* Resumo */}
         <div className="grid gap-3 border-b p-4 sm:grid-cols-2 lg:grid-cols-5">
           <Resumo rotulo="Produtos cadastrados" valor={formatNumero(produtos.length)} />
@@ -1048,8 +1092,12 @@ function Precificacao() {
           </div>
         </div>
 
+        {aba === "geral" && !carregandoProdutos && (
+          <TabelaGeral grupos={gruposFiltrados} canais={canais.map(([id]) => id)} aoAbrirCanal={(id) => setAbaCanal(id)} />
+        )}
+
         {/* A planilha */}
-        <div className="overflow-x-auto">
+        <div className={cn("overflow-x-auto", aba === "geral" && "hidden")}>
           <table className="w-full min-w-[1500px] text-left">
             <thead>
               <tr className="border-b bg-muted/50 text-[9px] uppercase tracking-wide text-muted-foreground">
@@ -1622,19 +1670,6 @@ function SelosTipoAnuncio({ anuncio: a, dividemEstoque = 0 }: { anuncio: Anuncio
 /* Visibilidade, filtros e textos da linha                             */
 /* ------------------------------------------------------------------ */
 
-/** Situações do canal que não vendem (somem da Precificação). */
-const INATIVOS_CANAL = new Set(["under_review", "inactive", "closed"]);
-
-/** Sem os inativos e sem o anúncio tradicional que tem o mesmo produto em
- * catálogo: no ML os dois andam juntos (mesmo preço e estoque), então só o
- * de catálogo aparece. */
-function anunciosVisiveis(lista: Anuncio[]): Anuncio[] {
-  const ativos = lista.filter((a) => !a.statusCanal || !INATIVOS_CANAL.has(a.statusCanal));
-  const comCatalogo = new Set(
-    ativos.filter((a) => a.catalogo === true && a.grupoEstoque).map((a) => a.grupoEstoque as string),
-  );
-  return ativos.filter((a) => !(a.catalogo === false && a.grupoEstoque && comCatalogo.has(a.grupoEstoque)));
-}
 
 type FiltroPromocao = "todos" | "ativa" | "outro-valor" | "sem-promocao" | "alterados";
 
@@ -2018,7 +2053,12 @@ function LinhaDoAnuncio({
       <td className="border-l px-2 py-1.5 align-top">
         <div className="flex items-center justify-end gap-1.5">
           <span className={cn("size-2.5 shrink-0 rounded-full", situacao.cor)} title={situacao.texto} />
-          {(c.envio === "alterado" || c.envio === "erro") && (
+          {(c.envio === "alterado" || c.envio === "erro") && a.marketplaceId !== "mercado-livre" && (
+            <span className="text-[9px] text-muted-foreground" title="Por enquanto o lançamento automático é só no Mercado Livre">
+              mude no canal
+            </span>
+          )}
+          {(c.envio === "alterado" || c.envio === "erro") && a.marketplaceId === "mercado-livre" && (
             <Button size="sm" className="h-7 px-2 text-[11px]" onClick={aoLancar} title="Mandar o preço cheio pro canal">
               <Send className="size-3.5" />
               Lançar
@@ -3022,5 +3062,128 @@ function DialogFaixas({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Aba Geral: cada produto com todos os canais lado a lado             */
+/* ------------------------------------------------------------------ */
+
+function TabelaGeral({
+  grupos,
+  canais,
+  aoAbrirCanal,
+}: {
+  grupos: GrupoProduto[];
+  canais: MarketplaceId[];
+  aoAbrirCanal: (id: MarketplaceId) => void;
+}) {
+  const faixa = (valores: number[], fmt: (n: number) => string) => {
+    if (valores.length === 0) return "—";
+    const min = Math.min(...valores);
+    const max = Math.max(...valores);
+    return Math.abs(max - min) < 0.005 ? fmt(min) : `${fmt(min)} a ${fmt(max)}`;
+  };
+  return (
+    <div className="overflow-x-auto border-b">
+      <table className="w-full min-w-[900px] text-left">
+        <thead>
+          <tr className="border-b bg-muted/50 text-[9px] uppercase tracking-wide text-muted-foreground">
+            <th className="px-3 py-2.5 font-bold">Produto</th>
+            <th className="px-2 py-2.5 text-right font-bold">CMV</th>
+            {canais.map((c) => (
+              <th key={c} className="border-l px-2 py-2.5 text-center font-bold" colSpan={3}>
+                <button onClick={() => aoAbrirCanal(c)} className="hover:text-foreground" title="Abrir a aba deste canal">
+                  {getMarketplace(c).nome}
+                </button>
+              </th>
+            ))}
+          </tr>
+          <tr className="border-b text-[9px] uppercase tracking-wide text-muted-foreground">
+            <th />
+            <th />
+            {canais.map((c) => (
+              <Fragment key={c}>
+                <th className="border-l px-2 py-1 text-right font-semibold">Cliente paga</th>
+                <th className="px-2 py-1 text-right font-semibold">Margem</th>
+                <th className="px-2 py-1 text-center font-semibold">Promoção</th>
+              </Fragment>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {grupos.map((g) => (
+            <tr key={g.produto.id} className="border-t border-border/40 text-xs hover:bg-muted/20">
+              <td className="max-w-[320px] px-3 py-2">
+                <p className="truncate font-medium" title={g.produto.nome}>
+                  {g.produto.nome}
+                </p>
+                <p className="num text-[10px] text-muted-foreground">SKU {g.produto.sku}</p>
+              </td>
+              <td className="num px-2 py-2 text-right">{formatBRL(g.produto.cmv)}</td>
+              {canais.map((c) => {
+                const ls = g.linhas.filter((l) => l.anuncio.marketplaceId === c);
+                // O que acontece de verdade no canal (sem a simulação).
+                const reais = ls.map((l) => (l.conta.simulacao ? l.conta.detAgora : l.conta.det));
+                const piorMargem = reais.length ? Math.min(...reais.map((d) => d.margem)) : null;
+                const minima = ls[0]?.margemMinima ?? 0;
+                const estados = new Set(ls.map((l) => l.conta.estadoPromocao));
+                return (
+                  <Fragment key={c}>
+                    <td className="num border-l px-2 py-2 text-right">
+                      {faixa(
+                        ls.map((l) => l.conta.precoCliente),
+                        formatBRL,
+                      )}
+                    </td>
+                    <td
+                      className={cn(
+                        "num px-2 py-2 text-right font-bold",
+                        piorMargem === null
+                          ? "text-muted-foreground"
+                          : piorMargem < 0
+                            ? "text-loss"
+                            : piorMargem < minima
+                              ? "text-warning"
+                              : "text-profit",
+                      )}
+                    >
+                      {faixa(
+                        reais.map((d) => d.margem),
+                        (n) => formatPercentual(n),
+                      )}
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      {ls.length === 0 ? (
+                        <span className="text-[10px] text-muted-foreground">sem anúncio</span>
+                      ) : estados.has("sem-promocao") ? (
+                        <span className="rounded bg-loss-soft px-1.5 py-0.5 text-[10px] font-semibold text-loss">Sem promoção</span>
+                      ) : estados.has("outro-valor") ? (
+                        <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold text-warning">Outro valor</span>
+                      ) : estados.has("ativa") ? (
+                        <span className="rounded bg-profit-soft px-1.5 py-0.5 text-[10px] font-semibold text-profit">Ativa</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  </Fragment>
+                );
+              })}
+            </tr>
+          ))}
+          {grupos.length === 0 && (
+            <tr>
+              <td colSpan={2 + canais.length * 3} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                Nenhum produto com esses filtros.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      <p className="px-4 py-2 text-[10px] text-muted-foreground">
+        A aba Geral mostra o que está valendo em cada canal agora (o que o cliente paga e a margem real). Para mudar
+        preço e lançar, abra a aba do canal.
+      </p>
+    </div>
   );
 }

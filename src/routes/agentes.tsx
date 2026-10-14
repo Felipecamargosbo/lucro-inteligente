@@ -84,6 +84,8 @@ import {
 } from "@/lib/criativo";
 import { anuncioComAjuste, type AjusteCusto } from "@/lib/precificacao";
 import { montarComparativos, montarTop3, type AgenteTop } from "@/lib/gestor";
+import { useBasePrecificacao } from "@/hooks/use-base-precificacao";
+import { anunciosVisiveis, avisosPrecoPromocao } from "@/lib/linha-preco";
 import { Painel } from "@/components/comum/Indicadores";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -356,6 +358,36 @@ function Agentes() {
 
   /** Frentes 4 e 5 (campanhas e preço por canal): só leitura, recalculadas
    * sempre que as metas ou os custos mudam — não vão pro banco. */
+  /** Avisos de preço e promoção: as mesmas contas da Precificação e da
+   * tela Promoções (promoção vencendo, sem promoção, recusa do canal...). */
+  const basePreco = useBasePrecificacao();
+  const linhasPreco = useMemo(() => {
+    if (!basePreco.pronto) return [];
+    return anunciosVisiveis(anunciosService.listar()).map((a) => ({
+      anuncio: a,
+      conta: basePreco.linha(a),
+      margemMinima: basePreco.margemMinimaDe(a),
+    }));
+  }, [basePreco.pronto, basePreco.linha, basePreco.margemMinimaDe]);
+  const avisosPreco = useMemo(() => {
+    const porId = new Map(linhasPreco.map((l) => [l.anuncio.id, l]));
+    const cabem = new Map<string, number>();
+    for (const p of promocoesService.listar()) {
+      if (p.situacao === "participando" || !p.anuncioId) continue;
+      const l = porId.get(p.anuncioId);
+      if (!l) continue;
+      const det = basePreco.noPreco(l.anuncio, p.precoFinal);
+      if (det.margem >= l.margemMinima) {
+        const nome = p.campanha ?? p.tipo;
+        cabem.set(nome, (cabem.get(nome) ?? 0) + 1);
+      }
+    }
+    return avisosPrecoPromocao(
+      linhasPreco,
+      [...cabem.entries()].map(([campanha, quantidade]) => ({ campanha, quantidade })),
+    );
+  }, [linhasPreco, basePreco.noPreco]);
+
   const analisesPreco = useMemo(() => {
     const metasDe = (contaId: string) => metasPorConta[contaId] ?? FAIXAS_MARGEM_PADRAO;
     const opcoes = { aliquotaImposto: fiscal.aliquota, custosOperacionais: custoOperacionalTotal };
@@ -1390,6 +1422,18 @@ function Agentes() {
     for (const a of anunciosService.listar()) {
       if (!precoPorSku.has(a.sku)) precoPorSku.set(a.sku, a.precoAtual);
     }
+    // Anúncios sem promoção ativa: quanto vendem por semana no ritmo atual.
+    const limite30 = Date.now() - 30 * 86400000;
+    const unidades30 = new Map<string, number>();
+    for (const p of vendasService.listar()) {
+      if (p.status === "cancelado" || new Date(p.data).getTime() < limite30) continue;
+      unidades30.set(p.sku, (unidades30.get(p.sku) ?? 0) + p.quantidade);
+    }
+    const semPromo = linhasPreco.filter((l) => l.conta.estadoPromocao === "sem-promocao");
+    const vendasSemana = semPromo.reduce(
+      (s, l) => s + ((unidades30.get(l.anuncio.sku) ?? 0) / 30) * 7 * l.conta.precoCliente,
+      0,
+    );
     return montarTop3({
       ocorrenciasAuditor,
       alertasEstoque,
@@ -1398,8 +1442,9 @@ function Agentes() {
       acoesAds,
       estoqueDetalhado: estoqueService.listarDetalhado(),
       precoPorSku,
+      semPromocao: { quantidade: semPromo.length, vendasSemana },
     });
-  }, [ocorrenciasAuditor, alertasEstoque, alertasFulfillment, eventos, acoesAds]);
+  }, [ocorrenciasAuditor, alertasEstoque, alertasFulfillment, eventos, acoesAds, linhasPreco]);
 
   /** Gestor: hoje × mesmo dia da semana passada, 7 dias × 7 anteriores,
    * mês até hoje × mesmo período do mês passado. */
@@ -1521,6 +1566,7 @@ function Agentes() {
           aoDecidir={decidir}
           campanhas={analisesPreco.campanhas}
           precosPorCanal={analisesPreco.porCanal}
+          avisos={avisosPreco}
           resultados={resultadosPreco}
         />
       )}

@@ -6,6 +6,8 @@ import { calcularResultado, resultadoAnuncio } from "@/lib/finance";
 import { formatBRL, formatData, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { ResultadosPromocoes } from "@/components/promocoes/ResultadosPromocoes";
+import { CentralPromocoes } from "@/components/promocoes/CentralPromocoes";
+import { emDemonstracao } from "@/lib/demonstracao";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,8 +68,9 @@ type AbaPromocoes = "decidir" | "resultados";
 const ABAS: { id: AbaPromocoes; titulo: string; descricao: string }[] = [
   {
     id: "decidir",
-    titulo: "Decidir",
-    descricao: "Simule antes de entrar e veja o que sobra de lucro",
+    titulo: "Central de promoções",
+    descricao:
+      "Suas promoções e as do canal, com o lucro de verdade — a mesma situação que aparece na Precificação",
   },
   {
     id: "resultados",
@@ -103,7 +106,7 @@ function Promocoes() {
         {ABAS.find((a) => a.id === aba)?.descricao}
       </p>
 
-      {aba === "decidir" ? <Decidir /> : <ResultadosPromocoes />}
+      {aba === "resultados" ? <ResultadosPromocoes /> : emDemonstracao() ? <Decidir /> : <CentralPromocoes />}
     </div>
   );
 }

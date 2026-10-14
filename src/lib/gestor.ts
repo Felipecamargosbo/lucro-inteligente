@@ -130,6 +130,8 @@ export function montarTop3(p: {
   estoqueDetalhado: ItemEstoqueDetalhado[];
   /** SKU → preço atual (o primeiro anúncio do SKU) */
   precoPorSku: Map<string, number>;
+  /** Anúncios com desconto planejado e nenhuma promoção valendo */
+  semPromocao?: { quantidade: number; vendasSemana: number };
 }): ItemTop[] {
   const candidatos: (ItemTop | null)[] = [];
 
@@ -183,6 +185,17 @@ export function montarTop3(p: {
         semaforo: "amarelo",
       });
     }
+  }
+  if (p.semPromocao && p.semPromocao.quantidade > 0 && p.semPromocao.vendasSemana > 0) {
+    itensPreco.push({
+      agente: "precificacao",
+      nomeAgente: NOME_AGENTE.precificacao,
+      titulo: `Criar promoção para ${p.semPromocao.quantidade} anúncio(s) sem promoção ativa`,
+      explicacao: `Eles têm desconto planejado na Precificação, mas o cliente está pagando o preço cheio. Juntos vendem uns ${formatBRL(p.semPromocao.vendasSemana)} por semana — com o preço cheio inflado, essas vendas tendem a cair.`,
+      valor: p.semPromocao.vendasSemana,
+      rotuloValor: "de vendas por semana em risco",
+      semaforo: "vermelho",
+    });
   }
   candidatos.push(maior(itensPreco));
 
