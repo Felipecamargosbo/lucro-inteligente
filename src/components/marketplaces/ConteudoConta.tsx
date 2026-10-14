@@ -13,6 +13,7 @@ import { RaioXAnuncios } from "@/components/marketplaces/RaioXAnuncios";
 import { PromocoesCanal } from "@/components/marketplaces/PromocoesCanal";
 import { ReputacaoCanal } from "@/components/marketplaces/ReputacaoCanal";
 import { PendenciasCanal } from "@/components/marketplaces/PendenciasCanal";
+import { TarifasCanal } from "@/components/marketplaces/TarifasCanal";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace } from "@/types";
@@ -188,6 +189,8 @@ export function ConteudoConta({
         <DashboardCanal key={tick} conta={conta} />
       ) : abaAtiva === "raio-x" ? (
         <RaioXAnuncios key={tick} conta={conta} />
+      ) : abaAtiva === "tarifas" ? (
+        <TarifasCanal key={tick} conta={conta} />
       ) : abaAtiva === "promocoes" ? (
         <PromocoesCanal key={tick} conta={conta} />
       ) : abaAtiva === "reputacao" ? (

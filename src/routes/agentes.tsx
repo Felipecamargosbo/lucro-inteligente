@@ -58,6 +58,7 @@ import {
   auditarCobrancas,
   auditarCobrancasFull,
   auditarMudancasTaxa,
+  DIAS_AUDITORIA,
   mesclarOcorrenciasAuditor,
   diagnosticarCurvaAbc,
   diagnosticarDadoFaltando,
@@ -704,7 +705,26 @@ function Agentes() {
 
     // O banco guarda o status; a conta e as explicações vêm sempre do
     // cálculo de agora — assim ocorrências antigas ganham as melhorias.
-    const gravadas = await auditorService.listar(perfilId);
+    let gravadas = await auditorService.listar(perfilId);
+
+    // Divergência de pedido que ficou em aberto mas, conferida de novo agora
+    // (com a regra corrigida), está certa: sai da lista sozinha.
+    const corte = Date.now() - DIAS_AUDITORIA * 86400000;
+    const conferidosAgora = new Set(
+      pedidos
+        .filter((p) => p.status !== "cancelado" && new Date(p.data).getTime() >= corte)
+        .map((p) => `pedido:${p.id}`),
+    );
+    const chavesEncontradas = new Set(encontradas.map((o) => o.chave));
+    const resolvidas = gravadas.filter(
+      (g) => g.status === "aberto" && conferidosAgora.has(g.chave) && !chavesEncontradas.has(g.chave),
+    );
+    for (const g of resolvidas) await auditorService.atualizarStatus(g, "ignorado");
+    if (resolvidas.length) {
+      const ids = new Set(resolvidas.map((g) => g.id));
+      gravadas = gravadas.map((g) => (ids.has(g.id) ? { ...g, status: "ignorado" as const } : g));
+    }
+
     setOcorrenciasAuditor(mesclarOcorrenciasAuditor(gravadas, encontradas));
     setCarregandoAuditor(false);
   }, [sessao, recursos.agentes]);
@@ -935,7 +955,7 @@ function Agentes() {
     const { resposta, erro } = await sacService.gerarResposta({
       pergunta: ticket.pergunta,
       produto: ticket.produto,
-      categoria: classificarPergunta(ticket.pergunta, ticket.pedidoId),
+      categoria: classificarPergunta(ticket.pergunta, ticket.pedidoId, ticket.canal),
       // O anúncio publicado (puxado do marketplace) + as informações
       // extras do seller, num texto só.
       ficha: montarInformacoesProduto(

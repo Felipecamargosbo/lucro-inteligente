@@ -67,7 +67,14 @@ import type {
 } from "@/types";
 import { supabase } from "@/lib/supabase";
 import { emDemonstracao, soNaDemo } from "@/lib/demonstracao";
-import type { AlteracaoPreco, Campanha, ItemEstoqueDetalhado, Pedido } from "@/types";
+import type {
+  AlteracaoPreco,
+  Campanha,
+  ItemEstoqueDetalhado,
+  OportunidadeRecuperacao,
+  Pedido,
+  Promocao,
+} from "@/types";
 
 // ---------------------------------------------------------------------------
 // Dados de exemplo × dados reais.
@@ -83,6 +90,8 @@ const REAIS = {
   historicoPrecos: [] as AlteracaoPreco[],
   contas: [] as ContaMarketplace[],
   estoque: [] as ItemEstoqueDetalhado[],
+  promocoes: [] as Promocao[],
+  recuperacao: [] as OportunidadeRecuperacao[],
 };
 
 /** Guarda os dados reais lidos do banco (src/services/dados-reais.ts). As
@@ -93,11 +102,15 @@ export function definirDadosReais(dados: {
   pedidos: Pedido[];
   contas: ContaMarketplace[];
   estoque?: ItemEstoqueDetalhado[];
+  promocoes?: Promocao[];
+  recuperacao?: OportunidadeRecuperacao[];
 }) {
   REAIS.anuncios.splice(0, REAIS.anuncios.length, ...dados.anuncios);
   REAIS.pedidos.splice(0, REAIS.pedidos.length, ...dados.pedidos);
   REAIS.contas.splice(0, REAIS.contas.length, ...dados.contas);
   REAIS.estoque.splice(0, REAIS.estoque.length, ...(dados.estoque ?? []));
+  REAIS.promocoes.splice(0, REAIS.promocoes.length, ...(dados.promocoes ?? []));
+  REAIS.recuperacao.splice(0, REAIS.recuperacao.length, ...(dados.recuperacao ?? []));
 }
 
 /** Resumo do estoque real, calculado dos itens (mesmas regras dos cards). */
@@ -693,7 +706,7 @@ export const preferenciasService = {
 };
 
 export const promocoesService = {
-  listar: () => soNaDemo(PROMOCOES_EXEMPLO, []),
+  listar: () => (emDemonstracao() ? PROMOCOES_EXEMPLO : REAIS.promocoes),
 };
 
 /** Histórico de mudanças de preço. Por enquanto só os exemplos fictícios;
@@ -928,13 +941,22 @@ export const fulfillmentService = {
       agente_id: "fulfillment",
       conta_id: alerta.contaId,
       sku: alerta.sku,
-      tipo: alerta.tipoAlerta === "parado" ? "estoque_parado" : "risco_ruptura",
-      motivo:
+      tipo:
         alerta.tipoAlerta === "parado"
+          ? "estoque_parado"
+          : alerta.tipoAlerta === "candidato"
+            ? "sugestao_full"
+            : "risco_ruptura",
+      motivo:
+        alerta.tipoAlerta === "candidato"
+          ? `Vende bem fora do Full: média de ${alerta.mediaDiaria.toFixed(1).replace(".", ",")}/dia nos últimos 30 dias. Vale mandar ${alerta.quantidadeEnviar ?? 0} unidade(s) pro Full.`
+          : alerta.tipoAlerta === "parado"
           ? `Estoque parado no Full: ${alerta.estoqueAtual} unidade(s), cobertura de ${alerta.diasRestantes} dias, custando R$ ${(alerta.custoArmazenagemMensal ?? 0).toFixed(2).replace(".", ",")} por mês de armazenagem.`
           : `No centro de distribuição do marketplace, vendeu ${alerta.vendidoUltimos7Dias} unidade(s) nos últimos 7 dias (média de ${alerta.mediaDiaria.toFixed(1)}/dia). No ritmo atual, o estoque alocado lá acaba em ${alerta.diasRestantes} dia(s).`,
       semaforo:
-        alerta.tipoAlerta === "parado"
+        alerta.tipoAlerta === "candidato"
+          ? "verde"
+          : alerta.tipoAlerta === "parado"
           ? "amarelo"
           : (alerta.diasSemEstoque ?? 0) > 0 || alerta.diasRestantes <= 3
             ? "vermelho"
@@ -981,7 +1003,7 @@ export const logsService = {
 };
 
 export const recuperacaoService = {
-  listar: () => soNaDemo(OPORTUNIDADES_RECUPERACAO_EXEMPLO, []),
+  listar: () => (emDemonstracao() ? OPORTUNIDADES_RECUPERACAO_EXEMPLO : REAIS.recuperacao),
 };
 
 /**
@@ -1312,6 +1334,8 @@ function linhaParaTicketSac(l: {
     decididoEm: l.decidido_em,
     pedidoId: (d.pedidoId as string) ?? null,
     cliente: (d.cliente as string) ?? null,
+    canal: (d.canalSac as TicketSac["canal"]) ?? "pergunta",
+    numeroPedido: (d.numeroPedido as string) ?? null,
   };
 }
 

@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Mail } from "lucide-react";
+import { ExternalLink, Mail } from "lucide-react";
 import { recuperacaoService } from "@/services";
+import { emDemonstracao } from "@/lib/demonstracao";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { getMarketplace } from "@/data/mock";
 import { formatBRL, formatDataHora, formatPercentual } from "@/lib/format";
@@ -59,6 +60,8 @@ const ROTULO_TIPO: Record<TipoOportunidadeRecuperacao, string> = {
   "boleto-pendente": "Boleto Pendente",
   "pix-nao-pago": "PIX Não Pago",
   "cancelamento-solicitado": "Cancelamento Solicitado",
+  "venda-cancelada": "Venda cancelada",
+  "pagamento-pendente": "Pagamento pendente",
 };
 
 /** Vermelho enquanto ninguém tocou na oportunidade, verde assim que o contato
@@ -190,7 +193,11 @@ function Recuperacao() {
 
       <Painel
         titulo="Oportunidades de recuperação"
-        descricao="Ações rápidas para retomar pedidos que não foram concluídos"
+        descricao={
+          emDemonstracao()
+            ? "Ações rápidas para retomar pedidos que não foram concluídos"
+            : "Vendas canceladas e com pagamento pendente dos últimos 30 dias. O canal não informa telefone nem e-mail do comprador: abra o pedido no canal para mandar mensagem."
+        }
       >
         <div className="grid gap-3 border-b p-4 md:grid-cols-3">
           <Input
@@ -275,6 +282,21 @@ function Recuperacao() {
                       {/* Os dois botões ficam sempre visíveis: dá pra chamar no
                           WhatsApp, mandar e-mail, ou repetir o contato depois. */}
                       <div className="flex items-center justify-end gap-2">
+                        {o.linkCanal ? (
+                          <Button size="sm" variant="outline" asChild>
+                            <a
+                              href={o.linkCanal}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="gap-1.5"
+                              onClick={() => marcarContatado(o)}
+                            >
+                              <ExternalLink className="size-3.5" />
+                              <span className="hidden sm:inline">Abrir no canal</span>
+                            </a>
+                          </Button>
+                        ) : null}
+                        {o.telefone && (
                         <Button
                           size="sm"
                           className="gap-1.5 bg-profit text-white hover:bg-profit/90"
@@ -283,6 +305,8 @@ function Recuperacao() {
                           <IconeWhatsApp className="size-3.5" />
                           <span className="hidden sm:inline">WhatsApp</span>
                         </Button>
+                        )}
+                        {!o.linkCanal && (
                         <Button
                           size="sm"
                           className="gap-1.5 bg-info text-white hover:bg-info/90"
@@ -291,6 +315,7 @@ function Recuperacao() {
                           <Mail className="size-3.5" />
                           <span className="hidden sm:inline">E-mail</span>
                         </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -299,9 +324,7 @@ function Recuperacao() {
               {oportunidades.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    Nenhuma oportunidade de recuperação no momento. Os marketplaces ainda não enviam
-                    pedidos não pagos nem o contato do comprador pela integração — os cancelamentos
-                    aparecem em Vendas.
+                    Nenhuma venda cancelada ou com pagamento pendente nos últimos 30 dias.
                   </td>
                 </tr>
               )}

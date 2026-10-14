@@ -1852,6 +1852,9 @@ export const DIAS_ALVO_FULL = 30;
 /** A partir desta cobertura, o estoque no Full é considerado parado
  * (mesma regra da taxa de estoque parado que o Auditor confere). */
 export const DIAS_PARADO_FULL = 60;
+
+/** Vendas mínimas em 30 dias (fora do Full) para sugerir mandar pro Full. */
+export const MIN_VENDAS_30D_CANDIDATO_FULL = 8;
 /** Taxas do Full usadas pra estimar a economia de retirar estoque —
  * FICTÍCIAS, as mesmas que o Auditor usa. */
 const TAXA_ARMAZENAGEM_NORMAL = 0.008;
@@ -2174,10 +2177,67 @@ export function analisarFulfillment(
     }
   }
 
+  // --- 3. Vale mandar pro Full ---
+  // Produto que ainda NÃO está no Full, mas vende bem no estoque próprio:
+  // no Full ele ganha frete mais rápido e destaque. Sugere quanto mandar
+  // para cobrir ${DIAS_ALVO_FULL} dias, sem tirar o que o próprio estoque
+  // precisa até a próxima compra.
+  const noFull = new Set(itensFull.filter((i) => i.quantidade > 0).map((i) => `${i.marketplaceId}|${i.sku}`));
+  const inicio30 = somarDias(inicioDoDia(referencia), -29);
+  for (const item of estoqueProprio) {
+    if (noFull.has(`${item.marketplaceId}|${item.sku}`) || item.quantidade <= 0) continue;
+    if (PRAZO_ENVIO_FULL_DIAS[item.marketplaceId] === undefined) continue;
+    const vendidos30 = pedidos
+      .filter(
+        (p) =>
+          p.sku === item.sku &&
+          p.marketplaceId === item.marketplaceId &&
+          p.status !== "cancelado" &&
+          p.tipoLogistica !== "full" &&
+          dentroDoPeriodo(p.data, { inicio: inicio30, fim: referencia, rotulo: "" }),
+      )
+      .reduce((s, p) => s + p.quantidade, 0);
+    if (vendidos30 < MIN_VENDAS_30D_CANDIDATO_FULL) continue;
+    const media = vendidos30 / 30;
+    const reserva = Math.ceil(media * item.prazoFornecedorDias);
+    const disponivel = Math.max(0, item.quantidade - reserva);
+    const ideal = Math.ceil(media * DIAS_ALVO_FULL);
+    const enviar = Math.min(ideal, disponivel);
+    const margem = margemDoSku(pedidos, item.sku, referencia);
+    const classe = abc.get(item.sku) ?? null;
+    alertas.push({
+      tipoAlerta: "candidato",
+      sku: item.sku,
+      produto: item.produto,
+      marketplaceId: item.marketplaceId,
+      estoqueAtual: item.quantidade,
+      vendidoUltimos7Dias: ritmo7Dias(pedidos, item.sku, referencia, "proprio").vendido,
+      mediaDiaria: Math.round(media * 100) / 100,
+      diasRestantes: media > 0 ? Math.floor(item.quantidade / media) : Infinity,
+      quantidadeSugerida: ideal,
+      diasAlvoCobertura: DIAS_ALVO_FULL,
+      prazoFornecedorDias: item.prazoFornecedorDias,
+      prazoEnvioFullDias: PRAZO_ENVIO_FULL_DIAS[item.marketplaceId],
+      estoqueProprio: disponivel,
+      quantidadeEnviar: enviar,
+      // Mandar pro Full é opcional: não entra como compra obrigatória.
+      quantidadeComprar: 0,
+      custoUnitario: item.custoUnitario,
+      custoReposicao: 0,
+      custoArmazenagemMensal: 0,
+      classeAbc: classe,
+      margem30d: margem,
+    });
+  }
+
+  const ORDEM_TIPO = { ruptura: 0, parado: 1, candidato: 2 } as const;
   return alertas.sort((a, b) => {
     // Primeiro o que vai faltar (mais urgente antes), depois os parados
-    // (o que mais custa antes).
-    if (a.tipoAlerta !== b.tipoAlerta) return a.tipoAlerta === "ruptura" ? -1 : 1;
+    // (o que mais custa antes) e por fim o que vale mandar pro Full
+    // (o que mais vende antes).
+    if (a.tipoAlerta !== b.tipoAlerta)
+      return ORDEM_TIPO[a.tipoAlerta ?? "ruptura"] - ORDEM_TIPO[b.tipoAlerta ?? "ruptura"];
+    if (a.tipoAlerta === "candidato") return b.mediaDiaria - a.mediaDiaria;
     if (a.tipoAlerta === "ruptura") return (a.diasParaPedir ?? 0) - (b.diasParaPedir ?? 0);
     return (b.custoArmazenagemMensal ?? 0) - (a.custoArmazenagemMensal ?? 0);
   });
@@ -2791,33 +2851,60 @@ export function conferirTodasCobrancasPedido(
   const foiCobrado = (item: ItemCobrancaAuditor) => (ex?.cobrado[item] ?? 0) > 0;
   const itens: ItemDivergenteAuditor[] = [];
 
-  // Comissão — percentual da conta sobre o valor da venda.
-  const comissaoEsperada = fat * conta.comissaoPercentual;
-  itens.push(
-    itemConferido(
-      "comissao",
-      comissaoEsperada,
-      pedido.comissao,
-      `${pct(conta.comissaoPercentual)} sobre a venda de ${brl(fat)}`,
-      (c) => (fat > 0 ? `O valor cobrado equivale a ${pct(c / fat)} da venda.` : undefined),
-    ),
-  );
+  // Comissão — a do PRÓPRIO anúncio quando o canal informa (dado real);
+  // sem ela, o percentual da conta. Comparar com a média da conta gerava
+  // alarme falso: cada anúncio tem a comissão do seu tipo e categoria.
+  const tarifa = pedido.tarifaAnuncio;
+  if (tarifa) {
+    const fixa = tarifa.taxaFixaUnidade * pedido.quantidade;
+    const esperado = fat * tarifa.comissaoPercentual + fixa;
+    itens.push(
+      itemConferido(
+        "comissao",
+        esperado,
+        pedido.comissao,
+        `${pct(tarifa.comissaoPercentual)} do anúncio${tarifa.tipo ? ` (${tarifa.tipo})` : ""} sobre ${brl(fat)}` +
+          (fixa > 0 ? ` + custo fixo de ${brl(tarifa.taxaFixaUnidade)} × ${pedido.quantidade} un.` : ""),
+        (c) =>
+          fat > 0
+            ? `O valor cobrado equivale a ${pct(c / fat)} da venda. A tarifa do anúncio é a de hoje: se o tipo do anúncio, a categoria ou o preço mudaram depois da venda, a diferença pode vir daí.`
+            : undefined,
+      ),
+    );
+    // No Mercado Livre o custo fixo já vem somado na comissão cobrada.
+    itens.push(
+      itemConferido("taxaFixa", pedido.taxaFixa, pedido.taxaFixa, "Custo fixo já conferido junto com a comissão"),
+    );
+  } else {
+    const comissaoEsperada = fat * conta.comissaoPercentual;
+    itens.push(
+      itemConferido(
+        "comissao",
+        comissaoEsperada,
+        pedido.comissao,
+        `${pct(conta.comissaoPercentual)} sobre a venda de ${brl(fat)}`,
+        (c) => (fat > 0 ? `O valor cobrado equivale a ${pct(c / fat)} da venda.` : undefined),
+      ),
+    );
 
-  // Taxa fixa — valor fixo por pedido configurado na conta.
-  itens.push(
-    itemConferido(
-      "taxaFixa",
-      conta.taxaFixa,
-      pedido.taxaFixa,
-      `Taxa fixa por pedido desta conta: ${brl(conta.taxaFixa)}`,
-    ),
-  );
+    // Taxa fixa — valor fixo por pedido configurado na conta.
+    itens.push(
+      itemConferido(
+        "taxaFixa",
+        conta.taxaFixa,
+        pedido.taxaFixa,
+        `Taxa fixa por pedido desta conta: ${brl(conta.taxaFixa)}`,
+      ),
+    );
+  }
 
   // Frete — depende de QUEM paga o frete deste pedido.
   const responsavel =
     ex?.responsavelFrete ?? (pedido.tipoLogistica === "full" ? "canal-full" : "seller");
   const regraFrete =
-    responsavel === "canal-full"
+    pedido.freteVendedor !== undefined
+      ? `Frete que o canal informou neste pedido: ${brl(pedido.freteVendedor)}`
+      : responsavel === "canal-full"
       ? "Pedido saiu pelo Full: o frete é por conta do canal, não seu"
       : responsavel === "comprador"
         ? regras.freteSellerAPartirDe === null
@@ -3095,13 +3182,13 @@ export function auditarCobrancas(
       tipo: "cobranca-divergente",
       data: p.data,
       anuncioId: null,
-      pedidoId: p.id,
+      pedidoId: p.numero ?? p.id,
       sku: p.sku,
       produto: p.produto,
       marketplaceId: p.marketplaceId,
       contaId: p.contaId,
       contaNome: conta.nome,
-      motivo: `O pedido ${p.id} foi cobrado ${diferenca > 0 ? "a mais" : "a menos"} em ${listarNomes(itens)}: diferença de ${brl(Math.abs(diferenca))}.`,
+      motivo: `O pedido ${p.numero ?? p.id} foi cobrado ${diferenca > 0 ? "a mais" : "a menos"} em ${listarNomes(itens)}: diferença de ${brl(Math.abs(diferenca))}.`,
       causaProvavel: causaProvavel(itens),
       campo: null,
       valorAnterior: null,
@@ -3299,7 +3386,7 @@ export function auditarMudancasTaxa(
           new Date(p.data).getTime() >= desde,
       )
       .map((p) => ({
-        pedidoId: p.id,
+        pedidoId: p.numero ?? p.id,
         data: p.data,
         faturamento: p.faturamento,
         custoExtra:

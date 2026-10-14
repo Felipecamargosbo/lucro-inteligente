@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { anunciosService, promocoesService } from "@/services";
 import { calcularResultado, resultadoAnuncio } from "@/lib/finance";
-import { formatBRL, formatPercentual } from "@/lib/format";
+import { formatBRL, formatData, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { ResultadosPromocoes } from "@/components/promocoes/ResultadosPromocoes";
 import { Button } from "@/components/ui/button";
@@ -112,8 +112,12 @@ function Decidir() {
   const promocoesBase = promocoesService.listar();
   const anuncios = anunciosService.listar();
 
+  // Dados reais: a situação vem do canal (já está na campanha ou pode entrar).
+  const reais = promocoesBase.some((p) => p.situacao !== undefined);
   const [participando, setParticipando] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(promocoesBase.map((p, i) => [p.id, i < 4])),
+    Object.fromEntries(
+      promocoesBase.map((p, i) => [p.id, p.situacao ? p.situacao === "participando" : i < 4]),
+    ),
   );
 
   const [skuSimulado, setSkuSimulado] = useState(anuncios[0]?.id ?? "");
@@ -147,6 +151,8 @@ function Decidir() {
     ? ativas.reduce((acc, l) => acc + l.promo.margem, 0) / ativas.length
     : 0;
   const criticos = linhas.filter((l) => l.promo.margem < MARGEM_MINIMA).length;
+  const semCusto = linhas.filter((l) => !l.p.cmv).length;
+  const campanhasAbertas = new Set(promocoesBase.map((p) => p.campanha ?? p.tipo)).size;
 
   return (
     <div className="space-y-6">
@@ -156,11 +162,19 @@ function Decidir() {
           valor={`${ativas.length}`}
           detalhe={`${linhas.length} oportunidades disponíveis nos canais`}
         />
-        <CardKpi
-          titulo="Faturamento com oferta"
-          valor={formatBRL(faturamentoOferta)}
-          detalhe="Estimativa dos últimos 30 dias em campanhas"
-        />
+        {reais ? (
+          <CardKpi
+            titulo="Campanhas abertas no canal"
+            valor={`${campanhasAbertas}`}
+            detalhe="Campanhas em que algum anúncio seu pode entrar"
+          />
+        ) : (
+          <CardKpi
+            titulo="Faturamento com oferta"
+            valor={formatBRL(faturamentoOferta)}
+            detalhe="Estimativa dos últimos 30 dias em campanhas"
+          />
+        )}
         <CardKpi
           titulo="Lucro líquido médio em promoção"
           valor={formatPercentual(margemMedia)}
@@ -341,6 +355,14 @@ function Decidir() {
         </Painel>
       </div>
 
+      {reais && semCusto > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <strong className="text-amber-600 dark:text-amber-400">Margens sem o custo do produto.</strong>{" "}
+          {semCusto} de {linhas.length} ofertas são de produtos sem CMV cadastrado — a margem delas
+          aparece maior do que é. Cadastre em Produtos → Importar CMV antes de decidir.
+        </div>
+      )}
+
       <Painel
         titulo="Promoções vigentes e oportunidades"
         descricao="Compare a margem normal com a margem dentro da campanha"
@@ -356,7 +378,7 @@ function Decidir() {
                 <th className="px-4 py-3 text-right font-bold">Margem normal</th>
                 <th className="px-4 py-3 text-right font-bold">Nova margem</th>
                 <th className="px-4 py-3 text-center font-bold">Status da oferta</th>
-                <th className="px-4 py-3 text-right font-bold">Ação</th>
+                <th className="px-4 py-3 text-right font-bold">{reais ? "No canal" : "Ação"}</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -370,6 +392,19 @@ function Decidir() {
                       <p className="num text-[10px] text-muted-foreground">
                         {p.sku} · {p.tipo}
                       </p>
+                      {p.situacao && (
+                        <p className="text-[10px] text-muted-foreground">
+                          {p.situacao === "participando" ? "Participando" : "Pode entrar"}
+                          {p.prazoAdesao && p.situacao === "disponivel"
+                            ? ` até ${formatData(p.prazoAdesao)}`
+                            : p.fim
+                              ? ` · termina em ${formatData(p.fim)}`
+                              : ""}
+                          {p.precoMinimo && p.precoMaximo
+                            ? ` · preço aceito de ${formatBRL(p.precoMinimo)} a ${formatBRL(p.precoMaximo)}`
+                            : ""}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <SeloMarketplace id={p.marketplaceId} />
@@ -406,6 +441,17 @@ function Decidir() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
+                      {p.situacao ? (
+                        <span
+                          className={cn(
+                            "inline-flex rounded px-2 py-1 text-[10px] font-semibold",
+                            ativo ? "bg-profit-soft text-profit" : "bg-muted text-muted-foreground",
+                          )}
+                          title="Para entrar ou sair, use a Central de Promoções do canal"
+                        >
+                          {ativo ? "Participando" : "Disponível"}
+                        </span>
+                      ) : (
                       <Button
                         size="sm"
                         variant={ativo ? "outline" : "default"}
@@ -420,6 +466,7 @@ function Decidir() {
                       >
                         {ativo ? "Sair" : "Participar"}
                       </Button>
+                      )}
                     </td>
                   </tr>
                 );

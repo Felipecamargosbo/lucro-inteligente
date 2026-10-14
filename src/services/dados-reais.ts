@@ -11,6 +11,8 @@ import type {
   Anuncio,
   ContaMarketplace,
   ItemEstoqueDetalhado,
+  OportunidadeRecuperacao,
+  Promocao,
   MarketplaceId,
   Pedido,
   StatusAnuncio,
@@ -20,6 +22,9 @@ import type {
 
 /** Alíquota usada enquanto o seller não configura o regime dele. */
 const IMPOSTO_PADRAO = 0.1;
+
+/** Nome que o seller conhece para cada tipo de anúncio do Mercado Livre. */
+const TIPO_ANUNCIO: Record<string, string> = { gold_special: "Clássico", gold_pro: "Premium", free: "Grátis" };
 
 const STATUS_ANUNCIO: StatusAnuncio[] = ["ativo", "pausado", "sem-estoque"];
 const STATUS_PEDIDO: StatusPedido[] = ["entregue", "em-transito", "aguardando-envio", "cancelado"];
@@ -33,13 +38,43 @@ export interface DadosReais {
   pedidos: Pedido[];
   /** Estoque próprio (fora do Full), a partir do estoque de cada anúncio. */
   estoque: ItemEstoqueDetalhado[];
+  /** Campanhas do canal em que cada anúncio pode entrar ou já está. */
+  promocoes: Promocao[];
+  /** Vendas canceladas e não pagas dos últimos 30 dias. */
+  recuperacao: OportunidadeRecuperacao[];
+}
+
+/** Link do pedido no painel do vendedor, por canal. */
+function linkDoPedido(marketplace: MarketplaceId, numero: string | null): string | null {
+  if (!numero) return null;
+  if (marketplace === "mercado-livre") return `https://www.mercadolivre.com.br/vendas/${numero}/detalhe`;
+  return null;
 }
 
 /** Prazo de reposição usado enquanto o seller não informa o do fornecedor. */
 const PRAZO_FORNECEDOR_PADRAO = 7;
 
+/**
+ * Lê TODAS as linhas de uma consulta, de 1000 em 1000. O banco nunca devolve
+ * mais que 1000 por vez — sem isso, contas com mais vendas ou anúncios que
+ * isso ficavam com dados faltando sem nenhum aviso.
+ */
+async function todasAsLinhas<T>(
+  consulta: (de: number, ate: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  maximo = 50000,
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  const todas: T[] = [];
+  for (let de = 0; de < maximo; de += 1000) {
+    const { data, error } = await consulta(de, de + 999);
+    if (error) return { data: todas, error };
+    todas.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
+  return { data: todas, error: null };
+}
+
 export async function carregarDadosReais(perfilId: string): Promise<DadosReais> {
-  const [rContas, rConexoes, rLojasShopee, rLojasTikTok, rAnuncios, rPedidos, rProdutos] = await Promise.all([
+  const [rContas, rConexoes, rLojasShopee, rLojasTikTok, rAnuncios, rPedidos, rProdutos, rPromocoes] = await Promise.all([
     supabase
       .from("contas_marketplace")
       .select("id, marketplace_id, nome, status_conexao, credencial_ref, ultima_sincronizacao, ativo")
@@ -48,25 +83,43 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
     supabase.from("ml_conexoes").select("id, status").eq("perfil_id", perfilId),
     supabase.from("shopee_conexoes").select("id, status").eq("perfil_id", perfilId),
     supabase.from("tiktok_conexoes").select("id, status").eq("perfil_id", perfilId),
-    supabase
-      .from("anuncios")
-      .select(
-        "id, conta_id, produto_id, id_externo, sku, ean, titulo, preco_atual, preco_cheio, em_promocao, comissao_percentual, taxa_fixa, frete_unitario, custo_midia_unitario, custo_afiliado_unitario, origem_taxas, status, unidades_vendidas, data_ultima_venda, estoque, logistica",
-      )
-      .eq("perfil_id", perfilId)
-      .limit(5000),
-    supabase
-      .from("pedidos")
-      .select(
-        "id, conta_id, anuncio_id, id_externo, data_venda, sku, produto, quantidade, preco_venda, cmv, comissao, status, logistica, comprador, origem_valor, id_pedido_ml, frete, uf",
-      )
-      .eq("perfil_id", perfilId)
-      .order("data_venda", { ascending: false })
-      .limit(10000),
-    supabase.from("produtos").select("sku, cmv").eq("perfil_id", perfilId),
+    todasAsLinhas((de, ate) =>
+      supabase
+        .from("anuncios")
+        .select(
+          "id, conta_id, produto_id, id_externo, sku, ean, titulo, preco_atual, preco_cheio, em_promocao, comissao_percentual, taxa_fixa, frete_unitario, custo_midia_unitario, custo_afiliado_unitario, origem_taxas, status, unidades_vendidas, data_ultima_venda, estoque, logistica, modalidade, link",
+        )
+        .eq("perfil_id", perfilId)
+        .order("id")
+        .range(de, ate),
+    ),
+    todasAsLinhas((de, ate) =>
+      supabase
+        .from("pedidos")
+        .select(
+          "id, conta_id, anuncio_id, id_externo, data_venda, sku, produto, quantidade, preco_venda, cmv, comissao, status, status_ml, logistica, comprador, origem_valor, id_pedido_ml, frete, uf",
+        )
+        .eq("perfil_id", perfilId)
+        .order("data_venda", { ascending: false })
+        .order("id")
+        .range(de, ate),
+    ),
+    todasAsLinhas((de, ate) =>
+      supabase.from("produtos").select("sku, cmv").eq("perfil_id", perfilId).order("sku").range(de, ate),
+    ),
+    todasAsLinhas((de, ate) =>
+      supabase
+        .from("promocoes_canal")
+        .select(
+          "id, conta_id, id_promocao, tipo, nome, fim, prazo_adesao, anuncio_id, status_item, preco_original, preco_promocional, preco_minimo, preco_maximo, desconto_canal_percentual",
+        )
+        .eq("perfil_id", perfilId)
+        .order("id")
+        .range(de, ate),
+    ),
   ]);
 
-  for (const r of [rContas, rConexoes, rLojasShopee, rLojasTikTok, rAnuncios, rPedidos, rProdutos]) {
+  for (const r of [rContas, rConexoes, rLojasShopee, rLojasTikTok, rAnuncios, rPedidos, rProdutos, rPromocoes]) {
     if (r.error) console.error("carregarDadosReais:", r.error.message);
   }
 
@@ -96,6 +149,11 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
     linhasContas.map((c) => [c.id as string, c.marketplace_id as MarketplaceId]),
   );
 
+  // Anúncio que aparece em alguma campanha do canal = elegível a promoção.
+  const emCampanha = new Set(
+    (rPromocoes.data ?? []).map((p) => p.anuncio_id as string | null).filter(Boolean) as string[],
+  );
+
   const anuncios: Anuncio[] = (rAnuncios.data ?? [])
     .filter((a) => marketplaceDaConta.has(a.conta_id as string))
     .map((a) => ({
@@ -105,6 +163,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       sku: (a.sku as string) ?? (a.id_externo as string),
       ean: (a.ean as string | null) ?? null,
       produto: (a.titulo as string) ?? (a.id_externo as string),
+      tipoAnuncio: a.modalidade ? (TIPO_ANUNCIO[a.modalidade as string] ?? (a.modalidade as string)) : null,
       precoAtual: num(a.preco_atual),
       precoCheio: a.preco_cheio === null ? null : num(a.preco_cheio),
       emPromocao: Boolean(a.em_promocao),
@@ -121,7 +180,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       origemTaxas: a.origem_taxas === "liquidado" ? "liquidado" : "estimado",
       produtoId: (a.produto_id as string | null) ?? null,
       status: STATUS_ANUNCIO.includes(a.status as StatusAnuncio) ? (a.status as StatusAnuncio) : "pausado",
-      elegivelPromocao: false,
+      elegivelPromocao: emCampanha.has(a.id as string),
       unidadesVendidas: num(a.unidades_vendidas),
       dataUltimaVenda: (a.data_ultima_venda as string | null) ?? null,
       roasObjetivo: null,
@@ -130,6 +189,18 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
   // CMV de cada venda: o custo cadastrado no catálogo (Produtos) para o SKU.
   const cmvPorSku = new Map(
     (rProdutos.data ?? []).map((p) => [p.sku as string, num(p.cmv)]),
+  );
+
+  // Tarifa de cada anúncio (para o Auditor conferir a comissão de cada venda).
+  const tarifaPorAnuncio = new Map(
+    (rAnuncios.data ?? []).map((a) => [
+      a.id as string,
+      {
+        comissaoPercentual: num(a.comissao_percentual),
+        taxaFixaUnidade: num(a.taxa_fixa),
+        tipo: a.modalidade ? (TIPO_ANUNCIO[a.modalidade as string] ?? (a.modalidade as string)) : null,
+      },
+    ]),
   );
 
   const pedidos: Pedido[] = (rPedidos.data ?? [])
@@ -186,6 +257,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
         motivoDevolucao: null,
         campanhaId: null,
         freteVendedor: frete,
+        tarifaAnuncio: p.anuncio_id ? tarifaPorAnuncio.get(p.anuncio_id as string) : undefined,
         freteEsperado: frete,
         freteCobrado: frete,
       };
@@ -265,7 +337,80 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
     };
   });
 
-  return { contas, anuncios, pedidos, estoque };
+  // Promoções do canal → mesmo formato da tela de Promoções.
+  const anuncioPorId = new Map(anuncios.map((a) => [a.id, a]));
+  const linkPorAnuncio = new Map(
+    (rAnuncios.data ?? []).map((a) => [a.id as string, (a.link as string | null) ?? null]),
+  );
+  const promocoes: Promocao[] = [];
+  for (const p of rPromocoes.data ?? []) {
+    const a = p.anuncio_id ? anuncioPorId.get(p.anuncio_id as string) : undefined;
+    if (!a) continue; // anúncio de conta desconectada ou ainda não sincronizado
+    const original = num(p.preco_original) || a.precoAtual;
+    const promocional = num(p.preco_promocional) || original;
+    promocoes.push({
+      id: p.id as string,
+      marketplaceId: a.marketplaceId,
+      sku: a.sku,
+      produto: a.produto,
+      precoAtual: original,
+      tipo: (p.nome as string) ?? (p.tipo as string) ?? "Campanha",
+      rebate: 0,
+      precoFinal: promocional,
+      cmv: cmvPorSku.get(a.sku) ?? 0,
+      impostoPercentual: aliquota,
+      comissaoPercentual: a.comissaoPercentual,
+      taxaFixa: a.taxaFixa,
+      campanha: (p.nome as string) ?? undefined,
+      situacao: ["started", "pending"].includes(p.status_item as string) ? "participando" : "disponivel",
+      fim: (p.fim as string | null) ?? null,
+      prazoAdesao: (p.prazo_adesao as string | null) ?? null,
+      precoMinimo: p.preco_minimo === null ? null : num(p.preco_minimo),
+      precoMaximo: p.preco_maximo === null ? null : num(p.preco_maximo),
+      descontoCanalPercentual: p.desconto_canal_percentual === null ? null : num(p.desconto_canal_percentual),
+      link: linkPorAnuncio.get(a.id) ?? null,
+    });
+  }
+
+  // Recuperação: vendas canceladas e não pagas dos últimos 30 dias. O canal
+  // não informa telefone nem e-mail do comprador, então o contato é pelo
+  // próprio painel do canal (linkCanal).
+  const limiteRecuperacao = Date.now() - 30 * 86400000;
+  const statusMlPorId = new Map(
+    (rPedidos.data ?? []).map((p) => [p.id as string, (p.status_ml as string | null) ?? null]),
+  );
+  const recuperacao: OportunidadeRecuperacao[] = [];
+  const vistos = new Set<string>();
+  for (const p of pedidos) {
+    if (new Date(p.data).getTime() < limiteRecuperacao) continue;
+    const statusMl = statusMlPorId.get(p.id);
+    const naoPago = statusMl === "payment_required" || statusMl === "payment_in_process";
+    if (p.status !== "cancelado" && !naoPago) continue;
+    const numero = p.numero ?? p.id;
+    const chave = `${p.contaId}|${numero}`;
+    if (vistos.has(chave)) continue; // um pedido com vários itens vira uma linha só
+    vistos.add(chave);
+    const itensDoPedido = pedidos.filter((x) => x.contaId === p.contaId && (x.numero ?? x.id) === numero);
+    recuperacao.push({
+      id: p.id,
+      cliente: p.cliente || "Comprador",
+      telefone: "",
+      pedidoId: numero,
+      sku: p.sku,
+      produto: itensDoPedido.length > 1 ? `${p.produto} (+${itensDoPedido.length - 1} item)` : p.produto,
+      marketplaceId: p.marketplaceId,
+      contaId: p.contaId,
+      valor: itensDoPedido.reduce((s, x) => s + x.faturamento, 0),
+      tipo: naoPago ? "pagamento-pendente" : "venda-cancelada",
+      tempoRestante: naoPago ? "Até o canal cancelar" : "—",
+      status: "aguardando-acao",
+      dataCriacao: p.data,
+      dataUltimoContato: null,
+      linkCanal: linkDoPedido(p.marketplaceId, p.numero ?? null),
+    });
+  }
+
+  return { contas, anuncios, pedidos, estoque, promocoes, recuperacao };
 }
 
 /** Pede ao servidor para buscar agora os anúncios e pedidos no marketplace. */

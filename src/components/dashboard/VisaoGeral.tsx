@@ -329,7 +329,7 @@ export function VisaoGeral() {
         <CardKpi
           titulo="Vendas canceladas"
           valor={formatBRL(resumo.valorCancelado)}
-          detalhe={emDemonstracao() ? "Veja em Recuperação de vendas" : "Na lista de Vendas, filtre por Cancelado"}
+          detalhe="Veja em Recuperação de vendas"
         />
       </div>
 

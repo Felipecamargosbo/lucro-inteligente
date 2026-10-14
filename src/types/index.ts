@@ -127,6 +127,16 @@ export interface Pedido {
   /** Frete que o canal desconta do seller nesta venda (dado real do canal).
    * Sai do repasse e do lucro. Ausente nos dados de demonstração. */
   freteVendedor?: number;
+  /** Tarifa do anúncio que gerou a venda, como o canal informa hoje (dado
+   * real). O Auditor confere a comissão contra ela — não contra a média da
+   * conta. Ausente nos dados de demonstração. */
+  tarifaAnuncio?: {
+    comissaoPercentual: number;
+    /** Custo fixo por unidade (produtos baratos no Mercado Livre). */
+    taxaFixaUnidade: number;
+    /** Tipo do anúncio (ex.: Clássico, Premium), quando o canal informa. */
+    tipo: string | null;
+  };
   /** ADS/mídia paga atribuída a este pedido — não confundir com outrosCustos */
   custoMidia: number;
   lucroLiquido: number;
@@ -353,6 +363,8 @@ export interface Anuncio {
    * segundo critério de busca em "Receber anúncios" além do SKU. */
   ean: string | null;
   produto: string;
+  /** Tipo do anúncio no canal (ex.: Clássico, Premium), quando informado. */
+  tipoAnuncio?: string | null;
   precoAtual: number;
   /** Preço cheio quando o anúncio está em promoção; null se não está */
   precoCheio: number | null;
@@ -466,6 +478,22 @@ export interface Promocao {
   impostoPercentual: number;
   comissaoPercentual: number;
   taxaFixa: number;
+  /* Só nas promoções reais vindas do canal (ausentes na demonstração). */
+  /** Nome da campanha no canal (ex.: "11.11 da Black") */
+  campanha?: string;
+  /** participando = já está na campanha; disponivel = pode entrar */
+  situacao?: "participando" | "disponivel";
+  /** Quando a campanha termina */
+  fim?: string | null;
+  /** Até quando dá pra entrar */
+  prazoAdesao?: string | null;
+  /** Faixa de preço que o canal aceita na campanha */
+  precoMinimo?: number | null;
+  precoMaximo?: number | null;
+  /** Parte do desconto que o próprio canal banca, em % */
+  descontoCanalPercentual?: number | null;
+  /** Link do anúncio no canal */
+  link?: string | null;
 }
 
 export interface ItemEstoque {
@@ -676,7 +704,9 @@ export interface Periodo {
 export type TipoOportunidadeRecuperacao =
   | "boleto-pendente"
   | "pix-nao-pago"
-  | "cancelamento-solicitado";
+  | "cancelamento-solicitado"
+  | "venda-cancelada"
+  | "pagamento-pendente";
 
 export type StatusOportunidadeRecuperacao = "aguardando-acao" | "mensagem-enviada";
 
@@ -695,6 +725,9 @@ export interface OportunidadeRecuperacao {
   status: StatusOportunidadeRecuperacao;
   dataCriacao: string; // ISO
   dataUltimoContato: string | null; // ISO
+  /** Link do pedido no canal — nos dados reais o contato é por lá (o canal
+   * não informa telefone nem e-mail do comprador). */
+  linkCanal?: string | null;
 }
 
 
@@ -862,7 +895,14 @@ export interface TicketSac {
   pedidoId?: string | null;
   /** Nome do cliente, pra personalizar a mensagem pronta */
   cliente?: string | null;
+  /** Por onde o cliente falou: pergunta do anúncio, mensagem do pedido,
+   * reclamação/mediação ou pedido de devolução. */
+  canal?: CanalSac;
+  /** Número do pedido no marketplace (quando a mensagem é de um pedido) */
+  numeroPedido?: string | null;
 }
+
+export type CanalSac = "pergunta" | "mensagem" | "reclamacao" | "devolucao";
 
 /** O tipo de mensagem, decidido por palavras-chave (sem IA, sem token):
  * - pré-venda: dúvida antes de comprar;
@@ -951,7 +991,9 @@ export interface AlertaEstoque {
  * não vale (resolver o preço antes). */
 export type VereditoReposicao = "repor" | "repor-com-cuidado" | "nao-repor";
 
-export type TipoAlertaEstoque = "ruptura" | "parado";
+/** ruptura = vai faltar · parado = sobrando no Full · candidato = vende
+ * bem no estoque próprio e vale mandar pro Full. */
+export type TipoAlertaEstoque = "ruptura" | "parado" | "candidato";
 
 /* ------------------------------------------------------------------ */
 /* Agente de Ads                                                       */

@@ -176,6 +176,7 @@ export const getCanalPorSlug = (slug: string) => CANAIS.find((c) => c.slug === s
 export type AbaCanal =
   | "dashboard"
   | "raio-x"
+  | "tarifas"
   | "promocoes"
   | "reputacao"
   | "pendencias";
@@ -196,6 +197,11 @@ export const ABAS_CANAL: AbaCanalDef[] = [
     id: "raio-x",
     titulo: "Raio-X de Anúncios",
     descricao: "Cada taxa exposta na linha, com o que sobra no bolso",
+  },
+  {
+    id: "tarifas",
+    titulo: "Tarifas",
+    descricao: "Comissão, custo fixo e frete que o canal cobra em cada anúncio",
   },
   {
     id: "promocoes",

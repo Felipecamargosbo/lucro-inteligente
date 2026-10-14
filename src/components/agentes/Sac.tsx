@@ -47,6 +47,14 @@ const NOME_SAC = "Agente de SAC";
 
 const ROTULO_TOM = { formal: "Formal", neutro: "Neutro", descontraido: "Descontraído" } as const;
 
+/** Por onde o cliente falou com a loja no canal. */
+const ROTULO_CANAL_SAC: Record<NonNullable<TicketSac["canal"]>, string> = {
+  pergunta: "Pergunta no anúncio",
+  mensagem: "Mensagem do pedido",
+  reclamacao: "Reclamação",
+  devolucao: "Devolução",
+};
+
 const ESTILO_CATEGORIA: Record<CategoriaSac, string> = {
   "pre-venda": "bg-brand/15 text-brand",
   "pos-venda": "bg-warning-soft text-warning",
@@ -139,7 +147,7 @@ export function PainelSac({
 
   const contagem = useMemo(() => {
     const c: Record<CategoriaSac, number> = { "pre-venda": 0, "pos-venda": 0, reclamacao: 0 };
-    for (const t of pendentes) c[classificarPergunta(t.pergunta, t.pedidoId)]++;
+    for (const t of pendentes) c[classificarPergunta(t.pergunta, t.pedidoId, t.canal)]++;
     return c;
   }, [pendentes]);
   const repetidas = useMemo(
@@ -152,7 +160,7 @@ export function PainelSac({
   const decidirComAprendizado: Decidir = (t, status, textoFinal) => {
     aoDecidir(t, status, textoFinal);
     if (status !== "aprovada") return;
-    const categoria = classificarPergunta(t.pergunta, t.pedidoId);
+    const categoria = classificarPergunta(t.pergunta, t.pedidoId, t.canal);
     const pedido = t.pedidoId ? buscarPedido(t.pedidoId) : null;
     const situacao = categoria === "pos-venda" ? situacaoDoPedido(pedido) : null;
     const editada = (textoFinal ?? rascunhos[t.id] ?? t.resposta ?? "").trim();
@@ -530,7 +538,7 @@ function CardTicketSac({
   aoGerar: () => void;
   aoDecidir: (status: Extract<StatusSugestao, "aprovada" | "recusada">, texto?: string) => void;
 }) {
-  const categoria = classificarPergunta(ticket.pergunta, ticket.pedidoId);
+  const categoria = classificarPergunta(ticket.pergunta, ticket.pedidoId, ticket.canal);
   const decidido = ticket.status !== "pendente";
   const situacao = categoria === "pos-venda" ? situacaoDoPedido(pedido) : null;
   // Pós-venda com pedido conhecido: a mensagem pronta é o ponto de partida.
@@ -577,6 +585,12 @@ function CardTicketSac({
             >
               {ROTULO_CATEGORIA_SAC[categoria]}
             </span>
+            {ticket.canal && (
+              <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {ROTULO_CANAL_SAC[ticket.canal]}
+                {ticket.numeroPedido ? ` · pedido ${ticket.numeroPedido}` : ""}
+              </span>
+            )}
             {decidido && (
               <span
                 className={cn(

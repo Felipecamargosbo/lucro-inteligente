@@ -4,6 +4,7 @@
 // resposta de pré-venda (ou um rascunho de reclamação).
 
 import type {
+  CanalSac,
   CategoriaSac,
   ConfiguracaoSac,
   MarketplaceId,
@@ -65,7 +66,14 @@ const PALAVRAS_POS_VENDA = [
  * Classifica a mensagem pelo texto. Reclamação vem primeiro de propósito:
  * "meu pedido chegou quebrado" é reclamação, não pós-venda.
  */
-export function classificarPergunta(texto: string, pedidoId?: string | null): CategoriaSac {
+export function classificarPergunta(
+  texto: string,
+  pedidoId?: string | null,
+  canal?: CanalSac,
+): CategoriaSac {
+  // Reclamação e devolução abertas no canal são sempre reclamação (pesam na
+  // reputação), seja qual for o texto.
+  if (canal === "reclamacao" || canal === "devolucao") return "reclamacao";
   const t = normalizar(texto);
   if (PALAVRAS_RECLAMACAO.some((p) => t.includes(p))) return "reclamacao";
   if (pedidoId || PALAVRAS_POS_VENDA.some((p) => t.includes(p))) return "pos-venda";
@@ -131,7 +139,7 @@ export interface PerguntaRepetida {
 export function perguntasRepetidas(tickets: TicketSac[]): PerguntaRepetida[] {
   const grupos = new Map<string, PerguntaRepetida>();
   for (const t of tickets) {
-    if (classificarPergunta(t.pergunta, t.pedidoId) !== "pre-venda") continue;
+    if (classificarPergunta(t.pergunta, t.pedidoId, t.canal) !== "pre-venda") continue;
     const assunto = assuntoDaPergunta(t.pergunta);
     if (!assunto) continue;
     const chave = `${t.sku}:${assunto.id}`;

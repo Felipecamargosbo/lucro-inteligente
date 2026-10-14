@@ -3,12 +3,13 @@ import { emDemonstracao } from "@/lib/demonstracao";
 // próprio arquivo aqui, pra poder mexer em um sem tocar nos outros.
 
 import { useMemo, useState } from "react";
-import { Check, Loader2, Mail, PackageMinus, Warehouse } from "lucide-react";
+import { Check, Loader2, Mail, PackageMinus, PackagePlus, Warehouse } from "lucide-react";
 import { formatBRL, formatNumero } from "@/lib/format";
 import {
   DIAS_ALVO_FULL,
   DIAS_PARADO_FULL,
   DIAS_SEGURANCA_REPOSICAO,
+  MIN_VENDAS_30D_CANDIDATO_FULL,
   resumirReposicao,
 } from "@/lib/finance";
 import { Painel, SeloMarketplace } from "@/components/comum/Indicadores";
@@ -133,6 +134,8 @@ export function PainelFulfillment({
           lista.map((a) =>
             a.tipoAlerta === "parado" ? (
               <CardParado key={a.id} alerta={a} aoDispensar={() => aoDispensar(a)} />
+            ) : a.tipoAlerta === "candidato" ? (
+              <CardCandidatoFull key={a.id} alerta={a} aoDispensar={() => aoDispensar(a)} />
             ) : (
               <CardFaltaNoFull
                 key={a.id}
@@ -147,7 +150,7 @@ export function PainelFulfillment({
           <div className="px-4 py-10 text-center">
             <p className="text-xs text-muted-foreground">
               {aba === "operacao"
-                ? "Nada vai faltar no Full e nada está parado pagando armazenagem a mais."
+                ? "Nada vai faltar no Full, nada está parado lá e nenhum produto do estoque próprio vende o bastante para valer mandar pro Full agora."
                 : "Nenhum alerta visto ainda."}
             </p>
           </div>
@@ -157,7 +160,9 @@ export function PainelFulfillment({
       <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
         "Vai faltar" usa a venda real dos pedidos do Full nos últimos 7 dias e avisa quando o
         estoque de lá dura menos que o prazo de envio + {DIAS_SEGURANCA_REPOSICAO} dias de folga.
-        "Parado" é cobertura acima de {DIAS_PARADO_FULL} dias.
+        "Parado" é cobertura acima de {DIAS_PARADO_FULL} dias. "Vale mandar pro Full" aparece
+        para produtos fora do Full que venderam pelo menos {MIN_VENDAS_30D_CANDIDATO_FULL} unidades
+        nos últimos 30 dias.
         {emDemonstracao() &&
           " Prazo de envio, armazenagem e retirada ainda são de exemplo — quando a API do canal conectar, passam a ser reais sem mudar nada nesta tela."}
       </div>
@@ -375,6 +380,86 @@ function CardParado({
             de pagar cerca de {formatBRL(economia)} por mês
             {diasPraPagar !== null && ` — ela se paga em uns ${diasPraPagar} dias`}. Outra saída é
             fazer uma promoção pra girar mais rápido (Agente de Precificação).
+          </p>
+
+          {alerta.status === "pendente" && (
+            <div className="mt-3">
+              <Button size="sm" variant="outline" onClick={aoDispensar}>
+                <Check className="size-3.5" />
+                Marcar como visto
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Produto fora do Full que vende bem no estoque próprio: vale mandar. */
+function CardCandidatoFull({
+  alerta,
+  aoDispensar,
+}: {
+  alerta: AlertaEstoque;
+  aoDispensar: () => void;
+}) {
+  const enviar = alerta.quantidadeEnviar ?? 0;
+  const vendidos30 = Math.round(alerta.mediaDiaria * 30);
+  const semCusto = !alerta.custoUnitario;
+
+  return (
+    <div className="px-4 py-4">
+      <div className="flex gap-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-profit-soft text-profit">
+          <PackagePlus className="size-3.5" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <SeloMarketplace id={alerta.marketplaceId} />
+            <span className="truncate text-xs font-medium">{alerta.produto}</span>
+            <span className="num text-[10px] text-muted-foreground">{alerta.sku}</span>
+            <span className="rounded bg-profit-soft px-2 py-0.5 text-[10px] font-semibold text-profit">
+              Vale mandar pro Full
+            </span>
+            {alerta.classeAbc && (
+              <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                Curva {alerta.classeAbc}
+              </span>
+            )}
+            <SeloVisto alerta={alerta} />
+          </div>
+
+          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+            Vendeu <strong className="text-foreground">{formatNumero(vendidos30)} un.</strong> nos
+            últimos 30 dias saindo do seu estoque (média de{" "}
+            {alerta.mediaDiaria.toFixed(1).replace(".", ",")}/dia). No Full o produto ganha entrega
+            mais rápida e mais destaque nas buscas, o que costuma aumentar as vendas.
+          </p>
+
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 rounded-lg bg-muted/50 px-3 py-2.5">
+            <Dado rotulo="Seu estoque" valor={formatNumero(alerta.estoqueAtual)} />
+            <Dado
+              rotulo={`Ideal pra ${alerta.diasAlvoCobertura} dias`}
+              valor={`${formatNumero(alerta.quantidadeSugerida)} un.`}
+            />
+            <Dado
+              rotulo="Mandar agora"
+              valor={enviar > 0 ? `${formatNumero(enviar)} un.` : "—"}
+              destaque={enviar > 0 ? "profit" : undefined}
+            />
+            {alerta.prazoEnvioFullDias !== undefined && (
+              <Dado rotulo="Prazo até o Full" valor={`${alerta.prazoEnvioFullDias} dias`} />
+            )}
+          </div>
+
+          <p className="mt-2 rounded-lg bg-profit-soft px-3 py-2 text-[11px] leading-relaxed text-profit">
+            {enviar > 0
+              ? `Sugestão: mande ${formatNumero(enviar)} un. — é o que sobra do seu estoque depois de reservar o que ele mesmo vende até uma compra nova chegar.`
+              : "Hoje o seu estoque só dá para as vendas de fora do Full. Na próxima compra, já peça a quantidade para o Full."}{" "}
+            Antes de mandar, confira no canal a tarifa do Full para este produto (ela depende do tamanho e do peso).
+            {semCusto && " Este produto ainda não tem custo (CMV) cadastrado, então a margem dele não foi conferida."}
           </p>
 
           {alerta.status === "pendente" && (
