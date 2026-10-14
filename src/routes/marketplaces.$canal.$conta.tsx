@@ -1,6 +1,5 @@
-import { createFileRoute, notFound } from "@tanstack/react-router";
+import { Link, createFileRoute, notFound } from "@tanstack/react-router";
 import { getCanalPorSlug } from "@/config/navegacao";
-import { contasService } from "@/services";
 import { useConfiguracoes } from "@/context/configuracoes";
 import { ConteudoConta } from "@/components/marketplaces/ConteudoConta";
 
@@ -8,11 +7,9 @@ export const Route = createFileRoute("/marketplaces/$canal/$conta")({
   loader: ({ params }) => {
     const canal = getCanalPorSlug(params.canal);
     if (!canal) throw notFound();
-
-    const conta = contasService.buscar(params.conta);
-    if (!conta || conta.marketplaceId !== canal.id) throw notFound();
-
-    return { canal, contasDoCanal: contasService.doCanal(canal.id).length };
+    // A conta em si é conferida na tela: ao abrir o link direto (ou dar F5),
+    // as contas reais ainda estão carregando aqui e isso dava 404.
+    return { canal };
   },
   head: ({ loaderData }) => {
     const nome = loaderData?.canal.titulo ?? "Canal";
@@ -37,14 +34,25 @@ export const Route = createFileRoute("/marketplaces/$canal/$conta")({
 });
 
 function PaginaConta() {
-  const { canal, contasDoCanal } = Route.useLoaderData();
+  const { canal } = Route.useLoaderData();
   const { conta: contaId } = Route.useParams();
   const { contas } = useConfiguracoes();
 
   // Lê do contexto (não do loader) para refletir edições feitas em
   // Configurações → Integrações, como o nome da conta.
-  const conta = contas.find((c) => c.id === contaId);
-  if (!conta) return null; // o loader já garantiu que existe
+  const conta = contas.find((c) => c.id === contaId && c.marketplaceId === canal.id);
+  const contasDoCanal = contas.filter((c) => c.marketplaceId === canal.id).length;
+  if (!conta) {
+    return (
+      <div className="px-5 py-16 text-center text-sm text-muted-foreground">
+        Carregando a conta… Se ela não aparecer,{" "}
+        <Link to="/marketplaces" className="font-medium underline">
+          volte para Marketplaces
+        </Link>
+        .
+      </div>
+    );
+  }
 
   return (
     <ConteudoConta
