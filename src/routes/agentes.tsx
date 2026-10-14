@@ -127,6 +127,32 @@ type AbaAgente =
   | "auditor"
   | "criativo";
 
+/**
+ * Os agentes gravam no banco o que encontram. Quando a tela pedia a mesma
+ * análise duas vezes ao mesmo tempo (ex.: as metas carregando logo depois),
+ * as duas gravavam o mesmo alerta e ele aparecia repetido. Aqui cada análise
+ * roda uma de cada vez; se pedirem de novo no meio, roda mais uma vez no fim.
+ */
+const emAndamento = new Map<string, { repetir: boolean; fn: () => Promise<void> }>();
+async function semRepetir(chave: string, fn: () => Promise<void>): Promise<void> {
+  const atual = emAndamento.get(chave);
+  if (atual) {
+    atual.repetir = true;
+    atual.fn = fn;
+    return;
+  }
+  const estado = { repetir: false, fn };
+  emAndamento.set(chave, estado);
+  try {
+    do {
+      estado.repetir = false;
+      await estado.fn();
+    } while (estado.repetir);
+  } finally {
+    emAndamento.delete(chave);
+  }
+}
+
 export const Route = createFileRoute("/agentes")({
   head: () => ({
     meta: [
@@ -285,7 +311,7 @@ function Agentes() {
    * ninguém olhando. Só GRAVA sugestão nova pra SKU que ainda não tem
    * uma pendente — sem isso, toda vez que a tela abrisse duplicaria tudo.
    */
-  const carregarEventos = useCallback(async () => {
+  const carregarEventos = useCallback(() => semRepetir("carregarEventos", async () => {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
@@ -326,7 +352,7 @@ function Agentes() {
     const lista = await eventosAgenteService.listar(perfilId, "precificacao");
     setEventos(lista);
     setCarregando(false);
-  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal, comAjustes]);
+  }), [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal, comAjustes]);
 
   /** Frentes 4 e 5 (campanhas e preço por canal): só leitura, recalculadas
    * sempre que as metas ou os custos mudam — não vão pro banco. */
@@ -353,7 +379,7 @@ function Agentes() {
    * frente só vira aviso quando tem algo que realmente merece atenção —
    * sem novidade, fica quieto.
    */
-  const carregarInsights = useCallback(async () => {
+  const carregarInsights = useCallback(() => semRepetir("carregarInsights", async () => {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
@@ -452,14 +478,14 @@ function Agentes() {
     const lista = await eventosAgenteService.listarInsights(perfilId);
     setInsights(lista);
     setCarregandoInsights(false);
-  }, [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal, comAjustes]);
+  }), [sessao, recursos.agentes, metasPorConta, fiscal, custoOperacionalTotal, comAjustes]);
 
   /**
    * Quatro perguntas comuns de cliente de marketplace, usadas só pra
    * semear os primeiros tickets de exemplo — a API de mensagens ainda
    * não existe, então a pergunta em si é sempre fictícia.
    */
-  const carregarTickets = useCallback(async () => {
+  const carregarTickets = useCallback(() => semRepetir("carregarTickets", async () => {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
@@ -511,11 +537,11 @@ function Agentes() {
     const lista = await sacService.listar(perfilId);
     setTickets(lista);
     setCarregandoTickets(false);
-  }, [sessao, recursos.agentes]);
+  }), [sessao, recursos.agentes]);
 
   /** Semeia algumas sugestões de exemplo, uma vez só, a partir de
    * anúncios ativos reais — igual o SAC faz com as perguntas fictícias. */
-  const carregarSugestoesCriativo = useCallback(async () => {
+  const carregarSugestoesCriativo = useCallback(() => semRepetir("carregarSugestoesCriativo", async () => {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
@@ -540,7 +566,7 @@ function Agentes() {
     const lista = await criativoService.listar(perfilId);
     setSugestoesCriativo(lista);
     setCarregandoCriativo(false);
-  }, [sessao, recursos.agentes]);
+  }), [sessao, recursos.agentes]);
 
   /**
    * Agente de Estoque (estoque próprio): avisa a tempo de o fornecedor
@@ -548,7 +574,7 @@ function Agentes() {
    * e quanto dinheiro a reposição exige. O banco guarda o status de cada
    * alerta; os números vêm sempre do cálculo de agora.
    */
-  const carregarAlertasEstoque = useCallback(async () => {
+  const carregarAlertasEstoque = useCallback(() => semRepetir("carregarAlertasEstoque", async () => {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
@@ -568,12 +594,12 @@ function Agentes() {
     const gravados = await estoqueService.listarAlertas(perfilId);
     setAlertasEstoque(mesclarAlertasEstoque(gravados, calculados));
     setCarregandoEstoque(false);
-  }, [sessao, recursos.agentes]);
+  }), [sessao, recursos.agentes]);
 
   /** Agente de Fulfillment: o que vai faltar no Full (contando o prazo de
    * envio até o centro de distribuição, quanto mandar e quanto comprar)
    * e o que está parado lá pagando armazenagem. */
-  const carregarAlertasFulfillment = useCallback(async () => {
+  const carregarAlertasFulfillment = useCallback(() => semRepetir("carregarAlertasFulfillment", async () => {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
@@ -594,7 +620,7 @@ function Agentes() {
     const gravados = await fulfillmentService.listarAlertas(perfilId);
     setAlertasFulfillment(mesclarAlertasEstoque(gravados, calculados));
     setCarregandoFulfillment(false);
-  }, [sessao, recursos.agentes]);
+  }), [sessao, recursos.agentes]);
 
   /**
    * O Agente de Ads, em duas partes:
@@ -605,7 +631,7 @@ function Agentes() {
    *    anúncio cansado). As ações vão pro banco pra ter aprovar/recusar e
    *    histórico; a análise em si é recalculada toda vez, sempre fresca.
    */
-  const carregarAvaliacoesAds = useCallback(async () => {
+  const carregarAvaliacoesAds = useCallback(() => semRepetir("carregarAvaliacoesAds", async () => {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
@@ -667,7 +693,7 @@ function Agentes() {
       ),
     );
     setCarregandoAds(false);
-  }, [sessao, recursos.agentes, fiscal, custoOperacionalTotal, comAjustes]);
+  }), [sessao, recursos.agentes, fiscal, custoOperacionalTotal, comAjustes]);
 
   /**
    * A varredura do Auditor: confere os pedidos dos últimos 30 dias contra
@@ -675,7 +701,7 @@ function Agentes() {
    * o que ainda não foi registrado — inclusive o que o seller já ignorou
    * não volta.
    */
-  const carregarAuditor = useCallback(async () => {
+  const carregarAuditor = useCallback(() => semRepetir("carregarAuditor", async () => {
     if (!sessao || !recursos.agentes) return;
     const perfilId = sessao.user.id;
 
@@ -727,7 +753,7 @@ function Agentes() {
 
     setOcorrenciasAuditor(mesclarOcorrenciasAuditor(gravadas, encontradas));
     setCarregandoAuditor(false);
-  }, [sessao, recursos.agentes]);
+  }), [sessao, recursos.agentes]);
 
   /** Agente que não conseguiu carregar → mensagem do erro. Sem isso, um
    * erro no meio do caminho deixava a tela girando pra sempre. */

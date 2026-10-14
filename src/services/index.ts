@@ -847,6 +847,7 @@ export const estoqueService = {
       .select("*")
       .eq("perfil_id", perfilId)
       .eq("agente_id", "estoque")
+      .not("dados", "cs", JSON.stringify({ duplicado: true }))
       .order("criado_em", { ascending: false });
     if (error) {
       console.error("estoqueService.listarAlertas:", error.message);
@@ -863,6 +864,7 @@ export const estoqueService = {
       .select("sku")
       .eq("perfil_id", perfilId)
       .eq("agente_id", "estoque")
+      .not("dados", "cs", JSON.stringify({ duplicado: true }))
       .eq("status", "pendente");
     if (error) {
       console.error("estoqueService.skusPendentes:", error.message);
@@ -907,6 +909,7 @@ export const fulfillmentService = {
       .select("*")
       .eq("perfil_id", perfilId)
       .eq("agente_id", "fulfillment")
+      .not("dados", "cs", JSON.stringify({ duplicado: true }))
       .order("criado_em", { ascending: false });
     if (error) {
       console.error("fulfillmentService.listarAlertas:", error.message);
@@ -921,6 +924,7 @@ export const fulfillmentService = {
       .select("sku")
       .eq("perfil_id", perfilId)
       .eq("agente_id", "fulfillment")
+      .not("dados", "cs", JSON.stringify({ duplicado: true }))
       .eq("status", "pendente");
     if (error) {
       console.error("fulfillmentService.skusPendentes:", error.message);
@@ -1791,6 +1795,7 @@ export const adsService = {
       .select("*")
       .eq("perfil_id", perfilId)
       .eq("agente_id", "ads")
+      .not("dados", "cs", JSON.stringify({ duplicado: true }))
       .in("tipo", ["sugestao", "analise"])
       .order("criado_em", { ascending: false });
     if (error) {
@@ -1808,6 +1813,7 @@ export const adsService = {
       .select("sku")
       .eq("perfil_id", perfilId)
       .eq("agente_id", "ads")
+      .not("dados", "cs", JSON.stringify({ duplicado: true }))
       .eq("tipo", tipo)
       .eq("status", "pendente");
     if (error) {
@@ -1862,6 +1868,7 @@ export const adsService = {
       .select("*")
       .eq("perfil_id", perfilId)
       .eq("agente_id", "ads")
+      .not("dados", "cs", JSON.stringify({ duplicado: true }))
       .in("tipo", TIPOS_ACAO_ADS)
       .order("criado_em", { ascending: false });
     if (error) {
@@ -1879,6 +1886,7 @@ export const adsService = {
       .select("dados")
       .eq("perfil_id", perfilId)
       .eq("agente_id", "ads")
+      .not("dados", "cs", JSON.stringify({ duplicado: true }))
       .in("tipo", TIPOS_ACAO_ADS)
       .eq("status", "pendente");
     if (error) {

@@ -74,6 +74,8 @@ function itemEstoque(
   const itens: ItemTop[] = [];
   for (const a of alertas) {
     if (a.status !== "pendente") continue;
+    // "Vale mandar pro Full" é oportunidade, não risco: fica só no agente.
+    if (a.tipoAlerta === "candidato") continue;
     if (a.tipoAlerta === "parado") {
       const economia = a.economiaMensal ?? 0;
       const parado = (a.custoUnitario ?? 0) * a.estoqueAtual;
