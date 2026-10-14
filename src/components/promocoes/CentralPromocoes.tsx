@@ -1039,9 +1039,9 @@ function DialogPromocaoPropria({
       setEnviando(false);
       return toast.error("Dê um nome para a promoção (só você vê).");
     }
-    if (dias < 0 || dias > 31) {
+    if (dias < 0 || dias > 30) {
       setEnviando(false);
-      return toast.error("A promoção pode durar no máximo 31 dias.");
+      return toast.error("A promoção pode durar no máximo 30 dias.");
     }
     const r = await precosMlService.criar({ contaId, nome: nome.trim(), desconto: desconto!, inicio, fim, itens: itensEnvio });
     setEnviando(false);
@@ -1128,7 +1128,7 @@ function DialogPromocaoPropria({
                   <Input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Fim (até 31 dias)</Label>
+                  <Label className="text-xs">Fim (até 30 dias)</Label>
                   <Input type="date" value={fim} onChange={(e) => setFim(e.target.value)} />
                 </div>
               </div>

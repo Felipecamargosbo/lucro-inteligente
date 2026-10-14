@@ -636,6 +636,9 @@ export interface PrecoPlanejado {
   precoEnviado: number | null;
   enviadoEm: string | null;
   atualizadoEm: string;
+  /** Entrada na promoção no último lançamento */
+  statusPromo?: "enviada" | "erro" | null;
+  erroPromo?: string | null;
 }
 
 function linhaParaPrecoPlanejado(l: Record<string, unknown>): PrecoPlanejado {
@@ -651,6 +654,8 @@ function linhaParaPrecoPlanejado(l: Record<string, unknown>): PrecoPlanejado {
     precoEnviado: n(l.preco_enviado),
     enviadoEm: (l.enviado_em as string | null) ?? null,
     atualizadoEm: (l.atualizado_em as string) ?? new Date().toISOString(),
+    statusPromo: (l.status_promo as "enviada" | "erro" | null) ?? null,
+    erroPromo: (l.erro_promo as string | null) ?? null,
   };
 }
 
@@ -785,10 +790,16 @@ export const precosMlService = {
     return r.dados?.custos ?? [];
   },
 
-  /** Lança o preço cheio no canal. Devolve o resultado de cada anúncio. */
+  /** Lança o preço cheio no canal e, se pedido, coloca o anúncio na
+   * promoção com o preço promocional. Devolve o resultado de cada anúncio. */
   lancar: async (
-    itens: { anuncioId: string; preco: number }[],
-  ): Promise<{ anuncioId: string; ok: boolean; erro?: string }[]> => {
+    itens: {
+      anuncioId: string;
+      preco: number;
+      precoPromo?: number | null;
+      promocao?: { tipo: "PRICE_DISCOUNT" | "SELLER_CAMPAIGN"; idPromocao?: string } | null;
+    }[],
+  ): Promise<{ anuncioId: string; ok: boolean; erro?: string; promoOk?: boolean | null; erroPromo?: string | null }[]> => {
     if (emDemonstracao()) {
       await new Promise((ok) => setTimeout(ok, 800));
       for (const i of itens) {
@@ -797,9 +808,11 @@ export const precosMlService = {
         const a = anunciosAtuais().find((x) => x.id === i.anuncioId);
         if (a) a.precoAtual = i.preco;
       }
-      return itens.map((i) => ({ anuncioId: i.anuncioId, ok: true }));
+      return itens.map((i) => ({ anuncioId: i.anuncioId, ok: true, promoOk: i.promocao ? true : null }));
     }
-    const r = await chamarPrecosMl<{ resultados: { anuncioId: string; ok: boolean; erro?: string }[] }>({
+    const r = await chamarPrecosMl<{
+      resultados: { anuncioId: string; ok: boolean; erro?: string; promoOk?: boolean | null; erroPromo?: string | null }[];
+    }>({
       acao: "lancar",
       itens,
     });

@@ -28,6 +28,8 @@ import {
   preferenciasPrecoService,
   precosMlService,
   atualizarAnunciosDoCanal,
+  promocoesCriadasService,
+  type PromocaoCriada,
   type AlteracaoPrecoRegistrada,
   type CampoBasePreco,
   type PrecoPlanejado,
@@ -228,8 +230,10 @@ function Precificacao() {
   const [promoFiltro, setPromoFiltro] = useState<FiltroPromocao>("todos");
   /** "geral" = todos os canais lado a lado; ou um canal (cada um com as suas regras) */
   const [abaCanal, setAbaCanal] = useState<"geral" | MarketplaceId | null>(null);
-  /** Lançamento esperando confirmação (anúncio em promoção) */
+  /** Lançamento esperando o seller escolher a promoção (ou confirmar) */
   const [confirmarLancamento, setConfirmarLancamento] = useState<LinhaAnuncio[] | null>(null);
+  /** Promoções do seller criadas pelo painel (pra entrar ao lançar) */
+  const [criadas, setCriadas] = useState<PromocaoCriada[]>([]);
   const versaoCustos = useVersaoCustos();
   const gravacoes = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
@@ -243,6 +247,7 @@ function Precificacao() {
       precosPlanejadosService.listar(sessao.user.id),
       preferenciasPrecoService.listar(sessao.user.id),
     ]);
+    promocoesCriadasService.listar(sessao.user.id).then(setCriadas);
     setAjustes(mapaAjustes);
     setFaixas(regrasFaixas);
     setPlanos(mapaPlanos);
@@ -487,9 +492,7 @@ function Precificacao() {
   const margemMedia =
     todasLinhas.length > 0 ? todasLinhas.reduce((s, l) => s + l.det.margem, 0) / todasLinhas.length : 0;
   /** Mudou aqui e ainda não foi pro canal (ou o canal recusou) */
-  const alterados = todasLinhas.filter(
-    (l) => (l.conta.envio === "alterado" || l.conta.envio === "erro") && l.anuncio.marketplaceId === "mercado-livre",
-  );
+  const alterados = todasLinhas.filter((l) => podeLancar(l));
   const recusados = todasLinhas.filter((l) => l.conta.envio === "erro").length;
   /** Promoção planejada e nenhuma valendo: o cliente está pagando o cheio */
   const semPromocaoAtiva = todasLinhas.filter((l) => l.conta.estadoPromocao === "sem-promocao").length;
@@ -629,26 +632,25 @@ function Precificacao() {
   /** Lança o preço cheio planejado no canal. Anúncio com promoção valendo
    * pede confirmação antes (subir o preço tira a promoção, regra do ML). */
   const pedirLancamento = (linhas: LinhaAnuncio[]) => {
-    const prontas = linhas.filter(
-      (l) =>
-        (l.conta.envio === "alterado" || l.conta.envio === "erro") &&
-        l.conta.planoCheio &&
-        l.anuncio.marketplaceId === "mercado-livre",
-    );
+    const prontas = linhas.filter((l) => podeLancar(l));
     if (prontas.length === 0) return;
-    const arriscadas = prontas.filter(
-      (l) => l.anuncio.promocaoAtiva && (l.conta.planoCheio ?? 0) > l.conta.cheioCanal,
-    );
-    if (arriscadas.length > 0) setConfirmarLancamento(prontas);
-    else void lancar(prontas);
+    setConfirmarLancamento(prontas);
   };
 
-  const lancar = async (linhas: LinhaAnuncio[]) => {
+  const lancar = async (
+    linhas: LinhaAnuncio[],
+    promocao: { tipo: "PRICE_DISCOUNT" | "SELLER_CAMPAIGN"; idPromocao?: string; nome: string; fim: string | null } | null,
+  ) => {
     setConfirmarLancamento(null);
     const ids = linhas.map((l) => l.anuncio.id);
     setEnviando((atual) => new Set([...atual, ...ids]));
     const resultados = await precosMlService.lancar(
-      linhas.map((l) => ({ anuncioId: l.anuncio.id, preco: l.conta.planoCheio! })),
+      linhas.map((l) => ({
+        anuncioId: l.anuncio.id,
+        preco: l.conta.planoCheio ?? l.conta.cheioCanal,
+        precoPromo: promocao ? l.conta.planoPromo : null,
+        promocao: promocao && l.conta.planoPromo ? { tipo: promocao.tipo, idPromocao: promocao.idPromocao } : null,
+      })),
     );
     setEnviando((atual) => {
       const novo = new Set(atual);
@@ -657,7 +659,9 @@ function Precificacao() {
     });
     const agora = new Date().toISOString();
     let ok = 0;
+    let promoOk = 0;
     const erros: string[] = [];
+    const errosPromo: string[] = [];
     setPlanos((atual) => {
       const novo = new Map(atual);
       for (const r of resultados) {
@@ -669,6 +673,8 @@ function Precificacao() {
           erroEnvio: r.ok ? null : (r.erro ?? "O canal recusou."),
           precoEnviado: r.ok ? plano.precoCheio : plano.precoEnviado,
           enviadoEm: r.ok ? agora : plano.enviadoEm,
+          statusPromo: r.promoOk === true ? "enviada" : r.promoOk === false ? "erro" : plano.statusPromo,
+          erroPromo: r.promoOk === false ? (r.erroPromo ?? "O canal recusou a promoção.") : r.promoOk ? null : plano.erroPromo,
         });
       }
       return novo;
@@ -676,27 +682,43 @@ function Precificacao() {
     for (const r of resultados) {
       const l = linhas.find((x) => x.anuncio.id === r.anuncioId);
       if (!l) continue;
-      if (r.ok) {
-        ok++;
-        // O canal agora cobra o cheio novo (subir o preço tira a promoção).
-        const a = l.anuncio;
-        const novoCheio = l.conta.planoCheio!;
+      if (!r.ok) {
+        erros.push(`${l.anuncio.produto}: ${r.erro ?? "o canal recusou"}`);
+        continue;
+      }
+      ok++;
+      const a = l.anuncio;
+      const novoCheio = l.conta.planoCheio ?? l.conta.cheioCanal;
+      // Subir o preço tira a promoção antiga (regra do ML); se entrou na nova,
+      // o cliente passa a pagar o promocional.
+      if (r.promoOk && l.conta.planoPromo && promocao) {
+        promoOk++;
+        a.promocaoAtiva = { nome: promocao.nome, tipo: promocao.tipo, preco: l.conta.planoPromo, precoCheio: novoCheio, fim: promocao.fim };
+        a.precoAtual = l.conta.planoPromo;
+      } else {
         if (a.promocaoAtiva && novoCheio > a.promocaoAtiva.precoCheio) a.promocaoAtiva = null;
         if (a.promocaoAtiva) a.promocaoAtiva = { ...a.promocaoAtiva, precoCheio: novoCheio };
         else a.precoAtual = novoCheio;
-        // Os anúncios do mesmo produto (catálogo + tradicional) vão juntos.
-        for (const irmao of anuncios) {
-          if (irmao.id !== a.id && a.grupoEstoque && irmao.grupoEstoque === a.grupoEstoque && !irmao.promocaoAtiva) {
-            irmao.precoAtual = novoCheio;
-          }
+        if (r.promoOk === false) errosPromo.push(`${a.produto}: ${r.erroPromo ?? "recusada"}`);
+      }
+      // Os anúncios do mesmo produto (catálogo + tradicional) vão juntos.
+      for (const irmao of anuncios) {
+        if (irmao.id !== a.id && a.grupoEstoque && irmao.grupoEstoque === a.grupoEstoque) {
+          irmao.promocaoAtiva = a.promocaoAtiva ? { ...a.promocaoAtiva } : irmao.promocaoAtiva;
+          irmao.precoAtual = a.precoAtual;
         }
-      } else erros.push(`${l.anuncio.produto}: ${r.erro ?? "o canal recusou"}`);
+      }
     }
     setTick((n) => n + 1);
-    if (ok > 0) toast.success(`Preço lançado no Mercado Livre em ${ok} anúncio${ok > 1 ? "s" : ""}.`);
+    if (ok > 0)
+      toast.success(
+        `Preço lançado no Mercado Livre em ${ok} anúncio${ok > 1 ? "s" : ""}${promoOk ? ` · ${promoOk} já em promoção` : ""}.`,
+      );
     if (erros.length > 0)
-      toast.error(`O Mercado Livre recusou ${erros.length} anúncio${erros.length > 1 ? "s" : ""}.`, {
-        description: erros.slice(0, 3).join(" · "),
+      toast.error(`O Mercado Livre recusou ${erros.length} preço(s).`, { description: erros.slice(0, 3).join(" · ") });
+    if (errosPromo.length > 0)
+      toast.error(`O preço subiu, mas o Mercado Livre recusou a promoção em ${errosPromo.length} anúncio(s).`, {
+        description: errosPromo.slice(0, 3).join(" · "),
       });
   };
 
@@ -1272,7 +1294,7 @@ function Precificacao() {
                                   >
                                     Preencher
                                   </Button>
-                                  {g.linhas.filter((l) => l.conta.envio === "alterado" || l.conta.envio === "erro").length > 1 && (
+                                  {g.linhas.filter((l) => podeLancar(l)).length > 1 && (
                                     <Button
                                       size="sm"
                                       className="h-7 text-[11px]"
@@ -1280,8 +1302,7 @@ function Precificacao() {
                                       onClick={() => pedirLancamento(g.linhas)}
                                     >
                                       <Send className="size-3.5" />
-                                      Lançar todos (
-                                      {g.linhas.filter((l) => l.conta.envio === "alterado" || l.conta.envio === "erro").length})
+                                      Lançar todos ({g.linhas.filter((l) => podeLancar(l)).length})
                                     </Button>
                                   )}
                                 </span>
@@ -1422,27 +1443,12 @@ function Precificacao() {
       </Painel>
 
       {confirmarLancamento && (
-        <Dialog open onOpenChange={(v) => !v && setConfirmarLancamento(null)}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Lançar o preço cheio no Mercado Livre?</DialogTitle>
-              <DialogDescription>
-                {confirmarLancamento.filter((l) => l.anuncio.promocaoAtiva && (l.conta.planoCheio ?? 0) > l.conta.cheioCanal).length}{" "}
-                anúncio(s) estão em promoção agora. Pela regra do Mercado Livre, subir o preço cheio tira o anúncio da
-                promoção atual. Depois, crie a promoção de novo na tela Promoções.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setConfirmarLancamento(null)}>
-                Cancelar
-              </Button>
-              <Button onClick={() => lancar(confirmarLancamento)}>
-                <Send className="size-3.5" />
-                Lançar {confirmarLancamento.length} anúncio{confirmarLancamento.length > 1 ? "s" : ""}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <DialogLancar
+          linhas={confirmarLancamento}
+          criadas={criadas}
+          aoFechar={() => setConfirmarLancamento(null)}
+          aoLancar={(promocao) => lancar(confirmarLancamento, promocao)}
+        />
       )}
 
       {emVinculo && (
@@ -1827,24 +1833,18 @@ function LinhaDoAnuncio({
 
   const mudarDesconto = (n: number | null) => {
     const d = n ?? linha.descontoPadrao ?? 0;
-    // Com o promocional como base, ele fica e o cheio muda (78,99: 30% → 112,84; 20% → 98,74).
+    // O desconto SOBE o preço cheio: o promocional (o que o cliente paga)
+    // fica e o cheio é calculado em cima dele (77,24 com 30% → 110,34).
+    // Sem promocional digitado, a base é o que o cliente paga hoje.
     const promoBase =
-      base === "promo" || base === "margem" ? (plano?.precoPromocional ?? plano?.precoCheio ?? null) : null;
-    if (promoBase !== null) {
-      aoMudarPlano({
-        precoCheio: cheioDoPromo(promoBase, d),
-        descontoPercentual: n,
-        precoPromocional: d > 0 ? promoBase : null,
-        campoBase: base,
-      });
-      return;
-    }
-    const cheio = plano?.precoCheio ?? c.cheioCanal;
+      base === "promo" || base === "margem"
+        ? (plano?.precoPromocional ?? plano?.precoCheio ?? c.precoCliente)
+        : c.precoCliente;
     aoMudarPlano({
-      precoCheio: cheio,
+      precoCheio: cheioDoPromo(promoBase, d),
       descontoPercentual: n,
-      precoPromocional: d > 0 ? promoDoCheio(cheio, d) : null,
-      campoBase: "cheio",
+      precoPromocional: promoBase,
+      campoBase: base === "margem" ? "margem" : "promo",
     });
   };
 
@@ -1974,9 +1974,9 @@ function LinhaDoAnuncio({
               "font-semibold",
               c.estadoPromocao === "ativa" && "text-profit",
               c.estadoPromocao === "outro-valor" && "text-warning",
-              c.estadoPromocao === "sem-promocao" && "text-muted-foreground line-through decoration-loss",
+              c.estadoPromocao === "sem-promocao" && "text-loss",
             )}
-            titulo="Preço promocional: o que o cliente paga com a promoção"
+            titulo="Preço promocional: digite o valor que você quer (ex.: 78,99). Com o desconto, o preço cheio sobe sozinho."
           />
           {c.estadoPromocao === "ativa" && ativa && (
             <span className={cn(textoPequeno, "max-w-[120px] truncate px-1 text-profit")} title={ativa.nome}>
@@ -2074,8 +2074,13 @@ function LinhaDoAnuncio({
               mude no canal
             </span>
           )}
-          {(c.envio === "alterado" || c.envio === "erro") && a.marketplaceId === "mercado-livre" && (
-            <Button size="sm" className="h-7 px-2 text-[11px]" onClick={aoLancar} title="Mandar o preço cheio pro canal">
+          {podeLancar(linha) && (
+            <Button
+              size="sm"
+              className="h-7 px-2 text-[11px]"
+              onClick={aoLancar}
+              title="Sobe o preço cheio no Mercado Livre e coloca o anúncio na promoção com o preço promocional"
+            >
               <Send className="size-3.5" />
               Lançar
             </Button>
@@ -2102,6 +2107,11 @@ function LinhaDoAnuncio({
         {c.envio === "erro" && (
           <span className={cn(textoPequeno, "max-w-[160px] text-right text-loss")} title={plano?.erroEnvio ?? ""}>
             {(plano?.erroEnvio ?? "").slice(0, 60)}
+          </span>
+        )}
+        {plano?.statusPromo === "erro" && c.estadoPromocao !== "ativa" && (
+          <span className={cn(textoPequeno, "max-w-[160px] text-right text-loss")} title={plano.erroPromo ?? ""}>
+            Promoção recusada: {(plano.erroPromo ?? "").slice(0, 50)}
           </span>
         )}
       </td>
@@ -3201,5 +3211,156 @@ function TabelaGeral({
         preço e lançar, abra a aba do canal.
       </p>
     </div>
+  );
+}
+
+/** Dá pra lançar: mudou o preço cheio (ou o canal recusou), ou tem promoção
+ * planejada que ainda não está valendo. Por enquanto, só no Mercado Livre. */
+function podeLancar(l: LinhaAnuncio): boolean {
+  if (l.anuncio.marketplaceId !== "mercado-livre" || l.conta.envio === "enviando") return false;
+  if ((l.conta.envio === "alterado" || l.conta.envio === "erro") && l.conta.planoCheio) return true;
+  return l.conta.estadoPromocao === "sem-promocao" && !!l.conta.planoPromo;
+}
+
+/** Desconto individual do ML: de 5% a 80%, até 14 dias. Sua promoção: 10% a 70%. */
+const FAIXA_INDIVIDUAL = [5, 80] as const;
+const FAIXA_CAMPANHA = [10, 70] as const;
+
+type EscolhaPromocao = { tipo: "PRICE_DISCOUNT" | "SELLER_CAMPAIGN"; idPromocao?: string; nome: string; fim: string | null };
+
+/**
+ * Antes de lançar: sobe o preço cheio e escolhe em qual promoção o anúncio
+ * entra com o preço promocional (desconto individual ou uma promoção sua).
+ */
+function DialogLancar({
+  linhas,
+  criadas,
+  aoFechar,
+  aoLancar,
+}: {
+  linhas: LinhaAnuncio[];
+  criadas: PromocaoCriada[];
+  aoFechar: () => void;
+  aoLancar: (promocao: EscolhaPromocao | null) => void;
+}) {
+  const comPromo = linhas.filter((l) => l.conta.planoPromo);
+  const descontos = comPromo.map((l) => l.conta.desconto);
+  const dentro = (f: readonly [number, number]) => descontos.every((d) => d >= f[0] && d <= f[1]);
+  const contas = new Set(linhas.map((l) => l.anuncio.contaId));
+  const campanhas = criadas.filter(
+    (c) => c.status === "criada" && c.idPromocao && c.statusCanal !== "finished" && c.contaId && contas.size === 1 && contas.has(c.contaId),
+  );
+  const fimIndividual = new Date(Date.now() + 13 * 86400000).toISOString();
+  type Opcao = { id: string; titulo: string; detalhe: string; valida: boolean; escolha: EscolhaPromocao | null };
+  const opcoes: Opcao[] = [];
+  if (comPromo.length > 0) {
+    for (const c of campanhas) {
+      opcoes.push({
+        id: c.id,
+        titulo: `Sua promoção "${c.nome}"`,
+        detalhe: `até ${c.fim ? new Date(`${c.fim}T12:00:00`).toLocaleDateString("pt-BR") : "—"} · aceita de ${FAIXA_CAMPANHA[0]}% a ${FAIXA_CAMPANHA[1]}%`,
+        valida: dentro(FAIXA_CAMPANHA),
+        escolha: { tipo: "SELLER_CAMPAIGN", idPromocao: c.idPromocao!, nome: c.nome, fim: c.fim },
+      });
+    }
+    opcoes.push({
+      id: "individual",
+      titulo: "Desconto individual do anúncio",
+      detalhe: `14 dias (até ${new Date(fimIndividual).toLocaleDateString("pt-BR")}) · aceita de ${FAIXA_INDIVIDUAL[0]}% a ${FAIXA_INDIVIDUAL[1]}%`,
+      valida: dentro(FAIXA_INDIVIDUAL),
+      escolha: { tipo: "PRICE_DISCOUNT", nome: "Desconto individual", fim: fimIndividual },
+    });
+  }
+  opcoes.push({
+    id: "nenhuma",
+    titulo: "Só subir o preço cheio",
+    detalhe: "Não entra em promoção agora (o cliente passa a pagar o cheio)",
+    valida: true,
+    escolha: null,
+  });
+  const [escolhida, setEscolhida] = useState<string>(() => opcoes.find((o) => o.valida)?.id ?? "nenhuma");
+  const opcao = opcoes.find((o) => o.id === escolhida) ?? opcoes[opcoes.length - 1]!;
+  const saemDaPromocao = linhas.filter((l) => l.anuncio.promocaoAtiva && (l.conta.planoCheio ?? 0) > l.conta.cheioCanal).length;
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && aoFechar()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            Lançar {linhas.length} anúncio{linhas.length > 1 ? "s" : ""} no Mercado Livre
+          </DialogTitle>
+          <DialogDescription>
+            Primeiro sobe o preço cheio. Depois coloca o anúncio na promoção com o preço promocional que você planejou.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2 text-[11px]">
+          {linhas.slice(0, 20).map((l) => (
+            <div key={l.anuncio.id} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate">{l.anuncio.produto}</span>
+              <span className="num text-muted-foreground">{formatBRL(l.conta.cheioCanal)}</span>
+              <span>→</span>
+              <span className="num font-semibold">{formatBRL(l.conta.planoCheio ?? l.conta.cheioCanal)}</span>
+              {l.conta.planoPromo && (
+                <span className="num text-profit">
+                  promo {formatBRL(l.conta.planoPromo)} ({formatNumero(l.conta.desconto)}%)
+                </span>
+              )}
+            </div>
+          ))}
+          {linhas.length > 20 && <p className="text-muted-foreground">e mais {linhas.length - 20}...</p>}
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold">Em qual promoção entrar?</p>
+          {opcoes.map((o) => (
+            <button
+              key={o.id}
+              disabled={!o.valida}
+              onClick={() => setEscolhida(o.id)}
+              className={cn(
+                "flex w-full items-start gap-2 rounded-md border p-2.5 text-left text-xs transition-colors disabled:opacity-50",
+                escolhida === o.id ? "border-brand bg-brand/5" : "hover:bg-muted/40",
+              )}
+            >
+              <span
+                className={cn(
+                  "mt-0.5 size-3 shrink-0 rounded-full border",
+                  escolhida === o.id ? "border-brand bg-brand" : "border-muted-foreground/50",
+                )}
+              />
+              <span>
+                <span className="block font-semibold">{o.titulo}</span>
+                <span className="block text-[10px] text-muted-foreground">
+                  {o.detalhe}
+                  {!o.valida && " — o desconto planejado está fora dessa faixa"}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {saemDaPromocao > 0 && (
+          <p className="rounded-md bg-warning/10 px-3 py-2 text-[11px] text-warning">
+            {saemDaPromocao} anúncio(s) estão em promoção agora: pela regra do Mercado Livre, subir o preço cheio tira a
+            promoção atual (a nova entra logo em seguida, se você escolheu uma acima).
+          </p>
+        )}
+        <p className="text-[10px] text-muted-foreground">
+          O Mercado Livre confere se o desconto é “crível”. Se recusar a promoção logo depois de subir o preço, o preço
+          cheio fica lançado e aparece o motivo na linha — dá pra tentar entrar de novo depois.
+        </p>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={aoFechar}>
+            Cancelar
+          </Button>
+          <Button onClick={() => aoLancar(opcao.escolha)}>
+            <Send className="size-3.5" />
+            {opcao.escolha ? "Lançar e entrar na promoção" : "Só lançar o preço cheio"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
