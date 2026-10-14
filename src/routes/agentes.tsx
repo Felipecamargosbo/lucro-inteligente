@@ -129,13 +129,13 @@ type AbaAgente =
 export const Route = createFileRoute("/agentes")({
   head: () => ({
     meta: [
-      { title: "Agentes | NEXO" },
+      { title: "Agentes | Planeta97" },
       {
         name: "description",
         content:
           "O que os agentes decidiram, por quê, e o que está esperando a sua aprovação.",
       },
-      { property: "og:title", content: "Agentes | NEXO" },
+      { property: "og:title", content: "Agentes | Planeta97" },
     ],
   }),
   component: Agentes,
@@ -910,7 +910,7 @@ function Agentes() {
     }
     toast.success(
       status === "aprovada"
-        ? "Aprovado. Agora faça o ajuste no Ads do marketplace — sem API conectada, o NEXO ainda não altera sozinho."
+        ? "Aprovado. Agora faça o ajuste no Ads do marketplace — sem API conectada, o Planeta97 ainda não altera sozinho."
         : `Recusado: ${acao.produto}.`,
     );
   };

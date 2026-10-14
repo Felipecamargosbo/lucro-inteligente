@@ -14,11 +14,9 @@ import {
   YAxis,
 } from "recharts";
 import { usePeriodo } from "@/context/periodo";
-import { vendasService, anunciosService } from "@/services";
+import { vendasService } from "@/services";
 import {
-  curvaABC,
   filtrarPorPeriodo,
-  raioXAnuncio,
   resumir,
   seriePorDia,
 } from "@/lib/finance";
@@ -29,42 +27,33 @@ import {
   formatPercentual,
 } from "@/lib/format";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
-import { useConfiguracoes } from "@/context/configuracoes";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace } from "@/types";
 
-/** Cores das fatias da composição — seguem os tokens do tema. */
-const CORES_FATIA = [
-  "var(--color-muted-foreground)", // CMV
-  "var(--color-brand)", // comissão
-  "var(--color-info)", // taxa fixa
-  "var(--color-warning)", // frete
-  "var(--color-loss)", // mídia
-  "var(--color-primary)", // afiliados
-  "var(--color-profit)", // lucro
-];
+
+interface ItemAbcPeriodo {
+  sku: string;
+  produto: string;
+  unidades: number;
+  faturamento: number;
+  lucro: number;
+  semCusto: boolean;
+  participacao: number;
+  classe: "A" | "B" | "C";
+}
 
 export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
   const { periodo } = usePeriodo();
-  const { metasPorConta, fiscal, custoOperacionalDetalhado } = useConfiguracoes();
-  const metas = metasPorConta[conta.id] ?? null;
-  const opcoes = (preco: number) => ({
-    aliquotaImposto: fiscal.aliquota,
-    custosOperacionais: custoOperacionalDetalhado(preco),
-  });
-
   const dados = useMemo(() => {
     const pedidosCanal = vendasService
       .listar()
       .filter((p) => p.contaId === conta.id);
     const noPeriodo = filtrarPorPeriodo(pedidosCanal, periodo);
 
-    const anuncios = anunciosService
-      .listar()
-      .filter((a) => a.contaId === conta.id);
-
-    // Composição das taxas somando o raio-X de cada anúncio pelas unidades
-    // vendidas. Anúncio sem custo entra nas taxas, mas não no CMV nem no lucro.
+    // Tudo aqui é do PERÍODO selecionado, a partir das vendas — antes a
+    // composição e a curva ABC usavam as vendas de toda a vida do anúncio
+    // e não batiam com o faturamento do período.
+    const validos = noPeriodo.filter((p) => p.status !== "cancelado");
     const acumulado = {
       cmv: 0,
       comissao: 0,
@@ -77,45 +66,72 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
       receita: 0,
       unidadesSemCusto: 0,
     };
-
-    for (const a of anuncios) {
-      const un = a.unidadesVendidas;
-      if (un <= 0) continue;
-      const r = raioXAnuncio(a, metas, a.precoAtual, opcoes(a.precoAtual));
-      acumulado.receita += r.precoVenda * un;
-      acumulado.comissao += r.comissao * un;
-      acumulado.taxaFixa += r.taxaFixa * un;
-      acumulado.frete += r.frete * un;
-      acumulado.midia += r.midia * un;
-      acumulado.afiliados += r.afiliados * un;
-      acumulado.impostos += r.impostos * un;
-      if (r.semCusto) {
-        acumulado.unidadesSemCusto += un;
+    const porSku = new Map<string, ItemAbcPeriodo>();
+    for (const p of validos) {
+      acumulado.receita += p.faturamento;
+      acumulado.comissao += p.comissao;
+      acumulado.taxaFixa += p.taxaFixa;
+      acumulado.frete += p.outrosCustos + (p.freteVendedor ?? 0);
+      acumulado.midia += p.custoMidia;
+      acumulado.impostos += p.impostos;
+      if (p.semCmv) {
+        acumulado.unidadesSemCusto += p.quantidade;
       } else {
-        acumulado.cmv += r.cmv * un;
-        acumulado.lucro += r.lucroLiquido * un;
+        acumulado.cmv += p.cmv;
+        acumulado.lucro += p.lucroLiquido - p.custoMidia;
       }
+      const item = porSku.get(p.sku) ?? {
+        sku: p.sku,
+        produto: p.produto,
+        unidades: 0,
+        faturamento: 0,
+        lucro: 0,
+        semCusto: false,
+        participacao: 0,
+        classe: "C" as const,
+      };
+      item.unidades += p.quantidade;
+      item.faturamento += p.faturamento;
+      item.lucro += p.lucroLiquido - p.custoMidia;
+      if (p.semCmv) item.semCusto = true;
+      porSku.set(p.sku, item);
     }
+
+    const total = acumulado.receita;
+    let somaAcumulada = 0;
+    const abc: ItemAbcPeriodo[] = [...porSku.values()]
+      .sort((a, b) => b.faturamento - a.faturamento)
+      .map((item) => {
+        const participacao = total > 0 ? item.faturamento / total : 0;
+        // A classe vem da fatia acumulada ANTES deste item: o primeiro item
+        // é sempre A, mesmo quando sozinho passa de 80%.
+        const antes = somaAcumulada;
+        somaAcumulada += participacao;
+        const classe: "A" | "B" | "C" = antes < 0.8 ? "A" : antes < 0.95 ? "B" : "C";
+        return { ...item, participacao, classe };
+      });
 
     return {
       resumo: resumir(noPeriodo),
       serie: seriePorDia(noPeriodo, periodo),
-      abc: curvaABC(anuncios),
+      abc,
       acumulado,
-      anuncios,
     };
-  }, [conta, periodo, metas, fiscal, custoOperacionalDetalhado]);
+  }, [conta, periodo]);
 
   const { resumo, serie, abc, acumulado } = dados;
 
   const composicao = [
-    { nome: "CMV", valor: acumulado.cmv },
-    { nome: "Comissão", valor: acumulado.comissao },
-    { nome: "Taxa fixa", valor: acumulado.taxaFixa },
-    { nome: "Frete", valor: acumulado.frete },
-    { nome: "Mídia / ADS", valor: acumulado.midia },
-    { nome: "Afiliados", valor: acumulado.afiliados },
-    { nome: "Sobra", valor: Math.max(acumulado.lucro, 0) },
+    // Cada fatia leva a própria cor (antes a cor seguia a posição e mudava
+    // quando alguma fatia zerada saía da lista).
+    { nome: "CMV", valor: acumulado.cmv, cor: "var(--color-muted-foreground)" },
+    { nome: "Comissão", valor: acumulado.comissao, cor: "var(--color-brand)" },
+    { nome: "Taxa fixa", valor: acumulado.taxaFixa, cor: "var(--color-info)" },
+    { nome: "Impostos", valor: acumulado.impostos, cor: "var(--color-chart-4)" },
+    { nome: "Frete e outros custos", valor: acumulado.frete, cor: "var(--color-warning)" },
+    { nome: "Mídia / ADS", valor: acumulado.midia, cor: "var(--color-loss)" },
+    { nome: "Afiliados", valor: acumulado.afiliados, cor: "var(--color-primary)" },
+    { nome: "Sobra", valor: Math.max(acumulado.lucro, 0), cor: "var(--color-profit)" },
   ].filter((f) => f.valor > 0);
 
   const classeA = abc.filter((i) => i.classe === "A");
@@ -227,7 +243,7 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
         {/* Composição das taxas */}
         <Painel
           titulo="Para onde vai o dinheiro"
-          descricao="Composição da receita deste canal"
+          descricao="Composição da receita deste canal no período"
           className="xl:col-span-2"
         >
           {composicao.length === 0 ? (
@@ -249,7 +265,7 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
                       stroke="none"
                     >
                       {composicao.map((_, i) => (
-                        <Cell key={i} fill={CORES_FATIA[i % CORES_FATIA.length]} />
+                        <Cell key={i} fill={composicao[i]!.cor} />
                       ))}
                     </Pie>
                     <ChartTooltip
@@ -266,11 +282,11 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
               </div>
 
               <ul className="mt-4 space-y-1.5">
-                {composicao.map((f, i) => (
+                {composicao.map((f) => (
                   <li key={f.nome} className="flex items-center gap-2 text-[11px]">
                     <span
                       className="size-2 shrink-0 rounded-full"
-                      style={{ background: CORES_FATIA[i % CORES_FATIA.length] }}
+                      style={{ background: f.cor }}
                     />
                     <span className="flex-1 truncate text-muted-foreground">{f.nome}</span>
                     <span className="num font-medium">{formatBRL(f.valor)}</span>
@@ -299,7 +315,7 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
         {/* Curva ABC */}
         <Painel
           titulo="Curva ABC"
-          descricao="Onde o faturamento se concentra"
+          descricao="Onde o faturamento do período se concentra"
           className="xl:col-span-2"
         >
           {abc.length === 0 ? (
@@ -324,7 +340,7 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
                       key={classe}
                       className={cn("h-2.5", cor)}
                       style={{ width: `${parte * 100}%` }}
-                      title={`Classe ${classe}: ${itens.length} anúncios`}
+                      title={`Classe ${classe}: ${itens.length} produtos`}
                     />
                   );
                 })}
@@ -352,9 +368,9 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
                 {classeA.length > 0 ? (
                   <>
                     <strong className="text-foreground">
-                      {formatNumero(classeA.length)} anúncios
+                      {formatNumero(classeA.length)} {classeA.length === 1 ? "produto" : "produtos"}
                     </strong>{" "}
-                    ({formatPercentual(classeA.length / abc.length)} do catálogo ativo) respondem
+                    ({formatPercentual(classeA.length / abc.length)} dos produtos vendidos) respondem
                     por 80% do faturamento deste canal. É neles que um ajuste de preço muda o
                     resultado.
                   </>
@@ -369,7 +385,7 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
         {/* Top produtos */}
         <Painel
           titulo="Top produtos do canal"
-          descricao="Quem mais fatura — e quanto realmente sobra"
+          descricao="Quem mais faturou no período — e quanto realmente sobra (depois de ADS)"
           className="xl:col-span-3"
         >
           <div className="overflow-x-auto">
@@ -385,14 +401,13 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
               </thead>
               <tbody>
                 {topProdutos.map((item) => {
-                  const r = raioXAnuncio(item.anuncio, metas, item.anuncio.precoAtual, opcoes(item.anuncio.precoAtual));
-                  const lucroTotal = r.lucroLiquido * item.anuncio.unidadesVendidas;
+                  const lucroTotal = item.lucro;
                   return (
-                    <tr key={item.anuncio.id} className="border-b last:border-0">
+                    <tr key={item.sku} className="border-b last:border-0">
                       <td className="max-w-[240px] px-4 py-2.5">
-                        <p className="truncate text-xs font-medium">{item.anuncio.produto}</p>
+                        <p className="truncate text-xs font-medium">{item.produto}</p>
                         <p className="num text-[10px] text-muted-foreground">
-                          {item.anuncio.sku}
+                          {item.sku}
                         </p>
                       </td>
                       <td className="px-4 py-2.5 text-center">
@@ -410,13 +425,13 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
                         </span>
                       </td>
                       <td className="num px-4 py-2.5 text-right text-xs text-muted-foreground">
-                        {formatNumero(item.anuncio.unidadesVendidas)}
+                        {formatNumero(item.unidades)}
                       </td>
                       <td className="num px-4 py-2.5 text-right text-xs font-semibold">
                         {formatBRL(item.faturamento)}
                       </td>
                       <td className="px-4 py-2.5 text-right">
-                        {r.semCusto ? (
+                        {item.semCusto ? (
                           <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                             sem custo
                           </span>

@@ -58,10 +58,12 @@ function resumirPorEstado(atuais: Pedido[], anteriores: Pedido[]): ResumoEstado[
   const mapa = new Map<string, ResumoEstado>();
 
   for (const p of atuais) {
-    if (p.status === "cancelado") continue;
+    // Sem UF conhecida (o canal ainda não mandou o endereço) não entra aqui —
+    // antes caía em "Sudeste" e inventava uma região.
+    if (p.status === "cancelado" || !REGIAO_POR_UF[p.estado]) continue;
     const atual = mapa.get(p.estado) ?? {
       uf: p.estado,
-      regiao: REGIAO_POR_UF[p.estado] ?? "Sudeste",
+      regiao: REGIAO_POR_UF[p.estado]!,
       pedidos: 0,
       unidades: 0,
       faturamento: 0,
@@ -140,11 +142,13 @@ export function Geografia() {
     [porEstado, totalFaturamento],
   );
 
-  if (atuais.length === 0) {
+  if (atuais.length === 0 || porEstado.length === 0) {
     return (
       <Painel titulo="Geografia" descricao="Faturamento e pedidos por estado">
         <div className="px-5 py-14 text-center text-sm text-muted-foreground">
-          Nenhuma venda no período (ou nenhuma conta selecionada no filtro).
+          {atuais.length === 0
+            ? "Nenhuma venda no período (ou nenhuma conta selecionada no filtro)."
+            : "As vendas deste período ainda não trazem o estado de entrega. Ele aparece aqui depois da próxima sincronização."}
         </div>
       </Painel>
     );

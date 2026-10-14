@@ -5,11 +5,11 @@ import { Lista, PaginaLegal, Secao } from "@/components/legal/PaginaLegal";
 export const Route = createFileRoute("/seguranca")({
   head: () => ({
     meta: [
-      { title: "Política de Segurança da Informação — Planeta97 NEXO" },
+      { title: "Política de Segurança da Informação — Planeta97" },
       {
         name: "description",
         content:
-          "Como o NEXO, da Planeta97, protege os dados: controle de acesso, criptografia, resposta a incidentes e exclusão de dados.",
+          "Como a Planeta97 protege os dados: controle de acesso, criptografia, resposta a incidentes e exclusão de dados.",
       },
     ],
   }),
@@ -52,7 +52,7 @@ function PoliticaDeSeguranca() {
             </>,
             <>
               <strong>Confidencial:</strong> dados das contas dos clientes, dados de vendas, anúncios e valores
-              vindos dos marketplaces e dados dos compradores. Só o próprio cliente (e as funções do NEXO que
+              vindos dos marketplaces e dados dos compradores. Só o próprio cliente (e as funções do Planeta97 que
               trabalham para ele) tem acesso.
             </>,
             <>
@@ -80,7 +80,7 @@ function PoliticaDeSeguranca() {
       <Secao numero={4} titulo="Criptografia">
         <Lista
           itens={[
-            "Em trânsito: toda comunicação com o NEXO e com as APIs dos marketplaces usa HTTPS (TLS).",
+            "Em trânsito: toda comunicação com o Planeta97 e com as APIs dos marketplaces usa HTTPS (TLS).",
             "Em repouso: o banco de dados e os backups ficam criptografados pelo provedor de nuvem (AES-256).",
             "Senhas de login são guardadas apenas como hash (não é possível vê-las, nem por nós).",
             "As chamadas às APIs dos marketplaces são assinadas com as chaves do aplicativo, conforme exigido por cada plataforma.",
@@ -91,7 +91,7 @@ function PoliticaDeSeguranca() {
       <Secao numero={5} titulo="Infraestrutura e rede">
         <Lista
           itens={[
-            "O NEXO roda em provedores de nuvem reconhecidos: Cloudflare (site e servidor, com proteção contra ataques DDoS e tráfego malicioso) e Supabase (banco de dados e funções, hospedados nos Estados Unidos).",
+            "O Planeta97 roda em provedores de nuvem reconhecidos: Cloudflare (site e servidor, com proteção contra ataques DDoS e tráfego malicioso) e Supabase (banco de dados e funções, hospedados nos Estados Unidos).",
             "O banco de dados só é acessado por meio de interfaces autenticadas; não há acesso direto aberto à internet.",
             "As integrações com marketplaces rodam apenas no servidor, separadas da parte do site que o usuário vê.",
           ]}
@@ -112,7 +112,7 @@ function PoliticaDeSeguranca() {
       <Secao numero={7} titulo="Gestão de vulnerabilidades e mudanças">
         <Lista
           itens={[
-            "Toda mudança no NEXO é testada primeiro em um ambiente de prévia, separado do ambiente oficial.",
+            "Toda mudança no Planeta97 é testada primeiro em um ambiente de prévia, separado do ambiente oficial.",
             "Revisamos periodicamente os alertas de segurança do banco de dados e das dependências e corrigimos os pontos encontrados.",
             "As chaves dos aplicativos nos marketplaces são renovadas nos prazos exigidos por cada plataforma e trocadas imediatamente em caso de suspeita de vazamento.",
           ]}
@@ -138,8 +138,8 @@ function PoliticaDeSeguranca() {
       <Secao numero={9} titulo="Retenção e exclusão de dados">
         <Lista
           itens={[
-            "Guardamos os dados só enquanto forem necessários para o NEXO funcionar para o cliente.",
-            "Quando o cliente desconecta um marketplace, o NEXO para de receber os dados dele na hora.",
+            "Guardamos os dados só enquanto forem necessários para o Planeta97 funcionar para o cliente.",
+            "Quando o cliente desconecta um marketplace, o Planeta97 para de receber os dados dele na hora.",
             "Atendemos pedidos de acesso, correção e exclusão de dados feitos pelo cliente (ou repassados pelo marketplace) pelo e-mail de contato.",
             "Ao fim da relação, os dados são apagados ou anonimizados em até 90 dias, como descrito na Política de Privacidade.",
           ]}
@@ -148,7 +148,7 @@ function PoliticaDeSeguranca() {
 
       <Secao numero={10} titulo="Summary in English">
         <p>
-          {e.razaoSocial} (CNPJ {e.cnpj}) operates NEXO, a profit-analytics SaaS for marketplace sellers. We apply
+          {e.razaoSocial} (CNPJ {e.cnpj}) operates Planeta97, a profit-analytics SaaS for marketplace sellers. We apply
           least-privilege access (row-level security per seller; marketplace tokens readable only by server-side
           functions; read-only, time-limited and logged support access), encryption in transit (TLS) and at rest
           (AES-256, provider-managed), hashed passwords, MFA on administrative accounts, antivirus and screen lock on

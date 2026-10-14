@@ -296,6 +296,15 @@ function Recuperacao() {
                   </tr>
                 );
               })}
+              {oportunidades.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    Nenhuma oportunidade de recuperação no momento. Os marketplaces ainda não enviam
+                    pedidos não pagos nem o contato do comprador pela integração — os cancelamentos
+                    aparecem em Vendas.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

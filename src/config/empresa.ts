@@ -6,7 +6,7 @@
 export const EMPRESA = {
   razaoSocial: "Planeta97 Tecnologia LTDA",
   nomeFantasia: "Planeta97",
-  produto: "NEXO",
+  produto: "Planeta97",
   // Troque pelo número quando o CNPJ for emitido (ex.: "12.345.678/0001-90").
   cnpj: "69.494.454/0001-62",
   email: "felipe.sbo.97@gmail.com",

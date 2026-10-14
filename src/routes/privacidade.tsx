@@ -5,10 +5,10 @@ import { Lista, PaginaLegal, Secao } from "@/components/legal/PaginaLegal";
 export const Route = createFileRoute("/privacidade")({
   head: () => ({
     meta: [
-      { title: "Política de Privacidade — Planeta97 NEXO" },
+      { title: "Política de Privacidade — Planeta97" },
       {
         name: "description",
-        content: "Como o NEXO, da Planeta97, coleta, usa e protege os dados pessoais, conforme a LGPD.",
+        content: "Como a Planeta97 coleta, usa e protege os dados pessoais, conforme a LGPD.",
       },
     ],
   }),
@@ -31,13 +31,13 @@ function PoliticaDePrivacidade() {
         <Lista
           itens={[
             <>
-              <strong>Dados da sua conta</strong> (seus dados como cliente do NEXO): a {e.nomeFantasia} é a{" "}
+              <strong>Dados da sua conta</strong> (seus dados como cliente do Planeta97): a {e.nomeFantasia} é a{" "}
               <em>controladora</em>, ou seja, decide como e por que esses dados são usados.
             </>,
             <>
               <strong>Dados dos seus compradores</strong> (que chegam pelos pedidos e perguntas dos
               marketplaces): <em>você</em> é o controlador, e a {e.nomeFantasia} atua como <em>operadora</em>,
-              tratando esses dados só em seu nome e para as funções do NEXO.
+              tratando esses dados só em seu nome e para as funções do Planeta97.
             </>,
           ]}
         />
@@ -94,7 +94,7 @@ function PoliticaDePrivacidade() {
             "Mostrar resumos e avisos na plataforma e enviar avisos importantes por e-mail (execução do contrato).",
             "Cobrar a assinatura e emitir notas fiscais (execução do contrato e obrigação legal).",
             "Manter a segurança, evitar fraudes e cumprir a lei, como guardar os registros de acesso (obrigação legal e legítimo interesse).",
-            "Melhorar o NEXO, usando dados de uso de forma agregada, sem identificar você (legítimo interesse).",
+            "Melhorar o Planeta97, usando dados de uso de forma agregada, sem identificar você (legítimo interesse).",
           ]}
         />
         <p>
@@ -113,7 +113,7 @@ function PoliticaDePrivacidade() {
       </Secao>
 
       <Secao numero={5} titulo="Com quem compartilhamos">
-        <p>Só com empresas que nos ajudam a fazer o NEXO funcionar, e só o necessário:</p>
+        <p>Só com empresas que nos ajudam a fazer o Planeta97 funcionar, e só o necessário:</p>
         <Lista
           itens={[
             "Hospedagem e banco de dados (Supabase e Cloudflare).",
@@ -150,7 +150,7 @@ function PoliticaDePrivacidade() {
             "Conexão sempre criptografada (o cadeado no navegador).",
             "Cada conta só enxerga os próprios dados: o banco de dados bloqueia o acesso aos dados de outras contas.",
             "Senhas guardadas de forma criptografada.",
-            "As autorizações dos marketplaces ficam guardadas com segurança e só são usadas pelas funções do NEXO.",
+            "As autorizações dos marketplaces ficam guardadas com segurança e só são usadas pelas funções do Planeta97.",
             "Acesso interno restrito ao mínimo necessário.",
             "Suporte: para resolver um problema ou tirar uma dúvida sua, nossa equipe pode visualizar a sua conta em modo somente leitura, sem conseguir alterar nada. Esse acesso dura no máximo 1 hora e todo acesso fica registrado.",
           ]}
@@ -186,7 +186,7 @@ function PoliticaDePrivacidade() {
 
       <Secao numero={10} titulo="Cookies e armazenamento no navegador">
         <p>
-          O NEXO usa apenas o armazenamento necessário para funcionar: manter você conectado e lembrar
+          O Planeta97 usa apenas o armazenamento necessário para funcionar: manter você conectado e lembrar
           preferências, como o tema claro ou escuro. Não usamos cookies de publicidade nem de rastreamento de
           terceiros.
         </p>

@@ -458,6 +458,6 @@ export function montarMensagemWhatsApp(p: {
   }
 
   linhas.push("");
-  linhas.push("Detalhes no NEXO › Agentes › Gestor.");
+  linhas.push("Detalhes no Planeta97 › Agentes › Gestor.");
   return linhas.join("\n").replace(/ /g, " ");
 }

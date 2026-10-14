@@ -119,7 +119,7 @@ function Financeiro() {
             <SelectContent>
               {empresas.map((e) => (
                 <SelectItem key={e.id} value={e.id} className="text-xs">
-                  {e.nomeFantasia} · {e.cnpj}
+                  {e.nomeFantasia}{e.cnpj ? ` · ${e.cnpj}` : ""}
                 </SelectItem>
               ))}
             </SelectContent>

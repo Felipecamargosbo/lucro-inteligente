@@ -363,7 +363,7 @@ export function Recebiveis({ pedidos, contas, empresa, competencia }: Recebiveis
                 <div className="min-w-0">
                   <p className="truncate text-xs font-medium">{p.produto}</p>
                   <p className="num text-[10px] text-muted-foreground">
-                    #{p.id} · {p.motivoDevolucao} ·{" "}
+                    #{p.numero ?? p.id} · {p.motivoDevolucao} ·{" "}
                     {p.dataDevolucao ? formatData(p.dataDevolucao) : "—"}
                   </p>
                 </div>

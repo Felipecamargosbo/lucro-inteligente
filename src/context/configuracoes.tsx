@@ -103,7 +103,7 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
       : {
     nome: EMPRESA.nome,
     cnpj: EMPRESA.cnpj,
-    nomeFantasia: "NEXO",
+    nomeFantasia: "Loja Exemplo",
     email: EMPRESA.email,
     telefone: EMPRESA.telefone,
     cep: "01310-200",

@@ -21,8 +21,13 @@ export const formatNumero = (valor: number) => inteiro.format(valor || 0);
 export const formatPercentual = (fracao: number, casas = 1) =>
   `${((fracao || 0) * 100).toFixed(casas).replace(".", ",")}%`;
 
+// Data sem hora ("2026-10-13") é lida em UTC para não voltar um dia; data com
+// hora (pedidos, períodos) usa o fuso de quem está vendo — senão uma venda
+// às 22h de Brasília aparecia com a data do dia seguinte.
 export const formatData = (iso: string | Date) =>
-  new Date(iso).toLocaleDateString("pt-BR", { timeZone: "UTC" });
+  typeof iso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(iso)
+    ? new Date(iso).toLocaleDateString("pt-BR", { timeZone: "UTC" })
+    : new Date(iso).toLocaleDateString("pt-BR");
 
 export const formatDataHora = (iso: string | Date) => {
   const d = new Date(iso);

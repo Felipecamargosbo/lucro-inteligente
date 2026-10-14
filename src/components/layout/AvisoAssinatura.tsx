@@ -50,7 +50,7 @@ export function AvisoAssinatura() {
 
   if (status === "bloqueada") {
     tipo = "bloqueada";
-    texto = "Sua conta está bloqueada por falta de pagamento. Regularize para voltar a usar o NEXO.";
+    texto = "Sua conta está bloqueada por falta de pagamento. Regularize para voltar a usar o Planeta97.";
     forte = true;
   } else if (status === "atrasada") {
     tipo = "atrasada";

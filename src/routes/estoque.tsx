@@ -131,7 +131,7 @@ function Estoque() {
     Produto: i.produto,
     Quantidade: i.quantidade,
     "Vendas/dia": i.vendasDia,
-    "Cobertura (dias)": i.coberturaDias,
+    "Cobertura (dias)": i.coberturaDias >= 999 ? "sem venda em 30 dias" : i.coberturaDias,
     "Valor em estoque": i.valorEstoque,
     Status: statusEstoque(i).texto,
   }));
@@ -283,10 +283,10 @@ function Estoque() {
                             : "text-profit",
                       )}
                     >
-                      {i.quantidade === 0 ? "—" : `${i.coberturaDias} d`}
+                      {i.quantidade === 0 ? "—" : i.coberturaDias >= 999 ? "sem venda" : `${i.coberturaDias} d`}
                     </td>
                     <td className="num px-4 py-3 text-right text-xs">
-                      {formatBRL(i.valorEstoque)}
+                      {i.quantidade > 0 && i.custoUnitario === 0 ? <span className="text-muted-foreground">sem CMV</span> : formatBRL(i.valorEstoque)}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span

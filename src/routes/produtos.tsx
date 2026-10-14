@@ -75,13 +75,13 @@ import type { Anuncio, MarketplaceId, Produto } from "@/types";
 export const Route = createFileRoute("/produtos")({
   head: () => ({
     meta: [
-      { title: "Precificação | NEXO" },
+      { title: "Precificação | Planeta97" },
       {
         name: "description",
         content:
           "Todos os produtos e anúncios numa planilha: custo, taxas, lucro, margem e preço novo.",
       },
-      { property: "og:title", content: "Precificação | NEXO" },
+      { property: "og:title", content: "Precificação | Planeta97" },
       {
         property: "og:description",
         content: "Custo, taxas, lucro e margem de cada anúncio — e o preço novo por valor ou por margem.",
@@ -484,7 +484,7 @@ function Precificacao() {
     if (!silencioso) {
       toast.success(`${a.produto} (${linha.nomeConta}): de ${formatBRL(antes)} para ${formatBRL(precoNovo)}.`, {
         description:
-          "Salvo no NEXO. Sem a API do marketplace ainda, altere também o preço lá no anúncio.",
+          "Salvo no Planeta97. Sem a API do marketplace ainda, altere também o preço lá no anúncio.",
       });
     }
     return true;
@@ -531,7 +531,7 @@ function Precificacao() {
     if (ok > 0) {
       toast.success(`${g.produto.nome}: preço novo aplicado em ${ok} anúncio${ok > 1 ? "s" : ""}.`, {
         description:
-          "Salvo no NEXO. Sem a API do marketplace ainda, altere também os preços lá nos anúncios.",
+          "Salvo no Planeta97. Sem a API do marketplace ainda, altere também os preços lá nos anúncios.",
       });
     }
   };

@@ -127,11 +127,11 @@ export function PendenciasCanal({ conta }: { conta: ContaMarketplace }) {
 
         <div className="rounded-xl border p-4">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            Faturamento sem margem conhecida
+            Faturamento histórico sem margem conhecida
           </p>
           <p className="num mt-1 text-2xl font-bold text-loss">{formatBRL(receitaCega)}</p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Dinheiro que entrou sem você saber se deu lucro
+            Desde a criação dos anúncios (unidades vendidas × preço atual), sem saber se deu lucro
           </p>
         </div>
 
@@ -191,7 +191,7 @@ export function PendenciasCanal({ conta }: { conta: ContaMarketplace }) {
 
       <Painel
         titulo="Anúncios pendentes"
-        descricao="Ordenados por faturamento — resolver os de cima rende mais"
+        descricao="Ordenados pelo faturamento histórico do anúncio — resolver os de cima rende mais"
       >
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left">
@@ -199,8 +199,8 @@ export function PendenciasCanal({ conta }: { conta: ContaMarketplace }) {
               <tr>
                 <th className="px-4 py-2 font-medium">Produto / SKU</th>
                 <th className="px-3 py-2 text-right font-medium">Preço</th>
-                <th className="px-3 py-2 text-right font-medium">Un. vendidas</th>
-                <th className="px-3 py-2 text-right font-medium">Faturamento</th>
+                <th className="px-3 py-2 text-right font-medium">Un. vendidas (total)</th>
+                <th className="px-3 py-2 text-right font-medium">Faturamento (total)</th>
                 <th className="px-3 py-2 font-medium">Pendências</th>
                 <th className="px-3 py-2 text-right font-medium">Ação</th>
               </tr>

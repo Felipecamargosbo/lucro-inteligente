@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import type {
   Anuncio,
   ContaMarketplace,
+  ItemEstoqueDetalhado,
   MarketplaceId,
   Pedido,
   StatusAnuncio,
@@ -30,7 +31,12 @@ export interface DadosReais {
   contas: ContaMarketplace[];
   anuncios: Anuncio[];
   pedidos: Pedido[];
+  /** Estoque próprio (fora do Full), a partir do estoque de cada anúncio. */
+  estoque: ItemEstoqueDetalhado[];
 }
+
+/** Prazo de reposição usado enquanto o seller não informa o do fornecedor. */
+const PRAZO_FORNECEDOR_PADRAO = 7;
 
 export async function carregarDadosReais(perfilId: string): Promise<DadosReais> {
   const [rContas, rConexoes, rLojasShopee, rLojasTikTok, rAnuncios, rPedidos, rProdutos] = await Promise.all([
@@ -45,14 +51,14 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
     supabase
       .from("anuncios")
       .select(
-        "id, conta_id, produto_id, id_externo, sku, ean, titulo, preco_atual, preco_cheio, em_promocao, comissao_percentual, taxa_fixa, frete_unitario, custo_midia_unitario, custo_afiliado_unitario, origem_taxas, status, unidades_vendidas, data_ultima_venda",
+        "id, conta_id, produto_id, id_externo, sku, ean, titulo, preco_atual, preco_cheio, em_promocao, comissao_percentual, taxa_fixa, frete_unitario, custo_midia_unitario, custo_afiliado_unitario, origem_taxas, status, unidades_vendidas, data_ultima_venda, estoque, logistica",
       )
       .eq("perfil_id", perfilId)
       .limit(5000),
     supabase
       .from("pedidos")
       .select(
-        "id, conta_id, anuncio_id, id_externo, data_venda, sku, produto, quantidade, preco_venda, cmv, comissao, status, logistica, comprador, origem_valor",
+        "id, conta_id, anuncio_id, id_externo, data_venda, sku, produto, quantidade, preco_venda, cmv, comissao, status, logistica, comprador, origem_valor, id_pedido_ml, frete, uf",
       )
       .eq("perfil_id", perfilId)
       .order("data_venda", { ascending: false })
@@ -133,15 +139,20 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       const precoUnitario = num(p.preco_venda);
       const faturamento = precoUnitario * quantidade;
       const comissao = num(p.comissao);
-      const cmvUnitario = p.cmv !== null ? num(p.cmv) : (cmvPorSku.get(p.sku as string) ?? 0);
+      const cmvCadastrado = p.cmv !== null ? num(p.cmv) : cmvPorSku.get(p.sku as string);
+      const semCmv = !(cmvCadastrado !== undefined && cmvCadastrado > 0);
+      const cmvUnitario = cmvCadastrado ?? 0;
       const cmv = cmvUnitario * quantidade;
       const impostos = faturamento * aliquota;
-      const lucroLiquido = faturamento - cmv - comissao - impostos;
+      // Frete que o canal descontou do seller (null = ainda não consultado).
+      const frete = p.frete === null || p.frete === undefined ? 0 : num(p.frete);
+      const lucroLiquido = faturamento - cmv - comissao - impostos - frete;
       const status = STATUS_PEDIDO.includes(p.status as StatusPedido)
         ? (p.status as StatusPedido)
         : "aguardando-envio";
       return {
         id: p.id as string,
+        numero: (p.id_pedido_ml as string | null) ?? undefined,
         data: p.data_venda as string,
         marketplaceId: marketplaceDaConta.get(p.conta_id as string)!,
         contaId: p.conta_id as string,
@@ -159,25 +170,28 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
         custoMidia: 0,
         lucroLiquido,
         margem: faturamento > 0 ? lucroLiquido / faturamento : 0,
+        semCmv,
         status,
         cliente: (p.comprador as string) ?? "",
         telefone: "",
         tipoLogistica: LOGISTICAS.includes(p.logistica as TipoLogistica)
           ? (p.logistica as TipoLogistica)
           : "padrao",
-        estado: "",
+        estado: ((p.uf as string | null) ?? "").toUpperCase(),
         parcelas: 1,
-        repasses: status === "cancelado" ? [] : [{ data: p.data_venda as string, valor: faturamento - comissao }],
+        repasses:
+          status === "cancelado" ? [] : [{ data: p.data_venda as string, valor: faturamento - comissao - frete }],
         valorDevolvido: 0,
         dataDevolucao: null,
         motivoDevolucao: null,
         campanhaId: null,
-        freteEsperado: 0,
-        freteCobrado: 0,
+        freteVendedor: frete,
+        freteEsperado: frete,
+        freteCobrado: frete,
       };
     });
 
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = new Date().toDateString(); // dia de hoje no fuso de quem vê
   const contas: ContaMarketplace[] = linhasContas.map((c) => {
     const id = c.id as string;
     const statusMl = c.credencial_ref ? conexoes.get(c.credencial_ref as string) : "ativa";
@@ -193,9 +207,9 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       conectada: statusMl === "ativa",
       statusConexao: statusMl === "ativa" ? "conectado" : "desconectado",
       ultimaSincronizacao: (c.ultima_sincronizacao as string | null) ?? null,
-      skusAtivos: anunciosDaConta.filter((a) => a.status === "ativo").length,
+      skusAtivos: new Set(anunciosDaConta.filter((a) => a.status === "ativo").map((a) => a.sku)).size,
       vendasHoje: pedidos
-        .filter((p) => p.contaId === id && p.status !== "cancelado" && p.data.slice(0, 10) === hoje)
+        .filter((p) => p.contaId === id && p.status !== "cancelado" && new Date(p.data).toDateString() === hoje)
         .reduce((s, p) => s + p.faturamento, 0),
       comissaoPercentual: media(anunciosDaConta.map((a) => a.comissaoPercentual)),
       taxaFixa: media(anunciosDaConta.map((a) => a.taxaFixa)),
@@ -205,7 +219,53 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
     };
   });
 
-  return { contas, anuncios, pedidos };
+  // Estoque: um item por SKU de cada canal. Anúncios do mesmo SKU costumam
+  // dividir o mesmo estoque físico, então vale o MAIOR estoque entre eles (não
+  // a soma). Venda/dia = unidades vendidas nos últimos 30 dias ÷ 30.
+  const limite30 = Date.now() - 30 * 86400000;
+  const vendidas = new Map<string, number>();
+  for (const p of pedidos) {
+    if (p.status === "cancelado" || new Date(p.data).getTime() < limite30) continue;
+    const k = `${p.marketplaceId}|${p.sku}`;
+    vendidas.set(k, (vendidas.get(k) ?? 0) + p.quantidade);
+  }
+  const porSku = new Map<string, ItemEstoqueDetalhado>();
+  for (const a of rAnuncios.data ?? []) {
+    const mp = marketplaceDaConta.get(a.conta_id as string);
+    if (!mp || a.logistica === "full") continue;
+    const sku = ((a.sku as string) ?? (a.id_externo as string)) || "";
+    const k = `${mp}|${sku}`;
+    const qtd = Math.max(0, num(a.estoque));
+    const atual = porSku.get(k);
+    if (atual) {
+      atual.quantidade = Math.max(atual.quantidade, qtd);
+      continue;
+    }
+    porSku.set(k, {
+      sku,
+      produto: (a.titulo as string) ?? sku,
+      marketplaceId: mp,
+      quantidade: qtd,
+      vendasDia: 0,
+      coberturaDias: 0,
+      custoUnitario: cmvPorSku.get(sku) ?? 0,
+      valorEstoque: 0,
+      prazoFornecedorDias: PRAZO_FORNECEDOR_PADRAO,
+      custoArmazenagemMensal: 0,
+    });
+  }
+  const estoque = [...porSku.entries()].map(([k, i]) => {
+    const vendasDia = Math.round(((vendidas.get(k) ?? 0) / 30) * 100) / 100;
+    return {
+      ...i,
+      vendasDia,
+      // Sem venda nos últimos 30 dias, a cobertura não tem fim: 999 = sem giro.
+      coberturaDias: i.quantidade === 0 ? 0 : vendasDia > 0 ? Math.round(i.quantidade / vendasDia) : 999,
+      valorEstoque: Math.round(i.quantidade * i.custoUnitario * 100) / 100,
+    };
+  });
+
+  return { contas, anuncios, pedidos, estoque };
 }
 
 /** Pede ao servidor para buscar agora os anúncios e pedidos no marketplace. */

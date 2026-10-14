@@ -1003,6 +1003,8 @@ export interface ResumoPeriodo {
    * seller ainda saem daqui — por isso este número não é lucro.
    */
   liquidoMarketplace: number;
+  /** Frete que o canal descontou do seller (só dados reais do canal). */
+  fretes: number;
   /**
    * ADS/mídia paga. De propósito NÃO entra em custosTotais nem em
    * lucroLiquido — este é o lucro "antes de ADS", igual já era mostrado em
@@ -1029,11 +1031,12 @@ export function resumir(pedidos: Pedido[]): ResumoPeriodo {
 
   const faturamento = soma((p) => p.faturamento);
   const lucroLiquido = soma((p) => p.lucroLiquido);
-  const outrosCustos = soma((p) => p.outrosCustos + p.taxaFixa + p.descontos);
+  const outrosCustos = soma((p) => p.outrosCustos + p.taxaFixa + p.descontos + (p.freteVendedor ?? 0));
   const unidades = validos.reduce((acc, p) => acc + p.quantidade, 0);
   const skusDistintos = new Set(validos.map((p) => p.sku)).size;
   const comissoes = soma((p) => p.comissao);
   const taxasFixas = soma((p) => p.taxaFixa);
+  const fretes = soma((p) => p.freteVendedor ?? 0);
 
   return {
     faturamento,
@@ -1046,6 +1049,7 @@ export function resumir(pedidos: Pedido[]): ResumoPeriodo {
     comissoes,
     taxasFixas,
     liquidoMarketplace: faturamento - comissoes - taxasFixas,
+    fretes,
     outrosCustos,
     custoMidia: soma((p) => p.custoMidia),
     custosTotais: faturamento - lucroLiquido,
@@ -1526,7 +1530,8 @@ export function montarDre(entrada: {
     linha.taxaFixa += p.taxaFixa;
     linha.cmv += p.cmv;
     linha.impostos += p.impostos;
-    linha.custosPorVenda += p.outrosCustos;
+    // Frete que o canal desconta do seller entra junto (embalagem, frete).
+    linha.custosPorVenda += p.outrosCustos + (p.freteVendedor ?? 0);
     linha.ads += p.custoMidia;
   }
 

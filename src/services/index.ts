@@ -67,7 +67,7 @@ import type {
 } from "@/types";
 import { supabase } from "@/lib/supabase";
 import { emDemonstracao, soNaDemo } from "@/lib/demonstracao";
-import type { AlteracaoPreco, Campanha, Pedido } from "@/types";
+import type { AlteracaoPreco, Campanha, ItemEstoqueDetalhado, Pedido } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Dados de exemplo × dados reais.
@@ -82,6 +82,7 @@ const REAIS = {
   pedidos: [] as Pedido[],
   historicoPrecos: [] as AlteracaoPreco[],
   contas: [] as ContaMarketplace[],
+  estoque: [] as ItemEstoqueDetalhado[],
 };
 
 /** Guarda os dados reais lidos do banco (src/services/dados-reais.ts). As
@@ -91,10 +92,25 @@ export function definirDadosReais(dados: {
   anuncios: Anuncio[];
   pedidos: Pedido[];
   contas: ContaMarketplace[];
+  estoque?: ItemEstoqueDetalhado[];
 }) {
   REAIS.anuncios.splice(0, REAIS.anuncios.length, ...dados.anuncios);
   REAIS.pedidos.splice(0, REAIS.pedidos.length, ...dados.pedidos);
   REAIS.contas.splice(0, REAIS.contas.length, ...dados.contas);
+  REAIS.estoque.splice(0, REAIS.estoque.length, ...(dados.estoque ?? []));
+}
+
+/** Resumo do estoque real, calculado dos itens (mesmas regras dos cards). */
+function resumoEstoqueReal(): typeof RESUMO_ESTOQUE_EXEMPLO {
+  const itens = REAIS.estoque;
+  const parados = itens.filter((i) => i.quantidade > 0 && i.coberturaDias > 60);
+  return {
+    capitalInvestido: itens.reduce((s, i) => s + i.valorEstoque, 0),
+    skusAtivos: itens.filter((i) => i.quantidade > 0).length,
+    skusRuptura: itens.filter((i) => i.quantidade > 0 && i.quantidade < 10).length,
+    valorParado: parados.reduce((s, i) => s + i.valorEstoque, 0),
+    unidadesParadas: parados.reduce((s, i) => s + i.quantidade, 0),
+  };
 }
 
 /** Contas reais (as conectadas de verdade) — o ponto de partida das
@@ -108,13 +124,6 @@ const campanhasAtuais = (): Campanha[] => soNaDemo(CAMPANHAS_EXEMPLO, []);
 const campanhaAtual = (id: string | null) =>
   emDemonstracao() ? getCampanha_EXEMPLO(id) : undefined;
 
-const RESUMO_ESTOQUE_VAZIO: typeof RESUMO_ESTOQUE_EXEMPLO = {
-  capitalInvestido: 0,
-  skusAtivos: 0,
-  skusRuptura: 0,
-  valorParado: 0,
-  unidadesParadas: 0,
-};
 const RESUMO_FULFILLMENT_VAZIO: typeof RESUMO_FULFILLMENT_EXEMPLO = {
   capitalInvestido: 0,
   skusFull: 0,
@@ -813,8 +822,8 @@ async function chavesPendentesEstoque(
 
 export const estoqueService = {
   listar: () => soNaDemo(ESTOQUE_EXEMPLO, []),
-  listarDetalhado: () => soNaDemo(ESTOQUE_DETALHADO_EXEMPLO, []),
-  resumo: () => soNaDemo(RESUMO_ESTOQUE_EXEMPLO, RESUMO_ESTOQUE_VAZIO),
+  listarDetalhado: () => (emDemonstracao() ? ESTOQUE_DETALHADO_EXEMPLO : REAIS.estoque),
+  resumo: () => (emDemonstracao() ? RESUMO_ESTOQUE_EXEMPLO : resumoEstoqueReal()),
 
   /** Como uma linha de `eventos_agente` vira um AlertaEstoque. */
   linhaParaAlerta: linhaParaAlertaEstoque,

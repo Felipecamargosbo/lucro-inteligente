@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useConfiguracoes } from "@/context/configuracoes";
 import { Target } from "lucide-react";
 import { formatBRL, formatPercentual } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -186,9 +187,23 @@ type SimulacaoCanal = ReturnType<typeof calcularSimulacaoCanal>;
 function Calculadora() {
   const [aba, setAba] = useState<AbaId>("mercado-livre");
   const [dados, setDados] = useState<Record<CanalId, CamposCanal>>(PADRAO);
+  // O imposto começa com a alíquota salva em Configurações → Fiscal (não 9%
+  // fixo). Só preenche enquanto o seller não mexeu no campo.
+  const { fiscal } = useConfiguracoes();
+  const impostoEditado = useRef(false);
+  useEffect(() => {
+    if (impostoEditado.current || !fiscal) return;
+    const texto = (fiscal.aliquota * 100).toFixed(2).replace(".", ",");
+    setDados((atual) => {
+      const novo = { ...atual };
+      for (const id of Object.keys(novo) as CanalId[]) novo[id] = { ...novo[id], imposto: texto };
+      return novo;
+    });
+  }, [fiscal]);
   const [detalheAberto, setDetalheAberto] = useState<CanalId | null>(null);
 
   const atualizarCampo = (canal: CanalId, campo: keyof CamposCanal, valor: string) => {
+    if (campo === "imposto") impostoEditado.current = true;
     setDados((prev) => ({ ...prev, [canal]: { ...prev[canal], [campo]: valor } }));
   };
 

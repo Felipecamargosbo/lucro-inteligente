@@ -91,7 +91,7 @@ export function ConexoesShopee() {
       toast.error(erro);
       return;
     }
-    toast.success(`Loja ${c.nomeLoja ?? c.shopId} desconectada do NEXO`, {
+    toast.success(`Loja ${c.nomeLoja ?? c.shopId} desconectada do Planeta97`, {
       description: "Para remover também a autorização na Shopee, vá na Central do Vendedor → Configurações → Parceiros.",
     });
     carregar();
@@ -101,7 +101,7 @@ export function ConexoesShopee() {
   return (
     <Painel
       titulo="Conexão real com a Shopee"
-      descricao="Conecte sua loja pela API oficial da Shopee. Você autoriza no site da Shopee; o NEXO nunca vê a sua senha."
+      descricao="Conecte sua loja pela API oficial da Shopee. Você autoriza no site da Shopee; o Planeta97 nunca vê a sua senha."
       acoes={
         <div className="flex gap-2">
           {!demo && lojas.length > 0 && (

@@ -42,7 +42,7 @@ export function PaginaLegal({
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="size-4" />
-            Voltar ao NEXO
+            Voltar ao Planeta97
           </Link>
         </div>
       </header>

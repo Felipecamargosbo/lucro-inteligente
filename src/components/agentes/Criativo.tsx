@@ -645,7 +645,7 @@ function AbaProdutos({
   return (
     <div>
       <p className="border-b px-4 py-3 text-[11px] leading-relaxed text-muted-foreground">
-        O NEXO puxa de cada anúncio a descrição e a ficha técnica — é isso que o SAC usa pra
+        O Planeta97 puxa de cada anúncio a descrição e a ficha técnica — é isso que o SAC usa pra
         responder cliente e o Criativo pra reescrever o anúncio. Por enquanto são exemplos
         fictícios; quando a API conectar, vem o anúncio real. Se faltar alguma informação ou o
         anúncio estiver errado, use as <strong>informações extras</strong> (opcional).

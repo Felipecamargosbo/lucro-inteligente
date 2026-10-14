@@ -1,5 +1,6 @@
 import { emDemonstracao } from "@/lib/demonstracao";
 import { useMemo } from "react";
+import { Link } from "@tanstack/react-router";
 import {
   Area,
   AreaChart,
@@ -168,6 +169,11 @@ export function VisaoGeral() {
 
   const { resumo, resumoAnterior, serie, saude, projecao } = dados;
 
+  // Vendas sem custo (CMV) cadastrado: o lucro delas não desconta o produto.
+  const validos = dados.atuais.filter((p) => p.status !== "cancelado");
+  const semCmv = validos.filter((p) => p.semCmv);
+  const faturamentoSemCmv = semCmv.reduce((s, p) => s + p.faturamento, 0);
+
   const cardTerciario = ehMesEmAndamento
     ? {
         titulo: "Projeção do mês",
@@ -206,7 +212,7 @@ export function VisaoGeral() {
         CMV: formatBRL(resumo.cmv),
         Impostos: formatBRL(resumo.impostos),
         Comissões: formatBRL(resumo.comissoes),
-        "Outros custos": formatBRL(resumo.outrosCustos),
+        "Frete e outros custos": formatBRL(resumo.outrosCustos),
         "Pedidos cancelados": resumo.pedidosCancelados,
         "Vendas canceladas": formatBRL(resumo.valorCancelado),
         "Lucro líquido": formatBRL(resumo.lucroLiquido),
@@ -249,6 +255,18 @@ export function VisaoGeral() {
         <ExportarDados nomeArquivo="resumo-dashboard" secoes={secoesExport} />
       </div>
 
+      {semCmv.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <strong className="text-amber-600 dark:text-amber-400">
+            Lucro e margem estão maiores do que a realidade.
+          </strong>{" "}
+          {semCmv.length === validos.length ? "Nenhuma" : `${formatNumero(semCmv.length)} de ${formatNumero(validos.length)}`}{" "}
+          {semCmv.length === validos.length ? "venda do período tem" : "vendas do período estão sem"} custo do
+          produto (CMV) cadastrado — {formatBRL(faturamentoSemCmv)} de faturamento sem o custo descontado.
+          Cadastre em <Link to="/produtos" className="font-medium underline">Produtos → Importar CMV</Link>.
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <CardKpi
           titulo="Faturamento"
@@ -264,12 +282,12 @@ export function VisaoGeral() {
             resumo.liquidoMarketplace,
             resumoAnterior.liquidoMarketplace,
           )}
-          dica="O que o canal realmente repassa: faturamento menos comissão e taxa fixa. Ainda saem daqui o custo do produto e os impostos."
+          dica="Faturamento menos comissão e taxa fixa do canal. Ainda saem daqui o frete pago por você, o custo do produto e os impostos."
         />
         <CardKpi
           titulo="Lucro líquido"
           valor={formatBRL(resumo.lucroLiquido)}
-          detalhe="Depois de CMV, comissões, taxas e impostos"
+          detalhe="Depois de CMV, comissões, taxas, frete e impostos"
           variacaoPercentual={variacao(resumo.lucroLiquido, resumoAnterior.lucroLiquido)}
           destaque
         />
@@ -306,12 +324,12 @@ export function VisaoGeral() {
         <CardKpi titulo="CMV" valor={formatBRL(resumo.cmv)} />
         <CardKpi titulo="Impostos" valor={formatBRL(resumo.impostos)} />
         <CardKpi titulo="Comissões" valor={formatBRL(resumo.comissoes)} />
-        <CardKpi titulo="Outros custos" valor={formatBRL(resumo.outrosCustos)} />
+        <CardKpi titulo="Frete e outros custos" valor={formatBRL(resumo.outrosCustos)} />
         <CardKpi titulo="Pedidos cancelados" valor={formatNumero(resumo.pedidosCancelados)} />
         <CardKpi
           titulo="Vendas canceladas"
           valor={formatBRL(resumo.valorCancelado)}
-          detalhe="Veja em Recuperação de vendas"
+          detalhe={emDemonstracao() ? "Veja em Recuperação de vendas" : "Na lista de Vendas, filtre por Cancelado"}
         />
       </div>
 

@@ -520,7 +520,7 @@ export function DRE({
             Resultado de {rotuloCompetencia(dre.competencia)}
           </h2>
           <p className="text-xs text-muted-foreground">
-            {empresa.nome} · CNPJ {empresa.cnpj}
+            {empresa.nome}{empresa.cnpj ? ` · CNPJ ${empresa.cnpj}` : ""}
           </p>
         </header>
         <div className="divide-y">

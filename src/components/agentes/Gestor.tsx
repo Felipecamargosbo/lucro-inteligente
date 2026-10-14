@@ -293,7 +293,7 @@ function AbaResumo({
         ))}
       </div>
 
-      {/* Resumo em texto, para copiar (o NEXO não envia por WhatsApp) */}
+      {/* Resumo em texto, para copiar (o Planeta97 não envia por WhatsApp) */}
       <div className="space-y-2 px-4 py-4">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs font-semibold">
@@ -315,7 +315,7 @@ function AbaResumo({
           </pre>
         )}
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          O mesmo resumo em texto, pronto pra copiar e colar onde você quiser. Os avisos do NEXO
+          O mesmo resumo em texto, pronto pra copiar e colar onde você quiser. Os avisos do Planeta97
           aparecem aqui na plataforma.
         </p>
       </div>

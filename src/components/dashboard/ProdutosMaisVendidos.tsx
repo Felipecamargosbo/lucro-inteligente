@@ -82,7 +82,7 @@ function agruparProdutos(pedidos: Pedido[]): ItemProduto[] {
     atual.taxaFixa += p.taxaFixa;
     atual.impostos += p.impostos;
     atual.descontos += p.descontos;
-    atual.outrosCustos += p.outrosCustos;
+    atual.outrosCustos += p.outrosCustos + (p.freteVendedor ?? 0);
     const contasDoCanal = atual.porCanal.get(p.marketplaceId) ?? new Set<string>();
     contasDoCanal.add(p.contaId);
     atual.porCanal.set(p.marketplaceId, contasDoCanal);
@@ -341,7 +341,7 @@ function DetalheProduto({
     { rotulo: "Taxa fixa", valor: produto.taxaFixa },
     { rotulo: "Impostos", valor: produto.impostos },
     { rotulo: "Descontos", valor: produto.descontos },
-    { rotulo: "Outros custos", valor: produto.outrosCustos },
+    { rotulo: "Frete e outros custos", valor: produto.outrosCustos },
   ];
   const precoMedio = produto.unidades ? produto.faturamento / produto.unidades : 0;
 

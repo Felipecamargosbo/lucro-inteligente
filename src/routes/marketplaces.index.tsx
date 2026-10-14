@@ -176,7 +176,7 @@ function Marketplaces() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">{c.nome}</p>
                     <p className="truncate text-[11px] text-muted-foreground">
-                      {canal?.titulo ?? c.marketplaceId} · {c.cnpj}
+                      {canal?.titulo ?? c.marketplaceId}{c.cnpj ? ` · ${c.cnpj}` : ""}
                     </p>
                   </div>
                 </Link>

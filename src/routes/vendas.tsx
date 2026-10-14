@@ -112,7 +112,7 @@ function valorOrdenavel(p: Pedido, campo: CampoOrdenacao): number {
     case "descontos":
       return p.descontos;
     case "outrosCustos":
-      return p.outrosCustos;
+      return p.outrosCustos + (p.freteVendedor ?? 0);
     case "impostos":
       return p.impostos;
     case "lucroLiquido":
@@ -312,7 +312,7 @@ function Vendas() {
             nomeArquivo="vendas"
             linhas={pedidosOrdenados.map((p) => ({
               Data: formatData(p.data),
-              Pedido: p.id,
+              Pedido: p.numero ?? p.id,
               Marketplace: p.marketplaceId,
               Conta: contaPorId.get(p.contaId)?.nome ?? "—",
               SKU: p.sku,
@@ -325,7 +325,7 @@ function Vendas() {
               "Taxa fixa": p.taxaFixa.toFixed(2),
               Impostos: p.impostos.toFixed(2),
               Descontos: p.descontos.toFixed(2),
-              "Outros custos": p.outrosCustos.toFixed(2),
+              "Frete e outros custos": (p.outrosCustos + (p.freteVendedor ?? 0)).toFixed(2),
               "Lucro líquido": p.lucroLiquido.toFixed(2),
               Margem: formatPercentual(p.margem),
               Status: p.status,
@@ -421,7 +421,7 @@ function Vendas() {
                   Desconto
                 </CabecalhoOrdenavel>
                 <CabecalhoOrdenavel campo="outrosCustos" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
-                  Outros custos
+                  Frete e outros
                 </CabecalhoOrdenavel>
                 <CabecalhoOrdenavel campo="impostos" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
                   Impostos
@@ -443,7 +443,7 @@ function Vendas() {
                   className="cursor-pointer transition-colors hover:bg-muted/40"
                 >
                   <td className="px-4 py-3 text-xs">{formatData(p.data)}</td>
-                  <td className="num px-4 py-3 text-[11px] text-muted-foreground">#{p.id}</td>
+                  <td className="num px-4 py-3 text-[11px] text-muted-foreground">#{p.numero ?? p.id}</td>
                   <td className="px-4 py-3">
                     <SeloMarketplace id={p.marketplaceId} />
                     <p className="mt-1 truncate text-[10px] text-muted-foreground">
@@ -492,7 +492,7 @@ function Vendas() {
                     {formatBRL(p.descontos)}
                   </td>
                   <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
-                    {formatBRL(p.outrosCustos)}
+                    {formatBRL(p.outrosCustos + (p.freteVendedor ?? 0))}
                   </td>
                   <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
                     {formatBRL(p.impostos)}
@@ -546,6 +546,7 @@ function DetalheVenda({
     { rotulo: "Taxa fixa", valor: pedido.taxaFixa },
     { rotulo: "Impostos", valor: pedido.impostos },
     { rotulo: "Descontos", valor: pedido.descontos },
+    ...(pedido.freteVendedor ? [{ rotulo: "Frete pago por você", valor: pedido.freteVendedor }] : []),
     { rotulo: "Outros custos", valor: pedido.outrosCustos },
   ];
 
@@ -553,7 +554,7 @@ function DetalheVenda({
     <Dialog open onOpenChange={aoFechar}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Detalhamento do pedido #{pedido.id}</DialogTitle>
+          <DialogTitle>Detalhamento do pedido #{pedido.numero ?? pedido.id}</DialogTitle>
           <DialogDescription>
             {formatDataHora(pedido.data)} · {pedido.cliente}
           </DialogDescription>

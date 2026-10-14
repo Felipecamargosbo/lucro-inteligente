@@ -117,6 +117,8 @@ export function Canais() {
   const [metrica, setMetrica] = useState<Metrica>("faturamento");
 
   const pedidos = filtrarPorSelecao(vendasService.listar());
+  // Canais com pelo menos uma conta conectada (não a lista fixa de canais).
+  const canaisConectados = new Set(contas.filter((c) => c.conectada).map((c) => c.marketplaceId)).size;
 
   const resumoCanais = useMemo(() => {
     const atuais = filtrarPorPeriodo(pedidos, periodo);
@@ -197,7 +199,7 @@ export function Canais() {
         <CardKpi
           titulo="Canais com venda"
           valor={formatNumero(resumoCanais.length)}
-          detalhe={`de ${CANAIS.length} conectados`}
+          detalhe={`de ${canaisConectados} ${canaisConectados === 1 ? "conectado" : "conectados"}`}
         />
         <CardKpi
           titulo="Canal líder"

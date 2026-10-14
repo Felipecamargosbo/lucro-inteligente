@@ -90,7 +90,7 @@ export function ConexoesTikTok() {
       toast.error(erro);
       return;
     }
-    toast.success(`Loja ${c.nomeLoja ?? c.shopId} desconectada do NEXO`, {
+    toast.success(`Loja ${c.nomeLoja ?? c.shopId} desconectada do Planeta97`, {
       description: "Para remover também a autorização no TikTok Shop, vá na Central do Vendedor → Apps e serviços.",
     });
     carregar();
@@ -100,7 +100,7 @@ export function ConexoesTikTok() {
   return (
     <Painel
       titulo="Conexão real com o TikTok Shop"
-      descricao="Conecte sua loja pela API oficial do TikTok Shop. Você autoriza no site do TikTok; o NEXO nunca vê a sua senha."
+      descricao="Conecte sua loja pela API oficial do TikTok Shop. Você autoriza no site do TikTok; o Planeta97 nunca vê a sua senha."
       acoes={
         <div className="flex gap-2">
           {!demo && lojas.length > 0 && (

@@ -5,8 +5,8 @@ import { Lista, PaginaLegal, Secao } from "@/components/legal/PaginaLegal";
 export const Route = createFileRoute("/termos")({
   head: () => ({
     meta: [
-      { title: "Termos de Uso — Planeta97 NEXO" },
-      { name: "description", content: "Termos de Uso do NEXO, plataforma da Planeta97 para sellers de marketplace." },
+      { title: "Termos de Uso — Planeta97" },
+      { name: "description", content: "Termos de Uso do Planeta97, plataforma da Planeta97 para sellers de marketplace." },
     ],
   }),
   component: TermosDeUso,
@@ -40,7 +40,7 @@ function TermosDeUso() {
         </p>
       </Secao>
 
-      <Secao numero={2} titulo="O que o NEXO faz">
+      <Secao numero={2} titulo="O que o Planeta97 faz">
         <Lista
           itens={[
             "Reúne vendas, anúncios, taxas, fretes, custos e anúncios patrocinados (Ads) dos marketplaces conectados (como Mercado Livre, Shopee, TikTok Shop, Magalu, Amazon e Shein).",
@@ -77,10 +77,10 @@ function TermosDeUso() {
         <Lista
           itens={[
             "Você é responsável por manter seu e-mail e sua senha em segurança e por tudo o que for feito na sua conta. Se perceber acesso indevido, avise a gente na hora.",
-            "Ao conectar uma conta de marketplace, você autoriza o NEXO a acessar os dados dessa conta pela integração oficial do marketplace, só para as funções da plataforma. Você pode desconectar a qualquer momento, no NEXO ou no próprio marketplace.",
+            "Ao conectar uma conta de marketplace, você autoriza o Planeta97 a acessar os dados dessa conta pela integração oficial do marketplace, só para as funções da plataforma. Você pode desconectar a qualquer momento, no Planeta97 ou no próprio marketplace.",
             "Você declara que tem o direito de conectar as contas de marketplace que adicionar e que segue as regras de cada marketplace.",
             "Para prestar suporte, a equipe da Planeta97 pode visualizar a sua conta em modo somente leitura (sem alterar nenhum dado, preço ou anúncio). Cada acesso dura no máximo 1 hora e fica registrado.",
-            "O NEXO não tem relação com os marketplaces além do uso das integrações oficiais. Mudanças, falhas ou limites nas integrações de terceiros podem afetar funções da plataforma, e não temos controle sobre isso.",
+            "O Planeta97 não tem relação com os marketplaces além do uso das integrações oficiais. Mudanças, falhas ou limites nas integrações de terceiros podem afetar funções da plataforma, e não temos controle sobre isso.",
           ]}
         />
       </Secao>
@@ -89,12 +89,12 @@ function TermosDeUso() {
         <Lista
           itens={[
             "Os planos, preços, número de contas conectadas e limites mensais de uso (como interações com os agentes de IA) são os informados na plataforma no momento da contratação.",
-            "Teste grátis: ao criar a conta, você escolhe um plano e usa o NEXO por 7 dias sem pagar. Se cancelar dentro desses 7 dias, nada é cobrado. Se não cancelar, a assinatura do plano escolhido começa automaticamente no fim do teste.",
+            "Teste grátis: ao criar a conta, você escolhe um plano e usa o Planeta97 por 7 dias sem pagar. Se cancelar dentro desses 7 dias, nada é cobrado. Se não cancelar, a assinatura do plano escolhido começa automaticamente no fim do teste.",
             "A assinatura é pré-paga: você paga antes de usar, e ela renova automaticamente todo mês, no mesmo dia em que foi contratada, até ser cancelada.",
             "Quando os créditos mensais do plano acabam, as funções essenciais continuam (como o resumo diário e avisos importantes) e as demais param até o mês seguinte, até um upgrade de plano ou até a compra de créditos avulsos.",
             "Créditos avulsos são pagos na hora da compra e só são liberados depois do pagamento confirmado.",
             "Os preços podem mudar. Qualquer mudança no valor da sua assinatura será avisada com pelo menos 30 dias de antecedência e só vale a partir da renovação seguinte.",
-            "Os pagamentos são processados por uma empresa de pagamentos parceira. O NEXO não guarda os dados completos do seu cartão.",
+            "Os pagamentos são processados por uma empresa de pagamentos parceira. O Planeta97 não guarda os dados completos do seu cartão.",
           ]}
         />
       </Secao>
@@ -103,7 +103,7 @@ function TermosDeUso() {
         <Lista
           itens={[
             "Você pode cancelar a assinatura quando quiser, pela própria plataforma, sem multa.",
-            "O cancelamento impede a próxima renovação. Você continua usando o NEXO até o fim do período que já pagou, e não há devolução proporcional desse período.",
+            "O cancelamento impede a próxima renovação. Você continua usando o Planeta97 até o fim do período que já pagou, e não há devolução proporcional desse período.",
             "Após o fim do período pago, a conta deixa de ter acesso às funções do plano. Seus dados são tratados conforme a Política de Privacidade.",
           ]}
         />
@@ -121,9 +121,9 @@ function TermosDeUso() {
       <Secao numero={8} titulo="O que não é permitido">
         <Lista
           itens={[
-            "Usar o NEXO para qualquer atividade ilegal, para enganar compradores ou para descumprir as regras dos marketplaces.",
+            "Usar o Planeta97 para qualquer atividade ilegal, para enganar compradores ou para descumprir as regras dos marketplaces.",
             "Tentar acessar contas ou dados de outros usuários, burlar limites de uso ou de segurança, ou atacar a plataforma.",
-            "Copiar, revender, alugar ou fazer engenharia reversa do NEXO, ou usá-lo para criar um produto concorrente.",
+            "Copiar, revender, alugar ou fazer engenharia reversa do Planeta97, ou usá-lo para criar um produto concorrente.",
             "Usar robôs ou programas para acessar a plataforma de forma automatizada, fora das funções oferecidas.",
             "Compartilhar o acesso da sua conta com quem não faz parte da sua empresa.",
           ]}
@@ -135,26 +135,26 @@ function TermosDeUso() {
 
       <Secao numero={9} titulo="Propriedade e conteúdo">
         <p>
-          O NEXO, sua marca, telas, textos, código e agentes pertencem à {e.razaoSocial}. A assinatura dá a
+          O Planeta97, sua marca, telas, textos, código e agentes pertencem à {e.razaoSocial}. A assinatura dá a
           você o direito de usar a plataforma enquanto estiver ativa, mas não transfere a propriedade de nada.
         </p>
         <p>
           Os seus dados (vendas, anúncios, custos) e os textos que você cria ou aprova continuam sendo seus. Você
-          nos autoriza a usá-los apenas para fazer o NEXO funcionar para você, como explicado na Política de
+          nos autoriza a usá-los apenas para fazer o Planeta97 funcionar para você, como explicado na Política de
           Privacidade.
         </p>
       </Secao>
 
       <Secao numero={10} titulo="Disponibilidade e responsabilidade">
         <p>
-          Trabalhamos para que o NEXO funcione sem interrupções, mas ele pode passar por manutenções, falhas
+          Trabalhamos para que o Planeta97 funcione sem interrupções, mas ele pode passar por manutenções, falhas
           técnicas ou instabilidades nossas ou de serviços de terceiros (marketplaces, hospedagem, inteligência
           artificial, pagamentos).
         </p>
         <p>
           Na medida permitida pela lei, a {e.nomeFantasia} não se responsabiliza por lucros que deixaram de ser
           obtidos, perdas de vendas ou decisões de negócio tomadas com base nas informações e sugestões da
-          plataforma. Quando houver responsabilidade nossa, ela fica limitada ao valor que você pagou pelo NEXO
+          plataforma. Quando houver responsabilidade nossa, ela fica limitada ao valor que você pagou pelo Planeta97
           nos 12 meses anteriores ao ocorrido.
         </p>
       </Secao>
@@ -162,7 +162,7 @@ function TermosDeUso() {
       <Secao numero={11} titulo="Mudanças nestes Termos">
         <p>
           Podemos atualizar estes Termos. Quando a mudança for importante, avisaremos pela plataforma ou por
-          e-mail com pelo menos 15 dias de antecedência. Se continuar usando o NEXO depois disso, você concorda
+          e-mail com pelo menos 15 dias de antecedência. Se continuar usando o Planeta97 depois disso, você concorda
           com a nova versão. Se não concordar, pode cancelar a assinatura.
         </p>
       </Secao>

@@ -175,7 +175,7 @@ function linhaExportMetricasAds(m: MetricasAdsCompletas): Record<string, string 
     "Receita via ADS": formatBRL(m.receitaAds),
     "Faturamento total": formatBRL(m.faturamento),
     "Investimento total": formatBRL(m.investimento),
-    ROAS: `${m.roas.toFixed(2)}x`,
+    ROAS: `${m.roas.toFixed(2).replace(".", ",")}x`,
     ACOS: formatPercentual(m.acos),
     "Pedidos via ADS": m.pedidosAds,
     "Cliques (estimado)": m.cliques,
@@ -336,8 +336,8 @@ export function Ads() {
         />
         <CardKpi
           titulo="ROAS"
-          valor={`${roas.toFixed(2)}x`}
-          detalhe={`${roas >= roasAnterior ? "+" : "−"}${Math.abs(roas - roasAnterior).toFixed(2)}x vs. anterior`}
+          valor={`${roas.toFixed(2).replace(".", ",")}x`}
+          detalhe={`${roas >= roasAnterior ? "+" : "−"}${Math.abs(roas - roasAnterior).toFixed(2).replace(".", ",")}x vs. anterior`}
           dica="Faturamento vindo de ADS dividido pelo investimento. Quanto maior, melhor: 5x significa R$5 de venda pra cada R$1 investido."
         />
         <CardKpi
@@ -436,14 +436,14 @@ export function Ads() {
                   yAxisId="esq"
                   tick={{ fontSize: 10 }}
                   stroke="var(--muted-foreground)"
-                  tickFormatter={(v) => formatBRLCompacto(Number(v))}
+                  tickFormatter={(v) => formatNumero(Number(v))}
                 />
                 <YAxis
                   yAxisId="dir"
                   orientation="right"
                   tick={{ fontSize: 10 }}
                   stroke="var(--muted-foreground)"
-                  tickFormatter={(v) => formatBRLCompacto(Number(v))}
+                  tickFormatter={(v) => formatNumero(Number(v))}
                 />
                 <ChartTooltip
                   formatter={(v: number | string) => formatNumero(Number(v))}
@@ -524,7 +524,7 @@ export function Ads() {
                           {formatBRL(c.gasto)}
                         </td>
                         <td className="num px-3 py-3 text-right text-xs font-bold text-profit">
-                          {c.roas.toFixed(2)}x
+                          {c.roas.toFixed(2).replace(".", ",")}x
                         </td>
                         <td
                           className={cn(
@@ -548,7 +548,7 @@ export function Ads() {
                               {formatBRL(conta.gasto)}
                             </td>
                             <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
-                              {conta.roas.toFixed(2)}x
+                              {conta.roas.toFixed(2).replace(".", ",")}x
                             </td>
                             <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
                               {formatPercentual(conta.tacos)}

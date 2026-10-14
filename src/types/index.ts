@@ -106,6 +106,9 @@ export interface RepasseParcela {
 
 export interface Pedido {
   id: string;
+  /** Número do pedido no marketplace (o que o seller vê lá). Sem ele, a
+   * tela mostra o id interno. */
+  numero?: string;
   data: string; // ISO
   marketplaceId: MarketplaceId;
   /** Conta que realizou a venda */
@@ -121,10 +124,16 @@ export interface Pedido {
   impostos: number;
   descontos: number;
   outrosCustos: number;
+  /** Frete que o canal desconta do seller nesta venda (dado real do canal).
+   * Sai do repasse e do lucro. Ausente nos dados de demonstração. */
+  freteVendedor?: number;
   /** ADS/mídia paga atribuída a este pedido — não confundir com outrosCustos */
   custoMidia: number;
   lucroLiquido: number;
   margem: number; // 0-1
+  /** true quando o SKU não tem custo (CMV) cadastrado — o lucro desta venda
+   * sai sem descontar o custo do produto, ou seja, maior do que é. */
+  semCmv?: boolean;
   status: StatusPedido;
   cliente: string;
   telefone: string;

@@ -103,7 +103,7 @@ export function ConexoesMercadoLivre() {
       toast.error(erro);
       return;
     }
-    toast.success(`Conta ${c.apelido ?? c.mlUserId} desconectada do NEXO`, {
+    toast.success(`Conta ${c.apelido ?? c.mlUserId} desconectada do Planeta97`, {
       description:
         "Para remover também a autorização no Mercado Livre, vá em Minha conta → Segurança → Aplicativos conectados.",
     });
@@ -114,7 +114,7 @@ export function ConexoesMercadoLivre() {
   return (
     <Painel
       titulo="Conexão real com o Mercado Livre"
-      descricao="Conecte sua conta pela API oficial do Mercado Livre. Você autoriza no site do ML; o NEXO nunca vê a sua senha."
+      descricao="Conecte sua conta pela API oficial do Mercado Livre. Você autoriza no site do ML; o Planeta97 nunca vê a sua senha."
       acoes={
         <div className="flex gap-2">
         {!demo && conexoes.length > 0 && (

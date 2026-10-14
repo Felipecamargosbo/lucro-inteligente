@@ -60,7 +60,7 @@ function SelecaoDeConta() {
         <div>
           <h2 className="text-lg font-semibold">{canal.titulo}</h2>
           <p className="text-xs text-muted-foreground">
-            Você tem {contasDoCanal.length} contas neste canal — escolha qual quer ver
+            {contasDoCanal.length === 1 ? "Você tem 1 conta neste canal — clique para ver" : `Você tem ${contasDoCanal.length} contas neste canal — escolha qual quer ver`}
           </p>
         </div>
       </div>
