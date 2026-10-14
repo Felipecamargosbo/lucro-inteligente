@@ -1746,7 +1746,7 @@ function CampoValor({
       onBlur={() => setTexto(null)}
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
       className={cn(
-        "num h-7 w-[84px] rounded-md border border-transparent bg-transparent px-1.5 text-right text-xs outline-none transition-colors hover:border-border focus:border-ring focus:bg-background",
+        "num h-7 w-[84px] rounded-md border border-input bg-background/60 px-1.5 text-right text-xs outline-none transition-colors hover:border-foreground/40 focus:border-ring focus:bg-background",
         destaque && "border-brand ring-1 ring-brand/40",
         className,
       )}
@@ -1854,10 +1854,12 @@ function LinhaDoAnuncio({
       if (plano) aoMudarPlano({ precoCheio: plano.precoCheio, descontoPercentual: descGuardado, precoPromocional: null, campoBase: "cheio" });
       return;
     }
+    // Sem o % ainda: guarda o promocional e espera o desconto pra calcular o
+    // cheio (o cheio do canal não muda até lá).
     aoMudarPlano({
-      precoCheio: cheioDoPromo(n, c.desconto),
+      precoCheio: c.desconto > 0 ? cheioDoPromo(n, c.desconto) : (plano?.precoCheio ?? c.cheioCanal),
       descontoPercentual: descGuardado,
-      precoPromocional: c.desconto > 0 ? n : null,
+      precoPromocional: n,
       campoBase: "promo",
     });
   };
@@ -1868,6 +1870,8 @@ function LinhaDoAnuncio({
     aplicarMargem(n);
   };
 
+  /** Digitou o promocional sem desconto: o cheio só sobe quando tiver o %. */
+  const faltaDesconto = base === "promo" && c.desconto <= 0;
   const sim = c.simulacao;
   const ponto = v.lucro < 0 ? "bg-loss" : v.margem < margemMinima ? "bg-warning" : "bg-profit";
   const corMargem = v.lucro < 0 ? "text-loss" : v.margem < margemMinima ? "text-warning" : "text-profit";
@@ -1916,15 +1920,25 @@ function LinhaDoAnuncio({
 
       {/* Desconto % */}
       <td className="px-1 py-1.5 text-right align-top">
-        <CampoValor
-          valor={descGuardado}
-          aoMudar={mudarDesconto}
-          casas={0}
-          placeholder={linha.descontoPadrao ? `${linha.descontoPadrao}` : "0"}
-          titulo={linha.descontoPadrao ? `Vazio = desconto padrão da conta (${linha.descontoPadrao}%)` : "Desconto da promoção, em %"}
-          className="w-14"
-        />
-        {c.descontoForaDoMl ? (
+        <span className="inline-flex items-center gap-1">
+          <CampoValor
+            valor={descGuardado}
+            aoMudar={mudarDesconto}
+            casas={0}
+            placeholder={linha.descontoPadrao ? `${linha.descontoPadrao}` : "ex.: 30"}
+            titulo={
+              linha.descontoPadrao
+                ? `Digite o desconto da promoção. Vazio = desconto padrão da conta (${linha.descontoPadrao}%)`
+                : "Digite o desconto da promoção, em %"
+            }
+            destaque={faltaDesconto}
+            className={cn("w-16", faltaDesconto && "border-loss ring-loss/40")}
+          />
+          <span className="text-[10px] text-muted-foreground">%</span>
+        </span>
+        {faltaDesconto ? (
+          <span className={cn(textoPequeno, "font-semibold text-loss")}>digite o % do desconto</span>
+        ) : c.descontoForaDoMl ? (
           <span className={cn(textoPequeno, "text-loss")}>
             ML: {DESCONTO_MIN_ML}% a {DESCONTO_MAX_ML}%
           </span>
@@ -1950,7 +1964,9 @@ function LinhaDoAnuncio({
           )}
         >
           <CampoValor
-            valor={c.planoPromo ?? (ativa && !plano ? ativa.preco : null)}
+            valor={
+              c.planoPromo ?? (base === "promo" ? (plano?.precoPromocional ?? null) : null) ?? (ativa && !plano ? ativa.preco : null)
+            }
             aoMudar={mudarPromo}
             placeholder="—"
             destaque={base === "promo"}
