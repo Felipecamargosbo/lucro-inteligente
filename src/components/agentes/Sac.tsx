@@ -2,6 +2,7 @@
 // próprio arquivo aqui, pra poder mexer em um sem tocar nos outros.
 
 import { useMemo, useState } from "react";
+import { emDemonstracao } from "@/lib/demonstracao";
 import {
   AlertTriangle,
   Brain,
@@ -351,9 +352,11 @@ export function PainelSac({
       </div>
 
       <div className="border-t px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
-        As mensagens dos clientes ainda são de exemplo — não há API de mensagens conectada. A
-        classificação e as mensagens prontas de pós-venda não usam IA (não gastam token); a resposta
-        de pré-venda, essa é gerada de verdade por IA quando você pede.
+        {emDemonstracao()
+          ? "As mensagens dos clientes ainda são de exemplo. "
+          : "Chegam do Mercado Livre a cada minuto: perguntas nos anúncios, mensagens dos pedidos, reclamações e devoluções. Aprovar aqui ainda não envia a resposta ao canal — copie e responda por lá. "}
+        A classificação e as mensagens prontas de pós-venda não usam IA (não gastam token); a
+        resposta de pré-venda, essa é gerada de verdade por IA quando você pede.
       </div>
     </Painel>
   );
@@ -623,7 +626,7 @@ function CardTicketSac({
             <p className="mt-0.5 text-xs">{ticket.pergunta}</p>
             {pedido && (
               <p className="num mt-1 text-[10px] text-muted-foreground">
-                Pedido {pedido.id} · {ROTULO_STATUS_PEDIDO[pedido.status]} ·{" "}
+                Pedido {pedido.numero ?? pedido.id} · {ROTULO_STATUS_PEDIDO[pedido.status]} ·{" "}
                 {new Date(pedido.data).toLocaleDateString("pt-BR")}
               </p>
             )}

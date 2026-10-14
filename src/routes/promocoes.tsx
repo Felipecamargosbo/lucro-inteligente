@@ -391,6 +391,7 @@ function Decidir() {
                       <p className="truncate text-xs font-medium">{p.produto}</p>
                       <p className="num text-[10px] text-muted-foreground">
                         {p.sku} · {p.tipo}
+                        {p.tipoAnuncio ? ` · anúncio ${p.tipoAnuncio}` : ""}
                       </p>
                       {p.situacao && (
                         <p className="text-[10px] text-muted-foreground">

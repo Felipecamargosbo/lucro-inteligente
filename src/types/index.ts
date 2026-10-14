@@ -494,6 +494,8 @@ export interface Promocao {
   descontoCanalPercentual?: number | null;
   /** Link do anúncio no canal */
   link?: string | null;
+  /** Tipo do anúncio (Clássico, Premium) — o mesmo SKU pode ter os dois */
+  tipoAnuncio?: string | null;
 }
 
 export interface ItemEstoque {

@@ -369,6 +369,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       precoMaximo: p.preco_maximo === null ? null : num(p.preco_maximo),
       descontoCanalPercentual: p.desconto_canal_percentual === null ? null : num(p.desconto_canal_percentual),
       link: linkPorAnuncio.get(a.id) ?? null,
+      tipoAnuncio: a.tipoAnuncio ?? null,
     });
   }
 

@@ -250,7 +250,7 @@ function Recuperacao() {
                     <td className="max-w-[260px] px-4 py-3">
                       <p className="truncate text-xs font-medium">{o.cliente}</p>
                       <p className="num text-[10px] text-muted-foreground">
-                        {o.pedidoId} · {o.id}
+                        {o.linkCanal ? o.pedidoId : `${o.pedidoId} · ${o.id}`}
                       </p>
                       <p className="text-[10px] text-muted-foreground">
                         {formatDataHora(o.dataCriacao)}
