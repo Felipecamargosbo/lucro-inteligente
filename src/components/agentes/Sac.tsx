@@ -60,7 +60,21 @@ const ESTILO_CATEGORIA: Record<CategoriaSac, string> = {
   "pre-venda": "bg-brand/15 text-brand",
   "pos-venda": "bg-warning-soft text-warning",
   reclamacao: "bg-loss-soft text-loss",
+  devolucao: "bg-loss-soft text-loss",
 };
+
+/** O que o agente faz em cada tipo de contato (aparece no card). */
+const PAPEL_CATEGORIA: Record<CategoriaSac, string> = {
+  "pre-venda": "Pergunta antes da compra — o agente sugere a resposta e você aprova.",
+  "pos-venda": "Mensagem de quem já comprou — o agente avisa você e deixa a mensagem pronta pela situação do pedido.",
+  reclamacao: "Reclamação aberta no canal — pesa na reputação. Responda pelo canal, com calma e oferecendo solução.",
+  devolucao: "Pedido de devolução — confira o motivo e o estado do produto e resolva pelo canal.",
+};
+
+/** Link do pedido no painel do Mercado Livre. */
+function linkPedidoMl(numero: string | null | undefined) {
+  return numero ? `https://www.mercadolivre.com.br/vendas/${numero}/detalhe` : null;
+}
 
 const ROTULO_STATUS_PEDIDO: Record<Pedido["status"], string> = {
   entregue: "Entregue",
@@ -147,7 +161,7 @@ export function PainelSac({
   const lista = aba === "operacao" ? pendentes : decididos;
 
   const contagem = useMemo(() => {
-    const c: Record<CategoriaSac, number> = { "pre-venda": 0, "pos-venda": 0, reclamacao: 0 };
+    const c: Record<CategoriaSac, number> = { "pre-venda": 0, "pos-venda": 0, reclamacao: 0, devolucao: 0 };
     for (const t of pendentes) c[classificarPergunta(t.pergunta, t.pedidoId, t.canal)]++;
     return c;
   }, [pendentes]);
@@ -231,8 +245,8 @@ export function PainelSac({
         <span className="italic">Ajuste em Configurações › Atendimento (SAC)</span>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 border-b p-4">
-        {(["pre-venda", "pos-venda", "reclamacao"] as const).map((c) => (
+      <div className="grid grid-cols-2 gap-3 border-b p-4 sm:grid-cols-4">
+        {(["pre-venda", "pos-venda", "reclamacao", "devolucao"] as const).map((c) => (
           <div key={c} className="rounded-lg bg-muted px-3 py-2">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
               {ROTULO_CATEGORIA_SAC[c]}
@@ -240,7 +254,7 @@ export function PainelSac({
             <p
               className={cn(
                 "num text-lg font-bold",
-                c === "reclamacao" && contagem[c] > 0 && "text-loss",
+                (c === "reclamacao" || c === "devolucao") && contagem[c] > 0 && "text-loss",
               )}
             >
               {contagem[c]}
@@ -566,7 +580,7 @@ function CardTicketSac({
             ESTILO_CATEGORIA[categoria],
           )}
         >
-          {categoria === "reclamacao" ? (
+          {categoria === "reclamacao" || categoria === "devolucao" ? (
             <AlertTriangle className="size-3.5" />
           ) : categoria === "pos-venda" ? (
             <Package className="size-3.5" />
@@ -632,10 +646,30 @@ function CardTicketSac({
             )}
           </div>
 
-          {categoria === "reclamacao" && !decidido && (
-            <p className="mt-2 rounded-lg bg-loss-soft px-3 py-2 text-[11px] leading-relaxed text-loss">
-              Reclamação: é aqui que a sua reputação corre risco. Responda você mesmo — com calma,
-              sem discutir e oferecendo uma solução. Se quiser, peça um rascunho à IA e ajuste.
+          {!decidido && (
+            <p
+              className={cn(
+                "mt-2 rounded-lg px-3 py-2 text-[11px] leading-relaxed",
+                categoria === "reclamacao" || categoria === "devolucao"
+                  ? "bg-loss-soft text-loss"
+                  : "bg-muted/50 text-muted-foreground",
+              )}
+            >
+              {PAPEL_CATEGORIA[categoria]}
+              {(categoria === "reclamacao" || categoria === "devolucao") &&
+                linkPedidoMl(ticket.numeroPedido) && (
+                  <>
+                    {" "}
+                    <a
+                      href={linkPedidoMl(ticket.numeroPedido)!}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold underline"
+                    >
+                      Abrir no Mercado Livre
+                    </a>
+                  </>
+                )}
             </p>
           )}
 
@@ -643,7 +677,11 @@ function CardTicketSac({
             ticket.resposta && (
               <div className="mt-2 rounded-lg bg-muted/30 px-3 py-2">
                 <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
-                  {ticket.status === "aprovada" ? "Resposta enviada" : "Resposta descartada"}
+                  {ticket.status !== "aprovada"
+                    ? "Resposta descartada"
+                    : ticket.enviadoCanal
+                      ? "Resposta enviada ao Mercado Livre"
+                      : "Resposta aprovada"}
                 </p>
                 <p className="mt-0.5 whitespace-pre-line text-xs">{ticket.resposta}</p>
               </div>
@@ -681,14 +719,18 @@ function CardTicketSac({
               <p className="text-[9px] uppercase tracking-wide text-muted-foreground">
                 {usaModelo
                   ? `Mensagem pronta · ${ROTULO_SITUACAO_SAC[situacao!]} · sem IA, não gasta token`
-                  : categoria === "reclamacao" && !ticket.resposta
+                  : (categoria === "reclamacao" || categoria === "devolucao") && !ticket.resposta
                     ? "Sua resposta"
                     : "Resposta sugerida — pode editar antes de aprovar"}
               </p>
               <Textarea
                 value={texto}
                 onChange={(e) => aoMudarRascunho(e.target.value)}
-                placeholder={categoria === "reclamacao" ? "Escreva a resposta pro cliente..." : ""}
+                placeholder={
+                  categoria === "reclamacao" || categoria === "devolucao"
+                    ? "Rascunho da resposta (copie e responda pelo canal)..."
+                    : ""
+                }
                 className="min-h-24 text-xs"
               />
               {proibidas.length > 0 && (
@@ -698,9 +740,17 @@ function CardTicketSac({
                 </p>
               )}
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => aoDecidir("aprovada", texto)} disabled={!texto.trim()}>
+                <Button
+                  size="sm"
+                  onClick={() => aoDecidir("aprovada", texto)}
+                  disabled={!texto.trim() && !(ticket.canal === "reclamacao" || ticket.canal === "devolucao")}
+                >
                   <Check className="size-3.5" />
-                  Aprovar
+                  {ticket.canal === "pergunta" || ticket.canal === "mensagem"
+                    ? "Aprovar e enviar ao Mercado Livre"
+                    : ticket.canal
+                      ? "Marcar como resolvido"
+                      : "Aprovar"}
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => aoDecidir("recusada")}>
                   <X className="size-3.5" />
@@ -711,7 +761,7 @@ function CardTicketSac({
                     {gerando ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
                     {ticket.resposta
                       ? "Gerar de novo"
-                      : categoria === "reclamacao"
+                      : categoria === "reclamacao" || categoria === "devolucao"
                         ? "Pedir um rascunho à IA"
                         : "Gerar com IA"}
                   </Button>

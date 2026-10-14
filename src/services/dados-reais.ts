@@ -10,6 +10,9 @@ import { supabase } from "@/lib/supabase";
 import type {
   Anuncio,
   ContaMarketplace,
+  ConteudoPublicado,
+  HistoricoAdsDia,
+  HistoricoTaxaAnuncio,
   ItemEstoqueDetalhado,
   OportunidadeRecuperacao,
   Promocao,
@@ -42,6 +45,12 @@ export interface DadosReais {
   promocoes: Promocao[];
   /** Vendas canceladas e não pagas dos últimos 30 dias. */
   recuperacao: OportunidadeRecuperacao[];
+  /** Mercado Ads: investimento, cliques e vendas por anúncio, dia a dia. */
+  historicoAds: HistoricoAdsDia[];
+  /** Mudanças de comissão/custo fixo detectadas na sincronização. */
+  historicoTaxas: HistoricoTaxaAnuncio[];
+  /** Título, descrição e ficha técnica publicados no canal (por SKU). */
+  conteudos: ConteudoPublicado[];
 }
 
 /** Link do pedido no painel do vendedor, por canal. */
@@ -74,10 +83,10 @@ async function todasAsLinhas<T>(
 }
 
 export async function carregarDadosReais(perfilId: string): Promise<DadosReais> {
-  const [rContas, rConexoes, rLojasShopee, rLojasTikTok, rAnuncios, rPedidos, rProdutos, rPromocoes] = await Promise.all([
+  const [rContas, rConexoes, rLojasShopee, rLojasTikTok, rAnuncios, rPedidos, rProdutos, rPromocoes, rAds, rTaxas] = await Promise.all([
     supabase
       .from("contas_marketplace")
-      .select("id, marketplace_id, nome, status_conexao, credencial_ref, ultima_sincronizacao, ativo")
+      .select("id, marketplace_id, nome, status_conexao, credencial_ref, ultima_sincronizacao, ativo, ads_status")
       .eq("perfil_id", perfilId)
       .eq("ativo", true),
     supabase.from("ml_conexoes").select("id, status").eq("perfil_id", perfilId),
@@ -87,7 +96,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       supabase
         .from("anuncios")
         .select(
-          "id, conta_id, produto_id, id_externo, sku, ean, titulo, preco_atual, preco_cheio, em_promocao, comissao_percentual, taxa_fixa, frete_unitario, custo_midia_unitario, custo_afiliado_unitario, origem_taxas, status, unidades_vendidas, data_ultima_venda, estoque, logistica, modalidade, link",
+          "id, conta_id, produto_id, id_externo, sku, ean, titulo, preco_atual, preco_cheio, em_promocao, comissao_percentual, taxa_fixa, frete_unitario, custo_midia_unitario, custo_afiliado_unitario, origem_taxas, status, unidades_vendidas, data_ultima_venda, estoque, logistica, modalidade, link, nota_media, avaliacoes_total, avaliacoes_ruins, avaliacoes_comentarios, descricao, atributos",
         )
         .eq("perfil_id", perfilId)
         .order("id")
@@ -117,9 +126,27 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
         .order("id")
         .range(de, ate),
     ),
+    // Só os dias com algum movimento (impressão, clique ou gasto).
+    todasAsLinhas((de, ate) =>
+      supabase
+        .from("ads_metricas_diarias")
+        .select("conta_id, anuncio_id, data, impressoes, cliques, investimento, receita, unidades")
+        .eq("perfil_id", perfilId)
+        .or("impressoes.gt.0,cliques.gt.0,investimento.gt.0,receita.gt.0")
+        .order("data")
+        .order("anuncio_id")
+        .range(de, ate),
+    ),
+    supabase
+      .from("historico_taxas_anuncio")
+      .select("id, anuncio_id, sku, produto, campo, valor_anterior, valor_novo, detectado_em")
+      .eq("perfil_id", perfilId)
+      .gte("detectado_em", new Date(Date.now() - 90 * 86400000).toISOString())
+      .order("detectado_em", { ascending: false })
+      .limit(1000),
   ]);
 
-  for (const r of [rContas, rConexoes, rLojasShopee, rLojasTikTok, rAnuncios, rPedidos, rProdutos, rPromocoes]) {
+  for (const r of [rContas, rConexoes, rLojasShopee, rLojasTikTok, rAnuncios, rPedidos, rProdutos, rPromocoes, rAds, rTaxas]) {
     if (r.error) console.error("carregarDadosReais:", r.error.message);
   }
 
@@ -164,6 +191,15 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       ean: (a.ean as string | null) ?? null,
       produto: (a.titulo as string) ?? (a.id_externo as string),
       tipoAnuncio: a.modalidade ? (TIPO_ANUNCIO[a.modalidade as string] ?? (a.modalidade as string)) : null,
+      avaliacao:
+        a.avaliacoes_total === null || a.avaliacoes_total === undefined
+          ? null
+          : {
+              nota: a.nota_media === null ? null : num(a.nota_media),
+              total: num(a.avaliacoes_total),
+              ruins: num(a.avaliacoes_ruins),
+              comentarios: Array.isArray(a.avaliacoes_comentarios) ? (a.avaliacoes_comentarios as string[]) : [],
+            },
       precoAtual: num(a.preco_atual),
       precoCheio: a.preco_cheio === null ? null : num(a.preco_cheio),
       emPromocao: Boolean(a.em_promocao),
@@ -273,6 +309,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
     return {
       id,
       marketplaceId: c.marketplace_id as MarketplaceId,
+      adsStatus: (c.ads_status as string | null) ?? null,
       nome: (c.nome as string) ?? "Conta",
       cnpj: "",
       empresaId: "emp-principal",
@@ -411,7 +448,101 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
     });
   }
 
-  return { contas, anuncios, pedidos, estoque, promocoes, recuperacao };
+  // Mercado Ads: histórico por anúncio/dia, os totais dos últimos 30 dias em
+  // cada anúncio (o Agente de Ads usa) e o investimento do dia rateado entre
+  // as vendas daquele anúncio no mesmo dia (vendas via ADS).
+  const historicoAds: HistoricoAdsDia[] = (rAds.data ?? [])
+    .filter((h) => h.anuncio_id && anuncioPorId.has(h.anuncio_id as string))
+    .map((h) => ({
+      data: String(h.data).slice(0, 10),
+      anuncioId: h.anuncio_id as string,
+      contaId: h.conta_id as string,
+      investimento: num(h.investimento),
+      impressoes: num(h.impressoes),
+      cliques: num(h.cliques),
+      vendasAtribuidas: num(h.unidades),
+      faturamentoAtribuido: num(h.receita),
+    }));
+  const limiteAds30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const adsPorAnuncio = new Map<string, NonNullable<Anuncio["ads"]>>();
+  for (const h of historicoAds) {
+    if (h.data < limiteAds30) continue;
+    const t = adsPorAnuncio.get(h.anuncioId) ?? { investimento: 0, impressoes: 0, cliques: 0, vendasAtribuidas: 0 };
+    t.investimento += h.investimento;
+    t.impressoes += h.impressoes;
+    t.cliques += h.cliques;
+    t.vendasAtribuidas += h.vendasAtribuidas;
+    adsPorAnuncio.set(h.anuncioId, t);
+  }
+  for (const a of anuncios) {
+    const t = adsPorAnuncio.get(a.id);
+    if (t) a.ads = t;
+  }
+  const diaBr = (iso: string) => new Date(iso).toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+  const vendasPorAnuncioDia = new Map<string, Pedido[]>();
+  const anuncioDoPedido = new Map(
+    (rPedidos.data ?? []).map((p) => [p.id as string, (p.anuncio_id as string | null) ?? null]),
+  );
+  for (const p of pedidos) {
+    const anuncioId = anuncioDoPedido.get(p.id);
+    if (!anuncioId || p.status === "cancelado") continue;
+    const k = `${anuncioId}|${diaBr(p.data)}`;
+    const lista = vendasPorAnuncioDia.get(k) ?? [];
+    lista.push(p);
+    vendasPorAnuncioDia.set(k, lista);
+  }
+  for (const h of historicoAds) {
+    if (h.investimento <= 0 || h.vendasAtribuidas <= 0) continue;
+    const vendas = vendasPorAnuncioDia.get(`${h.anuncioId}|${h.data}`);
+    if (!vendas?.length) continue;
+    // O canal diz quantas unidades vieram de ADS naquele dia: marca até essa
+    // quantidade de vendas e divide o investimento do dia entre elas.
+    const marcadas: Pedido[] = [];
+    let unidades = 0;
+    for (const v of vendas) {
+      if (unidades >= h.vendasAtribuidas) break;
+      marcadas.push(v);
+      unidades += v.quantidade;
+    }
+    const parte = h.investimento / marcadas.length;
+    for (const v of marcadas) v.custoMidia += Math.round(parte * 100) / 100;
+  }
+
+  // Mudanças de tarifa (o Auditor mostra o antes/depois e as vendas afetadas).
+  const historicoTaxas: HistoricoTaxaAnuncio[] = (rTaxas.data ?? [])
+    .filter((t) => t.anuncio_id && anuncioPorId.has(t.anuncio_id as string))
+    .map((t) => ({
+      id: t.id as string,
+      anuncioId: t.anuncio_id as string,
+      sku: (t.sku as string) ?? "",
+      produto: (t.produto as string) ?? "",
+      marketplaceId: anuncioPorId.get(t.anuncio_id as string)!.marketplaceId,
+      campo: t.campo as HistoricoTaxaAnuncio["campo"],
+      valorAnterior: num(t.valor_anterior),
+      valorNovo: num(t.valor_novo),
+      detectadoEm: t.detectado_em as string,
+    }));
+
+  // O anúncio como está publicado no canal — o SAC responde com base nele e o
+  // Criativo avalia o que melhorar. Um por SKU (o que tiver descrição).
+  const conteudoPorSku = new Map<string, ConteudoPublicado>();
+  for (const a of rAnuncios.data ?? []) {
+    if (!marketplaceDaConta.has(a.conta_id as string)) continue;
+    const sku = ((a.sku as string) ?? (a.id_externo as string)) || "";
+    const atual = conteudoPorSku.get(sku);
+    const descricao = (a.descricao as string | null) ?? "";
+    if (atual && (atual.descricao || !descricao)) continue;
+    conteudoPorSku.set(sku, {
+      sku,
+      titulo: (a.titulo as string) ?? sku,
+      descricao,
+      atributos: Array.isArray(a.atributos) ? (a.atributos as { nome: string; valor: string }[]) : [],
+      origem: "api",
+    });
+  }
+  const conteudos = [...conteudoPorSku.values()];
+
+  return { contas, anuncios, pedidos, estoque, promocoes, recuperacao, historicoAds, historicoTaxas, conteudos };
 }
 
 /** Pede ao servidor para buscar agora os anúncios e pedidos no marketplace. */

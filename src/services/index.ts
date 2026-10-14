@@ -70,6 +70,8 @@ import { emDemonstracao, soNaDemo } from "@/lib/demonstracao";
 import type {
   AlteracaoPreco,
   Campanha,
+  HistoricoAdsDia,
+  HistoricoTaxaAnuncio,
   ItemEstoqueDetalhado,
   OportunidadeRecuperacao,
   Pedido,
@@ -92,6 +94,9 @@ const REAIS = {
   estoque: [] as ItemEstoqueDetalhado[],
   promocoes: [] as Promocao[],
   recuperacao: [] as OportunidadeRecuperacao[],
+  historicoAds: [] as HistoricoAdsDia[],
+  historicoTaxas: [] as HistoricoTaxaAnuncio[],
+  conteudos: [] as ConteudoPublicado[],
 };
 
 /** Guarda os dados reais lidos do banco (src/services/dados-reais.ts). As
@@ -104,6 +109,9 @@ export function definirDadosReais(dados: {
   estoque?: ItemEstoqueDetalhado[];
   promocoes?: Promocao[];
   recuperacao?: OportunidadeRecuperacao[];
+  historicoAds?: HistoricoAdsDia[];
+  historicoTaxas?: HistoricoTaxaAnuncio[];
+  conteudos?: ConteudoPublicado[];
 }) {
   REAIS.anuncios.splice(0, REAIS.anuncios.length, ...dados.anuncios);
   REAIS.pedidos.splice(0, REAIS.pedidos.length, ...dados.pedidos);
@@ -111,6 +119,9 @@ export function definirDadosReais(dados: {
   REAIS.estoque.splice(0, REAIS.estoque.length, ...(dados.estoque ?? []));
   REAIS.promocoes.splice(0, REAIS.promocoes.length, ...(dados.promocoes ?? []));
   REAIS.recuperacao.splice(0, REAIS.recuperacao.length, ...(dados.recuperacao ?? []));
+  REAIS.historicoAds.splice(0, REAIS.historicoAds.length, ...(dados.historicoAds ?? []));
+  REAIS.historicoTaxas.splice(0, REAIS.historicoTaxas.length, ...(dados.historicoTaxas ?? []));
+  REAIS.conteudos.splice(0, REAIS.conteudos.length, ...(dados.conteudos ?? []));
 }
 
 /** Resumo do estoque real, calculado dos itens (mesmas regras dos cards). */
@@ -1340,6 +1351,7 @@ function linhaParaTicketSac(l: {
     cliente: (d.cliente as string) ?? null,
     canal: (d.canalSac as TicketSac["canal"]) ?? "pergunta",
     numeroPedido: (d.numeroPedido as string) ?? null,
+    enviadoCanal: Boolean(d.enviadoMl),
   };
 }
 
@@ -1408,7 +1420,7 @@ export const sacConfigService = {
  * buscar no marketplace — as telas não mudam. */
 export const conteudoPublicadoService = {
   buscar: (sku: string): ConteudoPublicado | null =>
-    soNaDemo(CONTEUDOS_PUBLICADOS_EXEMPLO, []).find((c) => c.sku === sku) ?? null,
+    (emDemonstracao() ? CONTEUDOS_PUBLICADOS_EXEMPLO : REAIS.conteudos).find((c) => c.sku === sku) ?? null,
 };
 
 /** Informações extras (opcionais) por SKU — o que o SAC e o
@@ -1680,6 +1692,17 @@ export const sacService = {
     return { resposta: (data?.resposta as string) ?? null, erro: null };
   },
 
+  /** Envia ao Mercado Livre a resposta aprovada (pergunta ou mensagem do
+   * pedido). Devolve o motivo quando o canal recusa. */
+  enviarAoCanal: async (eventoId: string, texto: string): Promise<string | null> => {
+    const { data, error } = await supabase.functions.invoke("mercadolivre-enviar-sac", {
+      body: { eventoId, texto },
+    });
+    if (error) return await motivoErroFunction(error);
+    if (data?.erro) return data.erro as string;
+    return null;
+  },
+
   /** O seller editou a resposta da IA: o Gestor compara as duas versões e
    * propõe UMA regra curta pro SAC seguir daqui pra frente. null quando a
    * edição foi só de digitação e não dá pra tirar regra. */
@@ -1787,7 +1810,7 @@ function linhaParaAcaoAds(l: {
 
 export const adsService = {
   /** Histórico diário de Ads de todos os anúncios (fictício até a API). */
-  historico: () => soNaDemo(HISTORICO_ADS_EXEMPLO, []),
+  historico: () => (emDemonstracao() ? HISTORICO_ADS_EXEMPLO : REAIS.historicoAds),
 
   listar: async (perfilId: string): Promise<EventoAds[]> => {
     const { data, error } = await supabase
@@ -2228,7 +2251,7 @@ function linhaParaOcorrenciaAuditor(l: {
 export const auditorService = {
   /** Mudanças de taxa que o Auditor já teria detectado. Fictício até a
    * API do canal expor o histórico real de taxas. */
-  historicoTaxas: () => soNaDemo(HISTORICO_TAXAS_EXEMPLO, []),
+  historicoTaxas: () => (emDemonstracao() ? HISTORICO_TAXAS_EXEMPLO : REAIS.historicoTaxas),
 
   /** Fatura mensal do Full por SKU (armazenagem, retirada, multa).
    * Fictícia até a API do canal expor a fatura real. */

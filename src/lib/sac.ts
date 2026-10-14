@@ -71,9 +71,13 @@ export function classificarPergunta(
   pedidoId?: string | null,
   canal?: CanalSac,
 ): CategoriaSac {
-  // Reclamação e devolução abertas no canal são sempre reclamação (pesam na
-  // reputação), seja qual for o texto.
-  if (canal === "reclamacao" || canal === "devolucao") return "reclamacao";
+  // Quando o canal diz por onde o cliente falou, o tipo vem daí: pergunta no
+  // anúncio = pré-venda; mensagem do pedido = pós-venda; reclamação e
+  // devolução abertas no canal = elas mesmas.
+  if (canal === "devolucao") return "devolucao";
+  if (canal === "reclamacao") return "reclamacao";
+  if (canal === "mensagem") return "pos-venda";
+  if (canal === "pergunta") return "pre-venda";
   const t = normalizar(texto);
   if (PALAVRAS_RECLAMACAO.some((p) => t.includes(p))) return "reclamacao";
   if (pedidoId || PALAVRAS_POS_VENDA.some((p) => t.includes(p))) return "pos-venda";
@@ -84,6 +88,7 @@ export const ROTULO_CATEGORIA_SAC: Record<CategoriaSac, string> = {
   "pre-venda": "Pré-venda",
   "pos-venda": "Pós-venda",
   reclamacao: "Reclamação",
+  devolucao: "Devolução",
 };
 
 /* ------------------------------------------------------------------ */

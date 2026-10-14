@@ -563,6 +563,49 @@ function Agentes() {
       }
     }
 
+    // Dados reais: o Criativo aponta sozinho os anúncios que precisam mudar —
+    // produto com avaliações ruins no canal ou com reclamação de cliente.
+    if (!emDemonstracao()) {
+      const jaTem = new Set(
+        existentes.map((s) => `${s.origem}|${s.anuncioId ?? s.sku}`),
+      );
+      const anuncios = anunciosService.listar();
+      for (const a of anuncios) {
+        const av = a.avaliacao;
+        if (!av) continue;
+        const notaBaixa = av.nota !== null && av.nota < 4 && av.total >= 3;
+        if (av.ruins === 0 && !notaBaixa) continue;
+        if (jaTem.has(`avaliacao|${a.id}`)) continue;
+        const comentarios = av.comentarios.slice(0, 2).map((c) => `"${c}"`).join(" · ");
+        const erro = await criativoService.criarSugestao(perfilId, {
+          contaId: a.contaId,
+          anuncioId: a.id,
+          produto: a.produto,
+          sku: a.sku,
+          marketplaceId: a.marketplaceId,
+          origem: "avaliacao",
+          motivo: `Avaliações no Mercado Livre: nota ${av.nota?.toFixed(1).replace(".", ",") ?? "—"} em ${av.total} avaliação(ões), ${av.ruins} ruim(ns).${comentarios ? ` O que os clientes disseram: ${comentarios}.` : ""} Vale conferir se o anúncio promete algo que o produto não entrega (foto, tamanho, descrição).`,
+        });
+        if (!erro) jaTem.add(`avaliacao|${a.id}`);
+      }
+      const tickets = await sacService.listar(perfilId);
+      for (const t of tickets) {
+        if (t.canal !== "reclamacao" && t.canal !== "devolucao") continue;
+        const chave = t.anuncioId ?? t.sku;
+        if (!chave || jaTem.has(`reclamacao|${chave}`)) continue;
+        const erro = await criativoService.criarSugestao(perfilId, {
+          contaId: t.contaId,
+          anuncioId: t.anuncioId,
+          produto: t.produto,
+          sku: t.sku,
+          marketplaceId: t.marketplaceId,
+          origem: "reclamacao",
+          motivo: `${t.canal === "devolucao" ? "Pedido de devolução" : "Reclamação"} de cliente sobre este produto: ${t.pergunta} Confira se o anúncio deixa claro o que o cliente vai receber.`,
+        });
+        if (!erro) jaTem.add(`reclamacao|${chave}`);
+      }
+    }
+
     const lista = await criativoService.listar(perfilId);
     setSugestoesCriativo(lista);
     setCarregandoCriativo(false);
@@ -981,7 +1024,10 @@ function Agentes() {
     const { resposta, erro } = await sacService.gerarResposta({
       pergunta: ticket.pergunta,
       produto: ticket.produto,
-      categoria: classificarPergunta(ticket.pergunta, ticket.pedidoId, ticket.canal),
+      // A IA trata devolução como reclamação (mesmo cuidado no tom).
+      categoria: ((c) => (c === "devolucao" ? "reclamacao" : c))(
+        classificarPergunta(ticket.pergunta, ticket.pedidoId, ticket.canal),
+      ),
       // O anúncio publicado (puxado do marketplace) + as informações
       // extras do seller, num texto só.
       ficha: montarInformacoesProduto(
@@ -1077,6 +1123,27 @@ function Agentes() {
     textoFinal?: string,
   ) => {
     const rascunho = textoFinal ?? rascunhos[ticket.id];
+    // Pergunta e mensagem do pedido (dados reais): aprovar = enviar ao canal.
+    // Se o canal recusar, nada muda aqui e o seller vê o motivo.
+    if (
+      status === "aprovada" &&
+      !ticket.enviadoCanal &&
+      (ticket.canal === "pergunta" || ticket.canal === "mensagem") &&
+      !emDemonstracao()
+    ) {
+      const texto = (rascunho ?? ticket.resposta ?? "").trim();
+      if (!texto) {
+        toast.error("Escreva a resposta antes de enviar.");
+        return;
+      }
+      const erroEnvio = await sacService.enviarAoCanal(ticket.id, texto);
+      if (erroEnvio) {
+        toast.error(`Não enviei ao Mercado Livre: ${erroEnvio}`);
+        return;
+      }
+      toast.success("Resposta enviada ao Mercado Livre.");
+      ticket = { ...ticket, enviadoCanal: true };
+    }
     if (status === "aprovada" && rascunho && rascunho !== ticket.resposta) {
       const erroSalvar = await sacService.salvarResposta(ticket.id, rascunho);
       if (erroSalvar) {
@@ -1092,6 +1159,7 @@ function Agentes() {
               status,
               decididoEm: new Date().toISOString(),
               resposta: status === "aprovada" ? (rascunho ?? t.resposta) : t.resposta,
+              enviadoCanal: ticket.enviadoCanal ?? t.enviadoCanal,
             }
           : t,
       ),

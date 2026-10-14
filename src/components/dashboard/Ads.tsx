@@ -14,7 +14,9 @@ import { usePeriodo } from "@/context/periodo";
 import { inicioDoDia, listarDias, periodoAnterior } from "@/lib/period";
 import { useSelecaoContas } from "@/context/selecao-contas";
 import { useConfiguracoes } from "@/context/configuracoes";
-import { vendasService } from "@/services";
+import { adsService, vendasService } from "@/services";
+import { emDemonstracao } from "@/lib/demonstracao";
+import { dentroDoPeriodo } from "@/lib/period";
 import { CANAIS } from "@/config/navegacao";
 import { agruparPorSkuComAds, filtrarPorPeriodo, resumir, variacao } from "@/lib/finance";
 import { formatBRL, formatBRLCompacto, formatNumero, formatPercentual } from "@/lib/format";
@@ -22,7 +24,7 @@ import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { cn } from "@/lib/utils";
-import type { ContaMarketplace, MarketplaceId, Pedido, Periodo } from "@/types";
+import type { ContaMarketplace, HistoricoAdsDia, MarketplaceId, Pedido, Periodo } from "@/types";
 
 /**
  * O sistema ainda não tem a conexão com a API de anúncios de cada
@@ -42,6 +44,38 @@ interface PontoFunil {
   faturamentoAds: number;
   cliques: number;
   impressoes: number;
+}
+
+/** Mesma série, mas com os números REAIS do Mercado Ads (dia a dia). */
+function serieFunilAdsReal(historico: HistoricoAdsDia[], periodo: Periodo): PontoFunil[] {
+  const mapa = new Map<string, PontoFunil>();
+  for (const dia of listarDias(periodo)) {
+    const chave = dia.toLocaleDateString("sv-SE");
+    mapa.set(chave, {
+      dia: dia.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+      faturamento: 0,
+      investimento: 0,
+      pedidosAds: 0,
+      faturamentoAds: 0,
+      cliques: 0,
+      impressoes: 0,
+    });
+  }
+  for (const h of historico) {
+    const ponto = mapa.get(h.data);
+    if (!ponto) continue;
+    ponto.investimento += h.investimento;
+    ponto.faturamentoAds += h.faturamentoAtribuido;
+    ponto.pedidosAds += h.vendasAtribuidas;
+    ponto.cliques += h.cliques;
+    ponto.impressoes += h.impressoes;
+  }
+  return [...mapa.values()];
+}
+
+/** O dia do histórico (yyyy-mm-dd) está dentro do período? */
+function diaNoPeriodo(data: string, periodo: Periodo) {
+  return dentroDoPeriodo(`${data}T12:00:00`, periodo);
 }
 
 function serieFunilAds(pedidos: Pedido[], periodo: Periodo): PontoFunil[] {
@@ -215,12 +249,43 @@ export function Ads() {
     };
   }, [pedidos, periodo]);
 
-  const { resumo, resumoAnterior, atuais, pedidosAds, faturamentoAds, faturamentoAdsAnterior, funil } =
-    dados;
+  // Dados reais: o Mercado Ads informa investimento, cliques, impressões e a
+  // receita que ele atribui ao ADS — inclusive o gasto que não virou venda.
+  const real = !emDemonstracao();
+  const historicoSelecao = useMemo(
+    () =>
+      real
+        ? filtrarPorSelecao(
+            adsService.historico().filter((h): h is HistoricoAdsDia & { contaId: string } => Boolean(h.contaId)),
+          )
+        : [],
+    // filtrarPorSelecao muda junto com a seleção de contas do topo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [real, pedidos],
+  );
+  const doPeriodo = useMemo(() => {
+    const atual = historicoSelecao.filter((h) => diaNoPeriodo(h.data, periodo));
+    const anteriorPeriodo = periodoAnterior(periodo);
+    const anterior = historicoSelecao.filter((h) => diaNoPeriodo(h.data, anteriorPeriodo));
+    const soma = (lista: HistoricoAdsDia[], f: (h: HistoricoAdsDia) => number) => lista.reduce((s, h) => s + f(h), 0);
+    return {
+      investimento: soma(atual, (h) => h.investimento),
+      investimentoAnterior: soma(anterior, (h) => h.investimento),
+      receita: soma(atual, (h) => h.faturamentoAtribuido),
+      receitaAnterior: soma(anterior, (h) => h.faturamentoAtribuido),
+      unidades: soma(atual, (h) => h.vendasAtribuidas),
+      funil: serieFunilAdsReal(atual, periodo),
+    };
+  }, [historicoSelecao, periodo]);
 
-  const investimento = resumo.custoMidia;
-  const investimentoAnterior = resumoAnterior.custoMidia;
-  const qtdPedidosAds = pedidosAds.length;
+  const { resumo, resumoAnterior, atuais, pedidosAds } = dados;
+  const funil = real ? doPeriodo.funil : dados.funil;
+  const faturamentoAds = real ? doPeriodo.receita : dados.faturamentoAds;
+  const faturamentoAdsAnterior = real ? doPeriodo.receitaAnterior : dados.faturamentoAdsAnterior;
+
+  const investimento = real ? doPeriodo.investimento : resumo.custoMidia;
+  const investimentoAnterior = real ? doPeriodo.investimentoAnterior : resumoAnterior.custoMidia;
+  const qtdPedidosAds = real ? doPeriodo.unidades : pedidosAds.length;
   const totalCliques = funil.reduce((s, d) => s + d.cliques, 0);
   const totalImpressoes = funil.reduce((s, d) => s + d.impressoes, 0);
 
@@ -316,11 +381,21 @@ export function Ads() {
         <ExportarDados nomeArquivo="ads" linhas={linhasExport} />
       </div>
 
+      {real ? (
+        <div className="rounded-xl bg-muted/40 px-4 py-2.5 text-[11px] text-muted-foreground">
+          <strong>Dados reais do Mercado Ads</strong> — investimento, cliques, impressões e vendas
+          atribuídas ao ADS, atualizados a cada 6 horas.
+          {contas.some((c) => c.adsStatus?.startsWith("sem_permissao")) &&
+            " Atenção: alguma conta não autorizou a leitura do Mercado Ads — conecte de novo em Marketplaces."}
+          {investimento === 0 && " Neste período não houve investimento em ADS."}
+        </div>
+      ) : (
       <div className="rounded-xl bg-muted/40 px-4 py-2.5 text-[11px] text-muted-foreground">
         <strong>Cliques e impressões são estimados</strong> (conversão de {formatPercentual(TAXA_CONVERSAO_ASSUMIDA)} e
         CTR de {formatPercentual(CTR_ASSUMIDO)} assumidos) — ainda não temos a conexão com a API de
         anúncios de cada marketplace. Os demais números são calculados de verdade a partir dos seus pedidos.
       </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
         <CardKpi
@@ -345,25 +420,25 @@ export function Ads() {
           valor={formatPercentual(acos)}
           dica="Investimento dividido pelo faturamento vindo de ADS (não o faturamento total — isso é o TACOS). Quanto menor, melhor."
         />
-        <CardKpi titulo="Pedidos via ADS" valor={formatNumero(qtdPedidosAds)} />
+        <CardKpi titulo={real ? "Unidades via ADS" : "Pedidos via ADS"} valor={formatNumero(qtdPedidosAds)} />
         <CardKpi
-          titulo="Cliques (estimado)"
+          titulo={real ? "Cliques" : "Cliques (estimado)"}
           valor={formatNumero(totalCliques)}
           detalhe={`${formatNumero(totalImpressoes)} impressões`}
         />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
-        <CardKpi titulo="Impressões (estimado)" valor={formatNumero(totalImpressoes)} />
-        <CardKpi titulo="CPC (estimado)" valor={formatBRL(cpc)} dica="Investimento ÷ cliques estimados." />
-        <CardKpi titulo="CTR (assumido)" valor={formatPercentual(ctr)} />
+        <CardKpi titulo={real ? "Impressões" : "Impressões (estimado)"} valor={formatNumero(totalImpressoes)} />
+        <CardKpi titulo={real ? "CPC" : "CPC (estimado)"} valor={formatBRL(cpc)} dica="Investimento ÷ cliques estimados." />
+        <CardKpi titulo={real ? "CTR" : "CTR (assumido)"} valor={formatPercentual(ctr)} />
         <CardKpi
           titulo="Conversão"
           valor={formatPercentual(taxaConversao)}
           dica="Pedidos via ADS ÷ cliques estimados."
         />
         <CardKpi titulo="Ticket médio via ADS" valor={formatBRL(ticketMedioAds)} />
-        <CardKpi titulo="CPM (estimado)" valor={formatBRL(cpm)} dica="Investimento a cada 1.000 impressões." />
+        <CardKpi titulo={real ? "CPM" : "CPM (estimado)"} valor={formatBRL(cpm)} dica="Investimento a cada 1.000 impressões." />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -424,8 +499,8 @@ export function Ads() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Painel
-          titulo="Impressões x cliques (estimado)"
-          descricao="Funil estimado a partir dos pedidos vindos de ADS"
+          titulo={real ? "Impressões x cliques" : "Impressões x cliques (estimado)"}
+          descricao={real ? "Números do Mercado Ads, dia a dia" : "Funil estimado a partir dos pedidos vindos de ADS"}
         >
           <div className="h-60 p-4">
             <ResponsiveContainer width="100%" height="100%">

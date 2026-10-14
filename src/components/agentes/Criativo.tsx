@@ -300,6 +300,16 @@ function CardSugestaoCriativo({
                 Veio do Ads
               </span>
             )}
+            {sugestao.origem === "avaliacao" && (
+              <span className="inline-flex items-center gap-1 rounded bg-warning-soft px-2 py-0.5 text-[10px] font-semibold text-warning">
+                Avaliações ruins
+              </span>
+            )}
+            {sugestao.origem === "reclamacao" && (
+              <span className="inline-flex items-center gap-1 rounded bg-loss-soft px-2 py-0.5 text-[10px] font-semibold text-loss">
+                Clientes reclamando
+              </span>
+            )}
             {decidido && (
               <span
                 className={cn(

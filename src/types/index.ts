@@ -70,6 +70,8 @@ export interface Marketplace {
 export interface ContaMarketplace {
   id: string;
   marketplaceId: MarketplaceId;
+  /** Leitura do ADS do canal (dados reais): "ok", "sem_ads", "sem_permissao…" ou "erro…" */
+  adsStatus?: string | null;
   /** Nome dado pelo seller: "Loja Oficial", "Outlet" */
   nome: string;
   cnpj: string;
@@ -365,6 +367,8 @@ export interface Anuncio {
   produto: string;
   /** Tipo do anúncio no canal (ex.: Clássico, Premium), quando informado. */
   tipoAnuncio?: string | null;
+  /** Avaliações do produto no canal (dados reais) */
+  avaliacao?: { nota: number | null; total: number; ruins: number; comentarios: string[] } | null;
   precoAtual: number;
   /** Preço cheio quando o anúncio está em promoção; null se não está */
   precoCheio: number | null;
@@ -429,6 +433,8 @@ export interface Anuncio {
 export interface HistoricoAdsDia {
   data: string; // ISO (yyyy-mm-dd)
   anuncioId: string;
+  /** Conta do anúncio (dados reais) — pro filtro de contas do topo */
+  contaId?: string;
   investimento: number;
   impressoes: number;
   cliques: number;
@@ -902,6 +908,8 @@ export interface TicketSac {
   canal?: CanalSac;
   /** Número do pedido no marketplace (quando a mensagem é de um pedido) */
   numeroPedido?: string | null;
+  /** A resposta aprovada já foi enviada ao canal */
+  enviadoCanal?: boolean;
 }
 
 export type CanalSac = "pergunta" | "mensagem" | "reclamacao" | "devolucao";
@@ -910,7 +918,8 @@ export type CanalSac = "pergunta" | "mensagem" | "reclamacao" | "devolucao";
  * - pré-venda: dúvida antes de comprar;
  * - pós-venda: "cadê meu pedido";
  * - reclamação: onde a reputação corre risco — o seller responde. */
-export type CategoriaSac = "pre-venda" | "pos-venda" | "reclamacao";
+/** devolucao = pedido de devolução aberto no canal (vem só dos dados reais). */
+export type CategoriaSac = "pre-venda" | "pos-venda" | "reclamacao" | "devolucao";
 
 /** Tom de voz das respostas do SAC. */
 export type TomSac = "formal" | "neutro" | "descontraido";
@@ -1117,7 +1126,9 @@ export interface AcaoAds {
 /** De onde veio o pedido de conteúdo novo: dos exemplos iniciais, do SAC
  * (clientes perguntando a mesma coisa) ou do Ads (muito clique, pouca
  * compra). */
-export type OrigemCriativo = "exemplo" | "sac" | "ads";
+/** De onde veio o pedido de mudar o anúncio: exemplo, perguntas repetidas
+ * (sac), ADS, avaliações ruins do produto ou reclamação de cliente. */
+export type OrigemCriativo = "exemplo" | "sac" | "ads" | "avaliacao" | "reclamacao";
 
 export interface SugestaoCriativo {
   id: string;

@@ -168,7 +168,8 @@ export function DialogImportarCmv({
           <DialogTitle>Importar CMV por planilha</DialogTitle>
           <DialogDescription>
             Coluna A = SKU, coluna B = CMV (custo do produto, em R$). O CMV vale para todos os anúncios com o mesmo SKU,
-            em qualquer marketplace.
+            em qualquer marketplace. Cada venda guarda o custo do dia em que entrou: trocar o custo depois vale só para as
+            vendas novas. Vendas que ainda não tinham custo recebem este.
           </DialogDescription>
         </DialogHeader>
 
