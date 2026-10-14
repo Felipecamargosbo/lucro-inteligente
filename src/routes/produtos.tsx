@@ -154,6 +154,7 @@ function Precificacao() {
   const [busca, setBusca] = useState("");
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>("todas");
   const [situacaoFiltro, setSituacaoFiltro] = useState<"todos" | SituacaoProduto>("todos");
+  const [tipoFiltro, setTipoFiltro] = useState<FiltroTipoAnuncio>("todos");
   const [agrupar, setAgrupar] = useState<"produto" | "categoria">("produto");
   const [ordenar, setOrdenar] = useState<Ordenacao>("nome-az");
   /** Produtos recolhidos (por padrão todos ficam abertos) */
@@ -228,10 +229,19 @@ function Precificacao() {
       anuncios
         .filter((a) => !a.produtoId)
         .filter((a) => semRestricaoDeConta || contasSelecionadas.has(a.contaId))
+        .filter((a) => passaNoTipo(a, tipoFiltro))
         // Faturamento perdido primeiro: resolver o que mais vende rende mais
         .sort((a, b) => b.precoAtual * b.unidadesVendidas - a.precoAtual * a.unidadesVendidas),
-    [anuncios, semRestricaoDeConta, contasSelecionadas],
+    [anuncios, semRestricaoDeConta, contasSelecionadas, tipoFiltro],
   );
+
+  /** Quantos anúncios dividem o mesmo estoque no canal (mesmo produto do
+   * vendedor no ML: o de catálogo e os tradicionais do mesmo item). */
+  const tamanhoGrupoEstoque = useMemo(() => {
+    const mapa = new Map<string, number>();
+    for (const a of anuncios) if (a.grupoEstoque) mapa.set(a.grupoEstoque, (mapa.get(a.grupoEstoque) ?? 0) + 1);
+    return mapa;
+  }, [anuncios]);
 
   // A busca também procura nos anúncios sem produto vinculado — e abre a
   // faixa vermelha sozinha quando acha algum lá.
@@ -270,9 +280,9 @@ function Precificacao() {
   const grupos = useMemo<GrupoProduto[]>(() => {
     return produtos.map((p) => {
       const vinculados = anuncios.filter((a) => a.produtoId === p.id);
-      const naSelecao = semRestricaoDeConta
-        ? vinculados
-        : vinculados.filter((a) => contasSelecionadas.has(a.contaId));
+      const naSelecao = (
+        semRestricaoDeConta ? vinculados : vinculados.filter((a) => contasSelecionadas.has(a.contaId))
+      ).filter((a) => passaNoTipo(a, tipoFiltro));
       const linhas: LinhaAnuncio[] = naSelecao.map((a) => {
         const metas = metasPorConta[a.contaId] ?? null;
         const margemMinima = metas?.margemMinima ?? FAIXAS_MARGEM_PADRAO.margemMinima;
@@ -312,6 +322,7 @@ function Precificacao() {
     metasPorConta,
     ajustes,
     cfg,
+    tipoFiltro,
   ]);
 
   const gruposFiltrados = useMemo(() => {
@@ -319,6 +330,8 @@ function Precificacao() {
     const lista = grupos.filter((g) => {
       // Com um canal/conta marcado lá em cima, some o produto sem anúncio nele.
       if (!semRestricaoDeConta && g.linhas.length === 0) return false;
+      // Filtrando por tipo (catálogo/tradicional), some o produto sem anúncio desse tipo.
+      if (tipoFiltro !== "todos" && g.linhas.length === 0) return false;
       if (situacaoFiltro !== "todos" && g.situacao !== situacaoFiltro) return false;
       if (categoriaFiltro === SEM_CATEGORIA && g.produto.categoria) return false;
       if (
@@ -368,7 +381,7 @@ function Precificacao() {
     return ordemDasLinhas
       ? ordenada.map((g) => ({ ...g, linhas: [...g.linhas].sort(ordemDasLinhas) }))
       : ordenada;
-  }, [grupos, busca, situacaoFiltro, categoriaFiltro, ordenar, semRestricaoDeConta]);
+  }, [grupos, busca, situacaoFiltro, categoriaFiltro, ordenar, semRestricaoDeConta, tipoFiltro]);
 
   /** Agrupado por categoria: uma faixa por categoria, "Sem categoria" no fim. */
   const secoes = useMemo(() => {
@@ -672,7 +685,9 @@ function Precificacao() {
                 sem produto vinculado{termoBusca ? ` com "${busca.trim()}"` : ""}
               </span>
               <span className="text-[10px] text-muted-foreground">
-                — sem CMV não dá pra calcular lucro. Vincule a um produto ou crie um novo.
+                — sem CMV não dá pra calcular lucro. Vincule a um produto ou crie um novo. No
+                Mercado Livre, o mesmo SKU pode ter um anúncio de catálogo e um ou mais
+                tradicionais (inclusive inativos): cada um aparece aqui separado.
               </span>
             </button>
             {pendentesAbertos && (
@@ -684,8 +699,10 @@ function Precificacao() {
                       <p className="num text-[10px] text-muted-foreground">{a.sku}</p>
                     </div>
                     <SeloMarketplace id={a.marketplaceId} />
+                    <SelosTipoAnuncio anuncio={a} dividemEstoque={tamanhoGrupoEstoque.get(a.grupoEstoque ?? "") ?? 0} />
                     <span className="text-[10px] text-muted-foreground">
-                      {contasService.buscar(a.contaId)?.nome ?? "—"} · {formatBRL(a.precoAtual)}
+                      {contasService.buscar(a.contaId)?.nome ?? "—"} · {formatBRL(a.precoAtual)} ·{" "}
+                      {formatNumero(a.estoque)} em estoque
                     </span>
                     <div className="ml-auto flex items-center gap-1.5">
                       <button
@@ -739,6 +756,18 @@ function Precificacao() {
                 <SelectItem value="abaixo">Com lucro, mas abaixo da margem mínima</SelectItem>
                 <SelectItem value="ok">Todos acima da margem mínima</SelectItem>
                 <SelectItem value="sem-anuncio">Produto sem anúncio vinculado</SelectItem>
+              </SelectContent>
+            </Select>
+          </Filtro>
+          <Filtro rotulo="Tipo de anúncio">
+            <Select value={tipoFiltro} onValueChange={(v) => setTipoFiltro(v as FiltroTipoAnuncio)}>
+              <SelectTrigger className="h-8 w-40 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="catalogo">Só catálogo</SelectItem>
+                <SelectItem value="tradicional">Só tradicional</SelectItem>
               </SelectContent>
             </Select>
           </Filtro>
@@ -1267,6 +1296,55 @@ function Filtro({ rotulo, children }: { rotulo: string; children: ReactNode }) {
 /* Uma linha de anúncio                                                */
 /* ------------------------------------------------------------------ */
 
+type FiltroTipoAnuncio = "todos" | "catalogo" | "tradicional";
+
+/** Catálogo x tradicional. Canal que não informa (catalogo null) conta como tradicional. */
+function passaNoTipo(a: Anuncio, filtro: FiltroTipoAnuncio): boolean {
+  if (filtro === "todos") return true;
+  return filtro === "catalogo" ? a.catalogo === true : a.catalogo !== true;
+}
+
+/** Selos do anúncio: Catálogo/Tradicional, Clássico/Premium e a situação no
+ * canal (ex.: "Inativo para revisar"). */
+function SelosTipoAnuncio({ anuncio: a, dividemEstoque = 0 }: { anuncio: Anuncio; dividemEstoque?: number }) {
+  if (a.catalogo === undefined && !a.situacaoCanal && !a.tipoAnuncio) return null;
+  return (
+    <span className="flex shrink-0 flex-wrap items-center gap-1">
+      {a.catalogo !== undefined && a.catalogo !== null && (
+        <span
+          title={
+            a.catalogo
+              ? "Anúncio de catálogo: compete com outros vendedores na página do produto."
+              : "Anúncio tradicional: página própria, com suas fotos e descrição."
+          }
+          className={cn(
+            "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+            a.catalogo ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+          )}
+        >
+          {a.catalogo ? "Catálogo" : "Tradicional"}
+        </span>
+      )}
+      {a.tipoAnuncio && (
+        <span className="rounded border px-1.5 py-0.5 text-[9px] text-muted-foreground">{a.tipoAnuncio}</span>
+      )}
+      {a.situacaoCanal && (
+        <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold text-warning">
+          {a.situacaoCanal}
+        </span>
+      )}
+      {dividemEstoque > 1 && (
+        <span
+          title="No Mercado Livre estes anúncios são do mesmo produto e usam o mesmo estoque: vendeu em um, baixa em todos."
+          className="rounded border border-dashed px-1.5 py-0.5 text-[9px] text-muted-foreground"
+        >
+          Estoque dividido com {dividemEstoque - 1}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function LinhaDoAnuncio({
   linha,
   cfg,
@@ -1317,6 +1395,7 @@ function LinhaDoAnuncio({
           <span className={cn("size-1.5 shrink-0 rounded-full", ponto)} />
           <SeloMarketplace id={a.marketplaceId} />
           <span className="truncate text-[10px] text-muted-foreground">{linha.nomeConta}</span>
+          <SelosTipoAnuncio anuncio={a} />
         </div>
       </td>
       <td

@@ -60,7 +60,9 @@ export function TarifasCanal({ conta }: { conta: ContaMarketplace }) {
         id: a.id,
         sku: a.sku,
         produto: a.produto,
-        tipo: a.tipoAnuncio ?? "—",
+        tipo: [a.tipoAnuncio, a.catalogo === true ? "Catálogo" : a.catalogo === false ? "Tradicional" : null]
+          .filter(Boolean)
+          .join(" · ") || "—",
         preco: a.precoAtual,
         comissaoPercentual: a.comissaoPercentual,
         comissaoValor,

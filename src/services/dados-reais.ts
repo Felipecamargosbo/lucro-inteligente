@@ -27,6 +27,17 @@ import type {
 const IMPOSTO_PADRAO = 0.1;
 
 /** Nome que o seller conhece para cada tipo de anúncio do Mercado Livre. */
+/** Situação do anúncio no canal em português; null quando está ativo normal. */
+function situacaoNoCanal(status: string | null, sub: string[] | null): string | null {
+  const subs = Array.isArray(sub) ? sub : [];
+  if (status === "under_review" || subs.includes("under_review")) return "Inativo para revisar";
+  if (status === "inactive") return "Inativo";
+  if (status === "closed") return "Encerrado";
+  if (status === "paused") return subs.includes("out_of_stock") ? "Pausado sem estoque" : "Pausado";
+  if (status === "payment_required") return "Aguardando pagamento";
+  return null;
+}
+
 const TIPO_ANUNCIO: Record<string, string> = { gold_special: "Clássico", gold_pro: "Premium", free: "Grátis" };
 
 const STATUS_ANUNCIO: StatusAnuncio[] = ["ativo", "pausado", "sem-estoque"];
@@ -96,7 +107,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       supabase
         .from("anuncios")
         .select(
-          "id, conta_id, produto_id, id_externo, sku, ean, titulo, preco_atual, preco_cheio, em_promocao, comissao_percentual, taxa_fixa, frete_unitario, custo_midia_unitario, custo_afiliado_unitario, origem_taxas, status, unidades_vendidas, data_ultima_venda, estoque, logistica, modalidade, link, nota_media, avaliacoes_total, avaliacoes_ruins, avaliacoes_comentarios, descricao, atributos",
+          "id, conta_id, produto_id, id_externo, sku, ean, titulo, preco_atual, preco_cheio, em_promocao, comissao_percentual, taxa_fixa, frete_unitario, custo_midia_unitario, custo_afiliado_unitario, origem_taxas, status, unidades_vendidas, data_ultima_venda, estoque, logistica, modalidade, link, nota_media, avaliacoes_total, avaliacoes_ruins, avaliacoes_comentarios, descricao, atributos, catalogo, status_ml, sub_status_ml, user_product_id",
         )
         .eq("perfil_id", perfilId)
         .order("id")
@@ -191,6 +202,9 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       ean: (a.ean as string | null) ?? null,
       produto: (a.titulo as string) ?? (a.id_externo as string),
       tipoAnuncio: a.modalidade ? (TIPO_ANUNCIO[a.modalidade as string] ?? (a.modalidade as string)) : null,
+      catalogo: a.catalogo === null || a.catalogo === undefined ? null : Boolean(a.catalogo),
+      situacaoCanal: situacaoNoCanal(a.status_ml as string | null, a.sub_status_ml as string[] | null),
+      grupoEstoque: (a.user_product_id as string | null) ?? null,
       avaliacao:
         a.avaliacoes_total === null || a.avaliacoes_total === undefined
           ? null

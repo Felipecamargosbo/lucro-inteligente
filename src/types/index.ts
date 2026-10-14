@@ -367,6 +367,14 @@ export interface Anuncio {
   produto: string;
   /** Tipo do anúncio no canal (ex.: Clássico, Premium), quando informado. */
   tipoAnuncio?: string | null;
+  /** true = anúncio de catálogo (compete na página do produto); false =
+   * anúncio tradicional; null/undefined = canal não informa. */
+  catalogo?: boolean | null;
+  /** Situação no canal quando não está simplesmente ativo
+   * (ex.: "Inativo para revisar", "Pausado", "Encerrado"). */
+  situacaoCanal?: string | null;
+  /** Anúncios com o mesmo código dividem o mesmo estoque no canal. */
+  grupoEstoque?: string | null;
   /** Avaliações do produto no canal (dados reais) */
   avaliacao?: { nota: number | null; total: number; ruins: number; comentarios: string[] } | null;
   precoAtual: number;
