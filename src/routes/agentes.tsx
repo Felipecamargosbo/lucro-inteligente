@@ -1501,7 +1501,7 @@ function Agentes() {
       {/* Um agente por vez, ocupando a tela toda — antes ficavam os três
           empilhados, e pra responder o SAC era preciso rolar a tela
           inteira passando pelos outros dois. */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="flex flex-wrap gap-2 pb-1">
         {(
           [
             ["analista", "Gestor", Bot, insightsPendentes] as const,

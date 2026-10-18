@@ -384,13 +384,13 @@ function AbaMargens() {
         titulo="Metas de margem por conta"
         descricao="É o que define as cores do Raio-X: abaixo da mínima, entre mínima e ideal, ou saudável"
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="px-4 py-2 font-medium">Conta</th>
-                <th className="px-3 py-2 font-medium">Margem mínima (%)</th>
-                <th className="px-3 py-2 font-medium">Margem ideal (%)</th>
+                <th className="px-2 py-2 font-medium">Conta</th>
+                <th className="px-1.5 py-2 font-medium">Margem mínima (%)</th>
+                <th className="px-1.5 py-2 font-medium">Margem ideal (%)</th>
               </tr>
             </thead>
             <tbody>
@@ -400,7 +400,7 @@ function AbaMargens() {
                 return (
                   <Fragment key={canal.id}>
                     <tr className="bg-muted/20">
-                      <td colSpan={3} className="px-4 py-1.5">
+                      <td colSpan={3} className="px-2 py-1.5">
                         <div className="flex items-center gap-2">
                           <LogoMarketplace id={canal.id} tamanho="xs" />
                           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -413,7 +413,7 @@ function AbaMargens() {
                       const metas = metasPorConta[c.id];
                       return (
                         <tr key={c.id} className="border-b last:border-0">
-                          <td className="px-4 py-2.5 pl-9">
+                          <td className="px-2 py-2.5 pl-9">
                             <p className="text-xs font-medium">{c.nome}</p>
                             {!metas && (
                               <p className="text-[10px] text-muted-foreground">
@@ -421,7 +421,7 @@ function AbaMargens() {
                               </p>
                             )}
                           </td>
-                          <td className="px-3 py-2.5">
+                          <td className="px-1.5 py-2.5">
                             <Input
                               type="number"
                               step="0.5"
@@ -438,7 +438,7 @@ function AbaMargens() {
                               className="num h-8 w-24 text-xs"
                             />
                           </td>
-                          <td className="px-3 py-2.5">
+                          <td className="px-1.5 py-2.5">
                             <Input
                               type="number"
                               step="0.5"
@@ -961,34 +961,34 @@ function AbaHistorico() {
         titulo="Histórico de alterações"
         descricao="Quando a margem cair, a primeira pergunta é o que mudou e quando"
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="px-4 py-2 font-medium">Quando</th>
-                <th className="px-3 py-2 font-medium">Alteração</th>
-                <th className="px-3 py-2 text-right font-medium">De</th>
-                <th className="px-3 py-2 text-right font-medium">Para</th>
+                <th className="px-2 py-2 font-medium">Quando</th>
+                <th className="px-1.5 py-2 font-medium">Alteração</th>
+                <th className="px-1.5 py-2 text-right font-medium">De</th>
+                <th className="px-1.5 py-2 text-right font-medium">Para</th>
               </tr>
             </thead>
             <tbody>
               {filtrados.map((l) => (
                 <tr key={l.id} className="border-b last:border-0">
-                  <td className="whitespace-nowrap px-4 py-3 text-[11px] text-muted-foreground">
+                  <td className="whitespace-nowrap px-2 py-3 text-[11px] text-muted-foreground">
                     {formatDataHora(l.data)}
                   </td>
-                  <td className="px-3 py-3 text-xs">{l.acao}</td>
-                  <td className="num whitespace-nowrap px-3 py-3 text-right text-[11px] text-muted-foreground line-through">
+                  <td className="px-1.5 py-3 text-xs">{l.acao}</td>
+                  <td className="num whitespace-nowrap px-1.5 py-3 text-right text-[11px] text-muted-foreground line-through">
                     {l.valorAnterior}
                   </td>
-                  <td className="num whitespace-nowrap px-3 py-3 text-right text-[11px] font-semibold">
+                  <td className="num whitespace-nowrap px-1.5 py-3 text-right text-[11px] font-semibold">
                     {l.valorNovo}
                   </td>
                 </tr>
               ))}
               {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                  <td colSpan={4} className="px-2 py-10 text-center text-xs text-muted-foreground">
                     {dataFiltro
                       ? "Nenhuma alteração nesta data."
                       : "Nenhuma alteração registrada."}
@@ -1022,7 +1022,7 @@ function Configuracoes() {
     <div className="mx-auto max-w-[1200px]">
       <div className="flex flex-col gap-6 lg:flex-row">
         {/* Abas laterais */}
-        <nav className="flex gap-1 overflow-x-auto lg:w-52 lg:shrink-0 lg:flex-col lg:overflow-visible">
+        <nav className="flex flex-wrap gap-1 lg:w-52 lg:shrink-0 lg:flex-col">
           {ABAS.map((a) => {
             const Icone = a.Icone;
             return (

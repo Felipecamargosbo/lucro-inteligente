@@ -186,45 +186,45 @@ export function TarifasCanal({ conta }: { conta: ContaMarketplace }) {
             <option value="produto">Nome do produto</option>
           </select>
         </div>
-        <div className="overflow-x-auto">
+        <div className="w-full">
           <table className="w-full text-left">
             <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="px-4 py-2 font-medium">Produto</th>
-                <th className="px-4 py-2 font-medium">Tipo</th>
-                <th className="px-4 py-2 text-right font-medium">Preço</th>
-                <th className="px-4 py-2 text-right font-medium">Comissão</th>
-                <th className="px-4 py-2 text-right font-medium">Custo fixo</th>
-                <th className="px-4 py-2 text-right font-medium">Frete médio</th>
-                <th className="px-4 py-2 text-right font-medium">Total por unidade</th>
+                <th className="px-2 py-2 font-medium">Produto</th>
+                <th className="px-2 py-2 font-medium">Tipo</th>
+                <th className="px-2 py-2 text-right font-medium">Preço</th>
+                <th className="px-2 py-2 text-right font-medium">Comissão</th>
+                <th className="px-2 py-2 text-right font-medium">Custo fixo</th>
+                <th className="px-2 py-2 text-right font-medium">Frete médio</th>
+                <th className="px-2 py-2 text-right font-medium">Total por unidade</th>
               </tr>
             </thead>
             <tbody>
               {filtradas.slice(0, 300).map((l) => (
                 <tr key={l.id} className="border-b last:border-0">
-                  <td className="max-w-[280px] px-4 py-2.5">
+                  <td className="max-w-[280px] px-2 py-2.5">
                     <p className="truncate text-xs font-medium">{l.produto}</p>
                     <p className="num text-[10px] text-muted-foreground">{l.sku}</p>
                   </td>
-                  <td className="px-4 py-2.5 text-xs">{l.tipo}</td>
-                  <td className="num px-4 py-2.5 text-right text-xs">{formatBRL(l.preco)}</td>
-                  <td className="num px-4 py-2.5 text-right text-xs">
+                  <td className="px-2 py-2.5 text-xs">{l.tipo}</td>
+                  <td className="num px-2 py-2.5 text-right text-xs">{formatBRL(l.preco)}</td>
+                  <td className="num px-2 py-2.5 text-right text-xs">
                     {formatPercentual(l.comissaoPercentual)}
                     <span className="block text-[10px] text-muted-foreground">
                       {formatBRL(l.comissaoValor)}
                     </span>
                   </td>
-                  <td className="num px-4 py-2.5 text-right text-xs">
+                  <td className="num px-2 py-2.5 text-right text-xs">
                     {l.custoFixo > 0 ? formatBRL(l.custoFixo) : "—"}
                   </td>
-                  <td className="num px-4 py-2.5 text-right text-xs">
+                  <td className="num px-2 py-2.5 text-right text-xs">
                     {l.freteMedio === null ? (
                       <span className="text-muted-foreground">sem venda</span>
                     ) : (
                       formatBRL(l.freteMedio)
                     )}
                   </td>
-                  <td className="num px-4 py-2.5 text-right text-xs font-semibold">
+                  <td className="num px-2 py-2.5 text-right text-xs font-semibold">
                     {formatBRL(l.total)}
                     <span className="block text-[10px] font-normal text-muted-foreground">
                       {formatPercentual(l.totalPercentual)} do preço
@@ -234,7 +234,7 @@ export function TarifasCanal({ conta }: { conta: ContaMarketplace }) {
               ))}
               {filtradas.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                  <td colSpan={7} className="px-2 py-10 text-center text-xs text-muted-foreground">
                     Nenhum anúncio neste filtro.
                   </td>
                 </tr>

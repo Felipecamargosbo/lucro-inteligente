@@ -217,14 +217,14 @@ export function ProdutosMaisVendidos() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead>
               <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-bold">Produto / SKU</th>
-                <th className="px-4 py-3 font-bold">Canais</th>
+                <th className="px-2 py-3 font-bold">Produto / SKU</th>
+                <th className="px-2 py-3 font-bold">Canais</th>
                 {COLUNAS.map((c) => (
-                  <th key={c.id} className="px-4 py-3 text-right font-bold">
+                  <th key={c.id} className="px-2 py-3 text-right font-bold">
                     <button
                       onClick={() => alternarOrdenacao(c.id)}
                       className={cn(
@@ -254,11 +254,11 @@ export function ProdutosMaisVendidos() {
                   onClick={() => setSelecionado(p)}
                   className="cursor-pointer transition-colors hover:bg-muted/40"
                 >
-                  <td className="max-w-[260px] px-4 py-3">
+                  <td className="max-w-[260px] px-2 py-3">
                     <p className="truncate text-xs font-medium">{p.produto}</p>
                     <p className="num text-[10px] text-muted-foreground">{p.sku}</p>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-2 py-3">
                     <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                       {p.canais.map((c) => (
                         <div key={c.marketplaceId} className="flex items-center gap-1.5">
@@ -270,18 +270,18 @@ export function ProdutosMaisVendidos() {
                       ))}
                     </div>
                   </td>
-                  <td className="num px-4 py-3 text-right text-xs font-semibold">
+                  <td className="num px-2 py-3 text-right text-xs font-semibold">
                     {formatNumero(p.unidades)}
                   </td>
-                  <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                  <td className="num px-2 py-3 text-right text-xs text-muted-foreground">
                     {formatNumero(p.pedidos)}
                   </td>
-                  <td className="num px-4 py-3 text-right text-xs font-semibold">
+                  <td className="num px-2 py-3 text-right text-xs font-semibold">
                     {formatBRL(p.faturamento)}
                   </td>
                   <td
                     className={cn(
-                      "num px-4 py-3 text-right text-xs font-semibold",
+                      "num px-2 py-3 text-right text-xs font-semibold",
                       p.lucro >= 0 ? "text-profit" : "text-loss",
                     )}
                   >
@@ -289,7 +289,7 @@ export function ProdutosMaisVendidos() {
                   </td>
                   <td
                     className={cn(
-                      "num px-4 py-3 text-right text-xs font-medium",
+                      "num px-2 py-3 text-right text-xs font-medium",
                       p.margem >= 0 ? "text-profit" : "text-loss",
                     )}
                   >
@@ -299,7 +299,7 @@ export function ProdutosMaisVendidos() {
               ))}
               {linhas.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-xs text-muted-foreground">
+                  <td colSpan={7} className="px-2 py-12 text-center text-xs text-muted-foreground">
                     Nenhuma venda encontrada nesse período{busca ? " com esse termo de busca" : ""}.
                   </td>
                 </tr>

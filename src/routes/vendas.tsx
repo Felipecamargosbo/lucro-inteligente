@@ -392,47 +392,47 @@ function Vendas() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1560px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead>
               <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                <CabecalhoOrdenavel campo="data" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3">
+                <CabecalhoOrdenavel campo="data" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3">
                   Data
                 </CabecalhoOrdenavel>
-                <th className="px-4 py-3 font-bold">Pedido</th>
-                <th className="px-4 py-3 font-bold">Canal</th>
-                <th className="px-4 py-3 font-bold">Produto / SKU</th>
-                <CabecalhoOrdenavel campo="quantidade" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-center">
+                <th className="px-2 py-3 font-bold">Pedido</th>
+                <th className="px-2 py-3 font-bold">Canal</th>
+                <th className="px-2 py-3 font-bold">Produto / SKU</th>
+                <CabecalhoOrdenavel campo="quantidade" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3 text-center">
                   Qtd
                 </CabecalhoOrdenavel>
-                <CabecalhoOrdenavel campo="faturamento" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                <CabecalhoOrdenavel campo="faturamento" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3 text-right">
                   Faturamento
                 </CabecalhoOrdenavel>
-                <CabecalhoOrdenavel campo="cmv" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                <CabecalhoOrdenavel campo="cmv" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3 text-right">
                   CMV
                 </CabecalhoOrdenavel>
-                <CabecalhoOrdenavel campo="comissao" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                <CabecalhoOrdenavel campo="comissao" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3 text-right">
                   Comissão
                 </CabecalhoOrdenavel>
-                <CabecalhoOrdenavel campo="taxaFixa" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                <CabecalhoOrdenavel campo="taxaFixa" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3 text-right">
                   Taxa fixa
                 </CabecalhoOrdenavel>
-                <CabecalhoOrdenavel campo="descontos" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                <CabecalhoOrdenavel campo="descontos" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3 text-right">
                   Desconto
                 </CabecalhoOrdenavel>
-                <CabecalhoOrdenavel campo="outrosCustos" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                <CabecalhoOrdenavel campo="outrosCustos" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3 text-right">
                   Frete e outros
                 </CabecalhoOrdenavel>
-                <CabecalhoOrdenavel campo="impostos" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                <CabecalhoOrdenavel campo="impostos" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3 text-right">
                   Impostos
                 </CabecalhoOrdenavel>
-                <CabecalhoOrdenavel campo="lucroLiquido" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-right">
+                <CabecalhoOrdenavel campo="lucroLiquido" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3 text-right">
                   Lucro
                 </CabecalhoOrdenavel>
-                <CabecalhoOrdenavel campo="margem" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-4 py-3 text-center">
+                <CabecalhoOrdenavel campo="margem" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3 text-center">
                   Margem
                 </CabecalhoOrdenavel>
-                <th className="px-4 py-3 font-bold">Status</th>
+                <th className="px-2 py-3 font-bold">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -442,15 +442,15 @@ function Vendas() {
                   onClick={() => setSelecionado(p)}
                   className="cursor-pointer transition-colors hover:bg-muted/40"
                 >
-                  <td className="px-4 py-3 text-xs">{formatData(p.data)}</td>
-                  <td className="num px-4 py-3 text-[11px] text-muted-foreground">#{p.numero ?? p.id}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-2 py-3 text-xs">{formatData(p.data)}</td>
+                  <td className="num px-2 py-3 text-[11px] text-muted-foreground">#{p.numero ?? p.id}</td>
+                  <td className="px-2 py-3">
                     <SeloMarketplace id={p.marketplaceId} />
                     <p className="mt-1 truncate text-[10px] text-muted-foreground">
                       {contaPorId.get(p.contaId)?.nome ?? "—"}
                     </p>
                   </td>
-                  <td className="max-w-[240px] px-4 py-3">
+                  <td className="max-w-[240px] px-2 py-3">
                     <p className="truncate text-xs font-medium">{p.produto}</p>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1">
                       <span className="num text-[10px] text-muted-foreground">{p.sku}</span>
@@ -475,39 +475,39 @@ function Vendas() {
                       )}
                     </div>
                   </td>
-                  <td className="num px-4 py-3 text-center text-xs">{p.quantidade}</td>
-                  <td className="num px-4 py-3 text-right text-xs font-semibold">
+                  <td className="num px-2 py-3 text-center text-xs">{p.quantidade}</td>
+                  <td className="num px-2 py-3 text-right text-xs font-semibold">
                     {formatBRL(p.faturamento)}
                   </td>
-                  <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                  <td className="num px-2 py-3 text-right text-xs text-muted-foreground">
                     {formatBRL(p.cmv)}
                   </td>
-                  <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                  <td className="num px-2 py-3 text-right text-xs text-muted-foreground">
                     {formatBRL(p.comissao)}
                   </td>
-                  <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                  <td className="num px-2 py-3 text-right text-xs text-muted-foreground">
                     {formatBRL(p.taxaFixa)}
                   </td>
-                  <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                  <td className="num px-2 py-3 text-right text-xs text-muted-foreground">
                     {formatBRL(p.descontos)}
                   </td>
-                  <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                  <td className="num px-2 py-3 text-right text-xs text-muted-foreground">
                     {formatBRL(p.outrosCustos + (p.freteVendedor ?? 0))}
                   </td>
-                  <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                  <td className="num px-2 py-3 text-right text-xs text-muted-foreground">
                     {formatBRL(p.impostos)}
                   </td>
                   <td
-                    className={`num px-4 py-3 text-right text-xs font-bold ${
+                    className={`num px-2 py-3 text-right text-xs font-bold ${
                       p.lucroLiquido >= 0 ? "text-profit" : "text-loss"
                     }`}
                   >
                     {formatBRL(p.lucroLiquido)}
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-2 py-3 text-center">
                     <SeloMargem margem={p.margem} />
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-2 py-3">
                     <StatusPedidoSelo status={p.status} />
                   </td>
                 </tr>

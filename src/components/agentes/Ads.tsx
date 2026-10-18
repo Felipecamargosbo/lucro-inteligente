@@ -266,7 +266,7 @@ export function PainelAds({
         </span>
       </div>
 
-      <div className="flex gap-1 overflow-x-auto border-b px-4 pt-3">
+      <div className="flex flex-wrap gap-1 border-b px-4 pt-3">
         {(
           [
             ["acoes", `Ações (${acoesPendentes.length})`],
@@ -638,18 +638,18 @@ function TabelaRoas({
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[960px] text-left">
+    <div className="w-full">
+      <table className="w-full text-left">
         <thead>
           <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-            <th className="px-4 py-3 font-bold">Produto / SKU</th>
-            <th className="px-4 py-3 font-bold">Curva</th>
-            <th className="px-4 py-3 text-right font-bold">ROAS atual</th>
-            <th className="px-4 py-3 text-right font-bold">ROAS mínimo</th>
-            <th className="px-4 py-3 text-right font-bold">ROAS objetivo</th>
-            <th className="px-4 py-3 text-right font-bold">Gasto (14d)</th>
-            <th className="px-4 py-3 text-right font-bold">Lucro do Ads (14d)</th>
-            <th className="px-4 py-3 font-bold">Situação</th>
+            <th className="px-2 py-3 font-bold">Produto / SKU</th>
+            <th className="px-2 py-3 font-bold">Curva</th>
+            <th className="px-2 py-3 text-right font-bold">ROAS atual</th>
+            <th className="px-2 py-3 text-right font-bold">ROAS mínimo</th>
+            <th className="px-2 py-3 text-right font-bold">ROAS objetivo</th>
+            <th className="px-2 py-3 text-right font-bold">Gasto (14d)</th>
+            <th className="px-2 py-3 text-right font-bold">Lucro do Ads (14d)</th>
+            <th className="px-2 py-3 font-bold">Situação</th>
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -661,17 +661,17 @@ function TabelaRoas({
                 onClick={() => aoAbrir(x.anuncio.id)}
                 className="cursor-pointer transition-colors hover:bg-muted/40"
               >
-                <td className="max-w-[260px] px-4 py-3">
+                <td className="max-w-[260px] px-2 py-3">
                   <div className="flex items-center gap-2">
                     <SeloMarketplace id={x.anuncio.marketplaceId} />
                     <p className="truncate text-xs font-medium">{x.anuncio.produto}</p>
                   </div>
                   <p className="num text-[10px] text-muted-foreground">{x.anuncio.sku}</p>
                 </td>
-                <td className="px-4 py-3 text-xs font-semibold">{x.classe ?? "—"}</td>
+                <td className="px-2 py-3 text-xs font-semibold">{x.classe ?? "—"}</td>
                 <td
                   className={cn(
-                    "num px-4 py-3 text-right text-xs font-bold",
+                    "num px-2 py-3 text-right text-xs font-bold",
                     x.semaforo === "verde"
                       ? "text-profit"
                       : x.semaforo === "amarelo"
@@ -681,22 +681,22 @@ function TabelaRoas({
                 >
                   {fmtRoas(x.roasAtual)}
                 </td>
-                <td className="num px-4 py-3 text-right text-xs">
+                <td className="num px-2 py-3 text-right text-xs">
                   {x.calculavel ? fmtRoas(x.contribuicao.roasMinimo) : "—"}
                 </td>
-                <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                <td className="num px-2 py-3 text-right text-xs text-muted-foreground">
                   {fmtRoas(x.anuncio.roasObjetivo)}
                 </td>
-                <td className="num px-4 py-3 text-right text-xs">{formatBRL(x.investimento)}</td>
+                <td className="num px-2 py-3 text-right text-xs">{formatBRL(x.investimento)}</td>
                 <td
                   className={cn(
-                    "num px-4 py-3 text-right text-xs font-semibold",
+                    "num px-2 py-3 text-right text-xs font-semibold",
                     x.lucroAds >= 0 ? "text-profit" : "text-loss",
                   )}
                 >
                   {x.calculavel ? formatBRL(x.lucroAds) : "—"}
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-2 py-3">
                   <span
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded px-2 py-1 text-[10px] font-semibold",
@@ -867,22 +867,22 @@ function ConteudoDetalheAds({
           <table className="w-full text-xs">
             <tbody className="divide-y">
               <tr>
-                <td className="px-3 py-2">Preço de venda</td>
-                <td className="num px-3 py-2 text-right font-semibold">{formatBRL(c.preco)}</td>
+                <td className="px-1.5 py-2">Preço de venda</td>
+                <td className="num px-1.5 py-2 text-right font-semibold">{formatBRL(c.preco)}</td>
               </tr>
               {linhas.map((l) => (
                 <tr key={l.rotulo}>
-                  <td className="px-3 py-2 text-muted-foreground">{l.rotulo}</td>
-                  <td className="num px-3 py-2 text-right text-muted-foreground">
+                  <td className="px-1.5 py-2 text-muted-foreground">{l.rotulo}</td>
+                  <td className="num px-1.5 py-2 text-right text-muted-foreground">
                     {formatBRL(l.valor)}
                   </td>
                 </tr>
               ))}
               <tr className="bg-muted/50">
-                <td className="px-3 py-2 font-semibold">= Margem de contribuição</td>
+                <td className="px-1.5 py-2 font-semibold">= Margem de contribuição</td>
                 <td
                   className={cn(
-                    "num px-3 py-2 text-right font-bold",
+                    "num px-1.5 py-2 text-right font-bold",
                     c.contribuicao > 0 ? "text-profit" : "text-loss",
                   )}
                 >
@@ -890,8 +890,8 @@ function ConteudoDetalheAds({
                 </td>
               </tr>
               <tr className="bg-muted/50">
-                <td className="px-3 py-2 font-semibold">ROAS mínimo (1 ÷ margem)</td>
-                <td className="num px-3 py-2 text-right font-bold">
+                <td className="px-1.5 py-2 font-semibold">ROAS mínimo (1 ÷ margem)</td>
+                <td className="num px-1.5 py-2 text-right font-bold">
                   {minimo === null ? "Prejuízo mesmo sem Ads" : fmtRoas(minimo)}
                 </td>
               </tr>
@@ -962,34 +962,34 @@ function TabelaSugestaoAds({
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[680px] text-left">
+    <div className="w-full">
+      <table className="w-full text-left">
         <thead>
           <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-            <th className="px-4 py-3 font-bold">Produto / SKU</th>
-            <th className="px-4 py-3 text-right font-bold">Vendas/dia</th>
-            <th className="px-4 py-3 text-right font-bold">Total vendido</th>
-            <th className="px-4 py-3 text-right font-bold">Faturamento</th>
-            <th className="px-4 py-3 text-right font-bold">Margem atual</th>
-            <th className="px-4 py-3 text-right font-bold">Ação</th>
+            <th className="px-2 py-3 font-bold">Produto / SKU</th>
+            <th className="px-2 py-3 text-right font-bold">Vendas/dia</th>
+            <th className="px-2 py-3 text-right font-bold">Total vendido</th>
+            <th className="px-2 py-3 text-right font-bold">Faturamento</th>
+            <th className="px-2 py-3 text-right font-bold">Margem atual</th>
+            <th className="px-2 py-3 text-right font-bold">Ação</th>
           </tr>
         </thead>
         <tbody className="divide-y">
           {itens.map((e) => (
             <tr key={e.id} className="transition-colors hover:bg-muted/40">
-              <td className="max-w-[220px] px-4 py-3">
+              <td className="max-w-[220px] px-2 py-3">
                 <p className="truncate text-xs font-medium">{e.produto}</p>
                 <p className="num text-[10px] text-muted-foreground">{e.sku}</p>
               </td>
-              <td className="num px-4 py-3 text-right text-xs font-semibold text-brand">
+              <td className="num px-2 py-3 text-right text-xs font-semibold text-brand">
                 {Math.round(e.unidadesPorDia)} un.
               </td>
-              <td className="num px-4 py-3 text-right text-xs">{formatNumero(e.quantidade)} un.</td>
-              <td className="num px-4 py-3 text-right text-xs">{formatBRL(e.faturamento)}</td>
-              <td className="num px-4 py-3 text-right text-xs">
+              <td className="num px-2 py-3 text-right text-xs">{formatNumero(e.quantidade)} un.</td>
+              <td className="num px-2 py-3 text-right text-xs">{formatBRL(e.faturamento)}</td>
+              <td className="num px-2 py-3 text-right text-xs">
                 {formatPercentual(e.margemSemAds)}
               </td>
-              <td className="px-4 py-3 text-right">
+              <td className="px-2 py-3 text-right">
                 <Button size="sm" variant="outline" onClick={() => aoDispensar(e)}>
                   <Check className="size-3.5" />
                   Visto

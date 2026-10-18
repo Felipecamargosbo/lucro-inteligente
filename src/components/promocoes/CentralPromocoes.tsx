@@ -551,11 +551,11 @@ export function CentralPromocoes() {
           )}
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1250px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead>
               <tr className="border-b bg-muted/50 text-[9px] uppercase tracking-wide text-muted-foreground">
-                <th className="px-3 py-2.5 font-bold">Promoção</th>
+                <th className="px-1.5 py-2.5 font-bold">Promoção</th>
                 <th className="px-2 py-2.5 font-bold">Período</th>
                 <th className="px-2 py-2.5 text-right font-bold">Desconto</th>
                 <th className="px-2 py-2.5 text-right font-bold">Preço final</th>
@@ -564,7 +564,7 @@ export function CentralPromocoes() {
                 <th className="px-2 py-2.5 text-right font-bold">Lucro</th>
                 <th className="px-2 py-2.5 text-right font-bold">Margem</th>
                 <th className="px-2 py-2.5 text-center font-bold">Cabe?</th>
-                <th className="px-3 py-2.5 text-right font-bold">Ação</th>
+                <th className="px-1.5 py-2.5 text-right font-bold">Ação</th>
               </tr>
             </thead>
             <tbody>
@@ -588,7 +588,7 @@ export function CentralPromocoes() {
               ))}
               {visiveis.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-xs text-muted-foreground">
+                  <td colSpan={10} className="px-2 py-12 text-center text-xs text-muted-foreground">
                     Nenhum anúncio com esses filtros.
                   </td>
                 </tr>
@@ -1294,7 +1294,7 @@ function DialogPromocaoPropria({
                   })}
                   {lista.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">
+                      <td colSpan={6} className="px-1.5 py-6 text-center text-muted-foreground">
                         Nenhum anúncio desta conta com esse nome.
                       </td>
                     </tr>

@@ -416,14 +416,14 @@ function DetalheOcorrencia({
               Quanto era pra ser cobrado, quanto foi cobrado e de onde vem cada valor. Os itens
               com ✓ vieram certos.
             </p>
-            <div className="overflow-x-auto rounded-lg border">
-              <table className="w-full min-w-[420px] text-xs">
+            <div className="rounded-lg border">
+              <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                    <th className="px-3 py-2 text-left font-bold">Item</th>
-                    <th className="px-3 py-2 text-right font-bold">Era pra ser</th>
-                    <th className="px-3 py-2 text-right font-bold">Cobrado</th>
-                    <th className="px-3 py-2 text-right font-bold">Diferença</th>
+                    <th className="px-1.5 py-2 text-left font-bold">Item</th>
+                    <th className="px-1.5 py-2 text-right font-bold">Era pra ser</th>
+                    <th className="px-1.5 py-2 text-right font-bold">Cobrado</th>
+                    <th className="px-1.5 py-2 text-right font-bold">Diferença</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -431,7 +431,7 @@ function DetalheOcorrencia({
                     const errado = itemDivergente(i);
                     return (
                       <tr key={i.item} className={cn(errado && "bg-loss-soft/40")}>
-                        <td className="px-3 py-2 align-top">
+                        <td className="px-1.5 py-2 align-top">
                           <div className="flex flex-wrap items-center gap-1.5">
                             <span className={cn("font-medium", !errado && "text-muted-foreground")}>
                               {ROTULO_ITEM_AUDITOR[i.item]}
@@ -453,18 +453,18 @@ function DetalheOcorrencia({
                             </p>
                           )}
                         </td>
-                        <td className="num px-3 py-2 text-right align-top text-muted-foreground">
+                        <td className="num px-1.5 py-2 text-right align-top text-muted-foreground">
                           {formatBRL(i.esperado)}
                         </td>
                         <td
                           className={cn(
-                            "num px-3 py-2 text-right align-top",
+                            "num px-1.5 py-2 text-right align-top",
                             errado ? "font-semibold" : "text-muted-foreground",
                           )}
                         >
                           {formatBRL(i.cobrado)}
                         </td>
-                        <td className="num px-3 py-2 text-right align-top">
+                        <td className="num px-1.5 py-2 text-right align-top">
                           {errado ? (
                             <span className="font-bold text-loss">
                               {i.cobrado > i.esperado ? "+" : ""}
@@ -481,10 +481,10 @@ function DetalheOcorrencia({
                     );
                   })}
                   <tr className="bg-muted/50">
-                    <td className="px-3 py-2 font-semibold" colSpan={3}>
+                    <td className="px-1.5 py-2 font-semibold" colSpan={3}>
                       Diferença total
                     </td>
-                    <td className="num px-3 py-2 text-right font-bold text-loss">
+                    <td className="num px-1.5 py-2 text-right font-bold text-loss">
                       {formatBRL(o.diferenca)}
                     </td>
                   </tr>
@@ -530,28 +530,28 @@ function DetalheOcorrencia({
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                      <th className="px-3 py-2 text-left font-bold">Pedido</th>
-                      <th className="px-3 py-2 text-left font-bold">Data</th>
-                      <th className="px-3 py-2 text-right font-bold">Faturamento</th>
-                      <th className="px-3 py-2 text-right font-bold">Custo a mais</th>
+                      <th className="px-1.5 py-2 text-left font-bold">Pedido</th>
+                      <th className="px-1.5 py-2 text-left font-bold">Data</th>
+                      <th className="px-1.5 py-2 text-right font-bold">Faturamento</th>
+                      <th className="px-1.5 py-2 text-right font-bold">Custo a mais</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {o.pedidosAfetados.slice(0, 10).map((p) => (
                       <tr key={p.pedidoId}>
-                        <td className="num px-3 py-2">{p.pedidoId}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{formatData(p.data)}</td>
-                        <td className="num px-3 py-2 text-right">{formatBRL(p.faturamento)}</td>
-                        <td className="num px-3 py-2 text-right font-semibold text-loss">
+                        <td className="num px-1.5 py-2">{p.pedidoId}</td>
+                        <td className="px-1.5 py-2 text-muted-foreground">{formatData(p.data)}</td>
+                        <td className="num px-1.5 py-2 text-right">{formatBRL(p.faturamento)}</td>
+                        <td className="num px-1.5 py-2 text-right font-semibold text-loss">
                           {formatBRL(p.custoExtra)}
                         </td>
                       </tr>
                     ))}
                     <tr className="bg-muted/50">
-                      <td className="px-3 py-2 font-semibold" colSpan={3}>
+                      <td className="px-1.5 py-2 font-semibold" colSpan={3}>
                         Total pago a mais desde a mudança
                       </td>
-                      <td className="num px-3 py-2 text-right font-bold text-loss">
+                      <td className="num px-1.5 py-2 text-right font-bold text-loss">
                         {formatBRL(o.diferenca)}
                       </td>
                     </tr>

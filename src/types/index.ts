@@ -376,6 +376,8 @@ export interface Anuncio {
   /** Anúncios com o mesmo código dividem o mesmo estoque no canal. */
   grupoEstoque?: string | null;
   /** Código do anúncio no canal (ex.: MLB4552785169). */
+  /** Foto principal do anúncio no canal */
+  fotoUrl?: string | null;
   idExterno?: string | null;
   /** Status cru no canal (ex.: active, paused, under_review, closed). */
   statusCanal?: string | null;

@@ -159,17 +159,17 @@ export function ResultadosPromocoes() {
           ))}
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="w-full">
           <table className="w-full text-xs">
             <thead className="bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="px-4 py-2 text-left font-semibold">Campanha</th>
-                <th className="px-4 py-2 text-left font-semibold">Período</th>
-                <th className="px-4 py-2 text-right font-semibold">Pedidos</th>
-                <th className="px-4 py-2 text-right font-semibold">Unidades</th>
-                <th className="px-4 py-2 text-right font-semibold">Receita</th>
-                <th className="px-4 py-2 text-right font-semibold">Margem</th>
-                <th className="px-4 py-2 text-right font-semibold">Lucro incremental</th>
+                <th className="px-2 py-2 text-left font-semibold">Campanha</th>
+                <th className="px-2 py-2 text-left font-semibold">Período</th>
+                <th className="px-2 py-2 text-right font-semibold">Pedidos</th>
+                <th className="px-2 py-2 text-right font-semibold">Unidades</th>
+                <th className="px-2 py-2 text-right font-semibold">Receita</th>
+                <th className="px-2 py-2 text-right font-semibold">Margem</th>
+                <th className="px-2 py-2 text-right font-semibold">Lucro incremental</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -179,7 +179,7 @@ export function ResultadosPromocoes() {
                   onClick={() => setAberta(campanha)}
                   className="cursor-pointer transition-colors hover:bg-muted/40"
                 >
-                  <td className="px-4 py-3">
+                  <td className="px-2 py-3">
                     <div className="flex items-center gap-2">
                       <SeloMarketplace id={campanha.marketplaceId} />
                       <span className="text-xs font-medium">
@@ -198,23 +198,23 @@ export function ResultadosPromocoes() {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-[11px] text-muted-foreground">
+                  <td className="px-2 py-3 text-[11px] text-muted-foreground">
                     {formatData(campanha.inicio)} a {formatData(campanha.fim)}
                   </td>
-                  <td className="num px-4 py-3 text-right">{resultado.pedidos}</td>
-                  <td className="num px-4 py-3 text-right">{resultado.unidades}</td>
-                  <td className="num px-4 py-3 text-right font-semibold">
+                  <td className="num px-2 py-3 text-right">{resultado.pedidos}</td>
+                  <td className="num px-2 py-3 text-right">{resultado.unidades}</td>
+                  <td className="num px-2 py-3 text-right font-semibold">
                     {formatBRL(resultado.receita)}
                   </td>
                   <td
                     className={cn(
-                      "num px-4 py-3 text-right font-semibold",
+                      "num px-2 py-3 text-right font-semibold",
                       resultado.margem >= 0 ? "text-profit" : "text-loss",
                     )}
                   >
                     {resultado.pedidos ? formatPercentual(resultado.margem) : "—"}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-2 py-3 text-right">
                     <ValorIncremental incremental={incremental} />
                   </td>
                 </tr>
@@ -397,11 +397,11 @@ function DetalheCampanha({
                 <table className="w-full text-[11px]">
                   <thead className="bg-muted/40 text-[9px] uppercase tracking-wide text-muted-foreground">
                     <tr>
-                      <th className="px-4 py-2 text-left font-semibold">Produto</th>
-                      <th className="px-4 py-2 text-right font-semibold">Unidades</th>
-                      <th className="px-4 py-2 text-right font-semibold">Receita</th>
-                      <th className="px-4 py-2 text-right font-semibold">Lucro</th>
-                      <th className="px-4 py-2 text-right font-semibold">Margem</th>
+                      <th className="px-2 py-2 text-left font-semibold">Produto</th>
+                      <th className="px-2 py-2 text-right font-semibold">Unidades</th>
+                      <th className="px-2 py-2 text-right font-semibold">Receita</th>
+                      <th className="px-2 py-2 text-right font-semibold">Lucro</th>
+                      <th className="px-2 py-2 text-right font-semibold">Margem</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -411,15 +411,15 @@ function DetalheCampanha({
                         onClick={() => setProdutoAberto({ sku: p.sku, nome: p.produto })}
                         className="cursor-pointer transition-colors hover:bg-muted/40"
                       >
-                        <td className="max-w-[240px] px-4 py-2.5">
+                        <td className="max-w-[240px] px-2 py-2.5">
                           <p className="truncate font-medium">{p.produto}</p>
                           <p className="num text-[10px] text-muted-foreground">{p.sku}</p>
                         </td>
-                        <td className="num px-4 py-2.5 text-right">{p.unidades}</td>
-                        <td className="num px-4 py-2.5 text-right">{formatBRL(p.receita)}</td>
+                        <td className="num px-2 py-2.5 text-right">{p.unidades}</td>
+                        <td className="num px-2 py-2.5 text-right">{formatBRL(p.receita)}</td>
                         <td
                           className={cn(
-                            "num px-4 py-2.5 text-right font-semibold",
+                            "num px-2 py-2.5 text-right font-semibold",
                             p.lucro >= 0 ? "text-profit" : "text-loss",
                           )}
                         >
@@ -427,7 +427,7 @@ function DetalheCampanha({
                         </td>
                         <td
                           className={cn(
-                            "num px-4 py-2.5 text-right font-semibold",
+                            "num px-2 py-2.5 text-right font-semibold",
                             p.margem >= 0 ? "text-profit" : "text-loss",
                           )}
                         >
@@ -652,10 +652,10 @@ function DetalheProduto({
                   <table className="w-full text-[11px]">
                     <thead className="bg-muted/40 text-[9px] uppercase tracking-wide text-muted-foreground">
                       <tr>
-                        <th className="px-4 py-2 text-left font-semibold">Campanha</th>
-                        <th className="px-4 py-2 text-right font-semibold">Unidades</th>
-                        <th className="px-4 py-2 text-right font-semibold">Receita</th>
-                        <th className="px-4 py-2 text-right font-semibold">Margem</th>
+                        <th className="px-2 py-2 text-left font-semibold">Campanha</th>
+                        <th className="px-2 py-2 text-right font-semibold">Unidades</th>
+                        <th className="px-2 py-2 text-right font-semibold">Receita</th>
+                        <th className="px-2 py-2 text-right font-semibold">Margem</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -664,7 +664,7 @@ function DetalheProduto({
                           key={h.campanha.id}
                           className={cn(h.campanha.id === campanha.id && "bg-brand-soft/40")}
                         >
-                          <td className="px-4 py-2.5">
+                          <td className="px-2 py-2.5">
                             <span className="font-medium">
                               {h.campanha.nome ?? <span className="num">{h.campanha.id}</span>}
                             </span>
@@ -674,11 +674,11 @@ function DetalheProduto({
                               </span>
                             )}
                           </td>
-                          <td className="num px-4 py-2.5 text-right">{h.unidades}</td>
-                          <td className="num px-4 py-2.5 text-right">{formatBRL(h.receita)}</td>
+                          <td className="num px-2 py-2.5 text-right">{h.unidades}</td>
+                          <td className="num px-2 py-2.5 text-right">{formatBRL(h.receita)}</td>
                           <td
                             className={cn(
-                              "num px-4 py-2.5 text-right font-semibold",
+                              "num px-2 py-2.5 text-right font-semibold",
                               h.margem >= 0 ? "text-profit" : "text-loss",
                             )}
                           >

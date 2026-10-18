@@ -567,14 +567,14 @@ export function Ads() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Painel titulo="ADS por canal" descricao="Investimento, ROAS e TACOS de cada canal">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[460px] text-left">
+          <div className="w-full">
+            <table className="w-full text-left">
               <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-5 py-2.5 font-medium">Canal</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Investimento</th>
-                  <th className="px-3 py-2.5 text-right font-medium">ROAS</th>
-                  <th className="px-3 py-2.5 text-right font-medium">TACOS</th>
+                  <th className="px-1.5 py-2.5 text-right font-medium">Investimento</th>
+                  <th className="px-1.5 py-2.5 text-right font-medium">ROAS</th>
+                  <th className="px-1.5 py-2.5 text-right font-medium">TACOS</th>
                 </tr>
               </thead>
               <tbody>
@@ -595,15 +595,15 @@ export function Ads() {
                             )}
                           </div>
                         </td>
-                        <td className="num px-3 py-3 text-right text-xs font-semibold">
+                        <td className="num px-1.5 py-3 text-right text-xs font-semibold">
                           {formatBRL(c.gasto)}
                         </td>
-                        <td className="num px-3 py-3 text-right text-xs font-bold text-profit">
+                        <td className="num px-1.5 py-3 text-right text-xs font-bold text-profit">
                           {c.roas.toFixed(2).replace(".", ",")}x
                         </td>
                         <td
                           className={cn(
-                            "num px-3 py-3 text-right text-xs font-bold",
+                            "num px-1.5 py-3 text-right text-xs font-bold",
                             c.tacos > 0.15 ? "text-loss" : "text-profit",
                           )}
                         >
@@ -619,13 +619,13 @@ export function Ads() {
                                 {conta.nome}
                               </span>
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               {formatBRL(conta.gasto)}
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               {conta.roas.toFixed(2).replace(".", ",")}x
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               {formatPercentual(conta.tacos)}
                             </td>
                           </tr>

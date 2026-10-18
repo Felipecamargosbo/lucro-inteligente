@@ -384,16 +384,16 @@ export function Logistica() {
         titulo="Full, Flex e Padrão por canal"
         descricao="Cada canal com o resultado dos três modelos lado a lado"
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-5 py-2.5 font-medium">Canal</th>
-                <th className="px-3 py-2.5 font-medium">Modelo</th>
-                <th className="px-3 py-2.5 text-right font-medium">Pedidos</th>
-                <th className="px-3 py-2.5 text-right font-medium">Faturamento</th>
-                <th className="px-3 py-2.5 text-right font-medium">Lucro</th>
-                <th className="px-3 py-2.5 text-right font-medium">Margem</th>
+                <th className="px-1.5 py-2.5 font-medium">Modelo</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Pedidos</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Faturamento</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Lucro</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Margem</th>
               </tr>
             </thead>
             <tbody>
@@ -425,27 +425,27 @@ export function Logistica() {
                               </div>
                             </td>
                           )}
-                          <td className="px-3 py-3">
+                          <td className="px-1.5 py-3">
                             <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
                               <span className={cn("size-2 rounded-full", PONTO_LOGISTICA[tipo])} />{" "}
                               {ROTULO_LOGISTICA[tipo]}
                             </span>
                           </td>
-                          <td className="num px-3 py-3 text-right text-xs">
+                          <td className="num px-1.5 py-3 text-right text-xs">
                             {formatNumero(d.pedidos)}
                           </td>
-                          <td className="num px-3 py-3 text-right text-xs font-semibold">
+                          <td className="num px-1.5 py-3 text-right text-xs font-semibold">
                             {formatBRL(d.faturamento)}
                           </td>
                           <td
                             className={cn(
-                              "num px-3 py-3 text-right text-xs font-bold",
+                              "num px-1.5 py-3 text-right text-xs font-bold",
                               d.lucro >= 0 ? "text-profit" : "text-loss",
                             )}
                           >
                             {formatBRL(d.lucro)}
                           </td>
-                          <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                          <td className="num px-1.5 py-3 text-right text-xs text-muted-foreground">
                             {d.pedidos ? formatPercentual(d.margem) : "—"}
                           </td>
                         </tr>
@@ -466,7 +466,7 @@ export function Logistica() {
                                     </span>
                                   </td>
                                 )}
-                                <td className="px-3 py-2.5">
+                                <td className="px-1.5 py-2.5">
                                   <span className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground">
                                     <span
                                       className={cn("size-1.5 rounded-full", PONTO_LOGISTICA[tipo])}
@@ -474,21 +474,21 @@ export function Logistica() {
                                     {ROTULO_LOGISTICA[tipo]}
                                   </span>
                                 </td>
-                                <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                                <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                                   {formatNumero(d.pedidos)}
                                 </td>
-                                <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                                <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                                   {formatBRL(d.faturamento)}
                                 </td>
                                 <td
                                   className={cn(
-                                    "num px-3 py-2.5 text-right text-[11px]",
+                                    "num px-1.5 py-2.5 text-right text-[11px]",
                                     d.lucro >= 0 ? "text-profit" : "text-loss",
                                   )}
                                 >
                                   {formatBRL(d.lucro)}
                                 </td>
-                                <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                                <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                                   {d.pedidos ? formatPercentual(d.margem) : "—"}
                                 </td>
                               </tr>

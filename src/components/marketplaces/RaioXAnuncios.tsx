@@ -496,16 +496,16 @@ export function RaioXAnuncios({ conta }: { conta: ContaMarketplace }) {
           />
         }
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1320px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
                 {colunas.map((c, i) => (
                   <th
                     key={c}
                     className={cn(
-                      "px-3 py-2 font-medium",
-                      i === 0 && "px-4",
+                      "px-1.5 py-2 font-medium",
+                      i === 0 && "px-2",
                       i > 0 && i < 12 && "text-right",
                     )}
                   >
@@ -526,7 +526,7 @@ export function RaioXAnuncios({ conta }: { conta: ContaMarketplace }) {
               ))}
               {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="px-4 py-12 text-center text-xs text-muted-foreground">
+                  <td colSpan={13} className="px-2 py-12 text-center text-xs text-muted-foreground">
                     Nenhum anúncio encontrado com esses filtros.
                   </td>
                 </tr>

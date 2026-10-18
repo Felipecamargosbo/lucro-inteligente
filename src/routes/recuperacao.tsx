@@ -228,17 +228,17 @@ function Recuperacao() {
           </Select>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead>
               <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-bold">Cliente / Pedido</th>
-                <th className="px-4 py-3 font-bold">Marketplace</th>
-                <th className="px-4 py-3 text-right font-bold">Valor (R$)</th>
-                <th className="px-4 py-3 font-bold">Tipo</th>
-                <th className="px-4 py-3 font-bold">Tempo restante</th>
-                <th className="px-4 py-3 font-bold">Status</th>
-                <th className="px-4 py-3 text-right font-bold">Ação direta</th>
+                <th className="px-2 py-3 font-bold">Cliente / Pedido</th>
+                <th className="px-2 py-3 font-bold">Marketplace</th>
+                <th className="px-2 py-3 text-right font-bold">Valor (R$)</th>
+                <th className="px-2 py-3 font-bold">Tipo</th>
+                <th className="px-2 py-3 font-bold">Tempo restante</th>
+                <th className="px-2 py-3 font-bold">Status</th>
+                <th className="px-2 py-3 text-right font-bold">Ação direta</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -247,7 +247,7 @@ function Recuperacao() {
                 const s = ROTULO_STATUS[statusAtual];
                 return (
                   <tr key={o.id} className="transition-colors hover:bg-muted/40">
-                    <td className="max-w-[260px] px-4 py-3">
+                    <td className="max-w-[260px] px-2 py-3">
                       <p className="truncate text-xs font-medium">{o.cliente}</p>
                       <p className="num text-[10px] text-muted-foreground">
                         {o.linkCanal ? o.pedidoId : `${o.pedidoId} · ${o.id}`}
@@ -256,19 +256,19 @@ function Recuperacao() {
                         {formatDataHora(o.dataCriacao)}
                       </p>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-3">
                       <SeloMarketplace id={o.marketplaceId} />
                     </td>
-                    <td className="num px-4 py-3 text-right text-xs font-semibold">
+                    <td className="num px-2 py-3 text-right text-xs font-semibold">
                       {formatBRL(o.valor)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-3">
                       <span className="text-xs text-muted-foreground">{ROTULO_TIPO[o.tipo]}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-3">
                       <span className="num text-xs text-muted-foreground">{o.tempoRestante}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-3">
                       <span
                         className={cn(
                           "inline-flex rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wide",
@@ -278,7 +278,7 @@ function Recuperacao() {
                         {s.texto}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-3">
                       {/* Os dois botões ficam sempre visíveis: dá pra chamar no
                           WhatsApp, mandar e-mail, ou repetir o contato depois. */}
                       <div className="flex items-center justify-end gap-2">
@@ -323,7 +323,7 @@ function Recuperacao() {
               })}
               {oportunidades.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <td colSpan={7} className="px-2 py-10 text-center text-sm text-muted-foreground">
                     Nenhuma venda cancelada ou com pagamento pendente nos últimos 30 dias.
                   </td>
                 </tr>

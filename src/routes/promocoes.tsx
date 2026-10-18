@@ -370,18 +370,18 @@ function Decidir() {
         titulo="Promoções vigentes e oportunidades"
         descricao="Compare a margem normal com a margem dentro da campanha"
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1050px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead>
               <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-bold">Produto / SKU</th>
-                <th className="px-4 py-3 font-bold">Marketplace</th>
-                <th className="px-4 py-3 text-right font-bold">Preço normal</th>
-                <th className="px-4 py-3 text-right font-bold">Preço promocional</th>
-                <th className="px-4 py-3 text-right font-bold">Margem normal</th>
-                <th className="px-4 py-3 text-right font-bold">Nova margem</th>
-                <th className="px-4 py-3 text-center font-bold">Status da oferta</th>
-                <th className="px-4 py-3 text-right font-bold">{reais ? "No canal" : "Ação"}</th>
+                <th className="px-2 py-3 font-bold">Produto / SKU</th>
+                <th className="px-2 py-3 font-bold">Marketplace</th>
+                <th className="px-2 py-3 text-right font-bold">Preço normal</th>
+                <th className="px-2 py-3 text-right font-bold">Preço promocional</th>
+                <th className="px-2 py-3 text-right font-bold">Margem normal</th>
+                <th className="px-2 py-3 text-right font-bold">Nova margem</th>
+                <th className="px-2 py-3 text-center font-bold">Status da oferta</th>
+                <th className="px-2 py-3 text-right font-bold">{reais ? "No canal" : "Ação"}</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -390,7 +390,7 @@ function Decidir() {
                 const ativo = participando[p.id] ?? false;
                 return (
                   <tr key={p.id} className="transition-colors hover:bg-muted/40">
-                    <td className="max-w-[280px] px-4 py-3">
+                    <td className="max-w-[280px] px-2 py-3">
                       <p className="truncate text-xs font-medium">{p.produto}</p>
                       <p className="num text-[10px] text-muted-foreground">
                         {p.sku} · {p.tipo}
@@ -410,21 +410,21 @@ function Decidir() {
                         </p>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-3">
                       <SeloMarketplace id={p.marketplaceId} />
                     </td>
-                    <td className="num px-4 py-3 text-right text-xs">
+                    <td className="num px-2 py-3 text-right text-xs">
                       {formatBRL(p.precoAtual)}
                     </td>
-                    <td className="num px-4 py-3 text-right text-xs font-semibold">
+                    <td className="num px-2 py-3 text-right text-xs font-semibold">
                       {formatBRL(p.precoFinal)}
                     </td>
-                    <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                    <td className="num px-2 py-3 text-right text-xs text-muted-foreground">
                       {formatPercentual(normal.margem)}
                     </td>
                     <td
                       className={cn(
-                        "num px-4 py-3 text-right text-xs font-bold",
+                        "num px-2 py-3 text-right text-xs font-bold",
                         promo.margem >= MARGEM_MINIMA
                           ? "text-profit"
                           : promo.margem >= 0
@@ -434,7 +434,7 @@ function Decidir() {
                     >
                       {formatPercentual(promo.margem)}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-2 py-3 text-center">
                       <span
                         className={cn(
                           "inline-flex rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wide",
@@ -444,7 +444,7 @@ function Decidir() {
                         {s.texto}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-2 py-3 text-right">
                       {p.situacao ? (
                         <span
                           className={cn(

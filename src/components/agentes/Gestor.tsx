@@ -119,7 +119,7 @@ export function PainelAnalista({
         </span>
       </div>
 
-      <div className="flex gap-1 overflow-x-auto border-b px-4 pt-3">
+      <div className="flex flex-wrap gap-1 border-b px-4 pt-3">
         {(
           [
             ["resumo", "Resumo", ""],
@@ -358,14 +358,14 @@ function BlocoComparativo({ c }: { c: Comparativo }) {
         <span className="text-xs font-semibold">{c.rotulo}</span>
         <span className="text-[10px] text-muted-foreground">comparado com {c.rotuloAnterior}</span>
       </div>
-      <div className="overflow-x-auto">
+      <div className="w-full">
         <table className="w-full text-[11px]">
           <thead>
             <tr className="text-[9px] uppercase tracking-wide text-muted-foreground">
-              <th className="px-3 py-1.5 text-left font-medium"></th>
-              <th className="px-3 py-1.5 text-right font-medium">Agora</th>
-              <th className="px-3 py-1.5 text-right font-medium">Antes</th>
-              <th className="px-3 py-1.5 text-right font-medium">Variação</th>
+              <th className="px-1.5 py-1.5 text-left font-medium"></th>
+              <th className="px-1.5 py-1.5 text-right font-medium">Agora</th>
+              <th className="px-1.5 py-1.5 text-right font-medium">Antes</th>
+              <th className="px-1.5 py-1.5 text-right font-medium">Variação</th>
             </tr>
           </thead>
           <tbody>
@@ -375,12 +375,12 @@ function BlocoComparativo({ c }: { c: Comparativo }) {
               const negativo = valorVar !== null && valorVar < 0;
               return (
                 <tr key={l.rotulo} className="border-t">
-                  <td className="px-3 py-1.5 text-muted-foreground">{l.rotulo}</td>
-                  <td className="num px-3 py-1.5 text-right font-semibold">{l.atual}</td>
-                  <td className="num px-3 py-1.5 text-right text-muted-foreground">{l.anterior}</td>
+                  <td className="px-1.5 py-1.5 text-muted-foreground">{l.rotulo}</td>
+                  <td className="num px-1.5 py-1.5 text-right font-semibold">{l.atual}</td>
+                  <td className="num px-1.5 py-1.5 text-right text-muted-foreground">{l.anterior}</td>
                   <td
                     className={cn(
-                      "num px-3 py-1.5 text-right font-semibold",
+                      "num px-1.5 py-1.5 text-right font-semibold",
                       positivo && "text-profit",
                       negativo && "text-loss",
                     )}

@@ -193,16 +193,16 @@ export function PendenciasCanal({ conta }: { conta: ContaMarketplace }) {
         titulo="Anúncios pendentes"
         descricao="Ordenados pelo faturamento histórico do anúncio — resolver os de cima rende mais"
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="px-4 py-2 font-medium">Produto / SKU</th>
-                <th className="px-3 py-2 text-right font-medium">Preço</th>
-                <th className="px-3 py-2 text-right font-medium">Un. vendidas (total)</th>
-                <th className="px-3 py-2 text-right font-medium">Faturamento (total)</th>
-                <th className="px-3 py-2 font-medium">Pendências</th>
-                <th className="px-3 py-2 text-right font-medium">Ação</th>
+                <th className="px-2 py-2 font-medium">Produto / SKU</th>
+                <th className="px-1.5 py-2 text-right font-medium">Preço</th>
+                <th className="px-1.5 py-2 text-right font-medium">Un. vendidas (total)</th>
+                <th className="px-1.5 py-2 text-right font-medium">Faturamento (total)</th>
+                <th className="px-1.5 py-2 font-medium">Pendências</th>
+                <th className="px-1.5 py-2 text-right font-medium">Ação</th>
               </tr>
             </thead>
             <tbody>
@@ -214,20 +214,20 @@ export function PendenciasCanal({ conta }: { conta: ContaMarketplace }) {
                 const faturamento = anuncio.precoAtual * anuncio.unidadesVendidas;
                 return (
                   <tr key={anuncio.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="max-w-[280px] px-4 py-3">
+                    <td className="max-w-[280px] px-2 py-3">
                       <p className="truncate text-xs font-medium">{anuncio.produto}</p>
                       <p className="num text-[10px] text-muted-foreground">{anuncio.sku}</p>
                     </td>
-                    <td className="num px-3 py-3 text-right text-xs">
+                    <td className="num px-1.5 py-3 text-right text-xs">
                       {formatBRL(r.precoVenda)}
                     </td>
-                    <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                    <td className="num px-1.5 py-3 text-right text-xs text-muted-foreground">
                       {formatNumero(anuncio.unidadesVendidas)}
                     </td>
-                    <td className="num px-3 py-3 text-right text-xs font-semibold">
+                    <td className="num px-1.5 py-3 text-right text-xs font-semibold">
                       {formatBRL(faturamento)}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-1.5 py-3">
                       <div className="flex flex-wrap gap-1">
                         {tipos.map((t) => {
                           const meta = TIPOS[t];
@@ -247,7 +247,7 @@ export function PendenciasCanal({ conta }: { conta: ContaMarketplace }) {
                         })}
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-right">
+                    <td className="px-1.5 py-3 text-right">
                       {!anuncio.produtoId && (
                         <Button size="sm" variant="outline" onClick={() => setEmVinculo(anuncio)}>
                           <Link2 className="size-3.5" />
@@ -260,7 +260,7 @@ export function PendenciasCanal({ conta }: { conta: ContaMarketplace }) {
               })}
               {pendentes.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                  <td colSpan={6} className="px-2 py-10 text-center text-xs text-muted-foreground">
                     Nenhum anúncio com esta pendência.
                   </td>
                 </tr>

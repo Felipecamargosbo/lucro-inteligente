@@ -302,17 +302,17 @@ export function Geografia() {
         titulo="Ranking completo por estado"
         descricao="Todos os estados com venda no período, ordenados por faturamento"
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-5 py-2.5 font-medium">Estado</th>
-                <th className="px-3 py-2.5 font-medium">Região</th>
-                <th className="px-3 py-2.5 text-right font-medium">Pedidos</th>
-                <th className="px-3 py-2.5 text-right font-medium">Faturamento</th>
-                <th className="px-3 py-2.5 text-right font-medium">Lucro</th>
-                <th className="px-3 py-2.5 text-right font-medium">Margem</th>
-                <th className="px-3 py-2.5 text-right font-medium">Fatia do faturamento</th>
+                <th className="px-1.5 py-2.5 font-medium">Região</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Pedidos</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Faturamento</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Lucro</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Margem</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Fatia do faturamento</th>
               </tr>
             </thead>
             <tbody>
@@ -321,7 +321,7 @@ export function Geografia() {
                   <td className="px-5 py-3">
                     <span className="text-xs font-medium">{e.uf}</span>
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-1.5 py-3">
                     <span
                       className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
                     >
@@ -332,22 +332,22 @@ export function Geografia() {
                       {e.regiao}
                     </span>
                   </td>
-                  <td className="num px-3 py-3 text-right text-xs">{formatNumero(e.pedidos)}</td>
-                  <td className="num px-3 py-3 text-right text-xs font-semibold">
+                  <td className="num px-1.5 py-3 text-right text-xs">{formatNumero(e.pedidos)}</td>
+                  <td className="num px-1.5 py-3 text-right text-xs font-semibold">
                     {formatBRL(e.faturamento)}
                   </td>
                   <td
                     className={cn(
-                      "num px-3 py-3 text-right text-xs font-bold",
+                      "num px-1.5 py-3 text-right text-xs font-bold",
                       e.lucro >= 0 ? "text-profit" : "text-loss",
                     )}
                   >
                     {formatBRL(e.lucro)}
                   </td>
-                  <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                  <td className="num px-1.5 py-3 text-right text-xs text-muted-foreground">
                     {formatPercentual(e.margem)}
                   </td>
-                  <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                  <td className="num px-1.5 py-3 text-right text-xs text-muted-foreground">
                     {totalFaturamento ? formatPercentual(e.faturamento / totalFaturamento) : "—"}
                   </td>
                 </tr>
@@ -356,9 +356,9 @@ export function Geografia() {
                 <td className="px-5 py-3 text-xs" colSpan={2}>
                   Faturamento total de todos os estados
                 </td>
-                <td className="num px-3 py-3 text-right text-xs">{formatNumero(totalPedidos)}</td>
-                <td className="num px-3 py-3 text-right text-xs">{formatBRL(totalFaturamento)}</td>
-                <td className="px-3 py-3" colSpan={2} />
+                <td className="num px-1.5 py-3 text-right text-xs">{formatNumero(totalPedidos)}</td>
+                <td className="num px-1.5 py-3 text-right text-xs">{formatBRL(totalFaturamento)}</td>
+                <td className="px-1.5 py-3" colSpan={2} />
               </tr>
             </tbody>
           </table>

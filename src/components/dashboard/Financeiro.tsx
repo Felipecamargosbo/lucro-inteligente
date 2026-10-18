@@ -304,14 +304,14 @@ export function Financeiro() {
           titulo="Recebíveis por canal"
           descricao="Prazo médio de repasse e quanto já entrou vs. falta entrar"
         >
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[420px] text-left">
+          <div className="w-full">
+            <table className="w-full text-left">
               <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-5 py-2.5 font-medium">Canal</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Prazo médio</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Recebido</th>
-                  <th className="px-3 py-2.5 text-right font-medium">A receber</th>
+                  <th className="px-1.5 py-2.5 text-right font-medium">Prazo médio</th>
+                  <th className="px-1.5 py-2.5 text-right font-medium">Recebido</th>
+                  <th className="px-1.5 py-2.5 text-right font-medium">A receber</th>
                 </tr>
               </thead>
               <tbody>
@@ -332,13 +332,13 @@ export function Financeiro() {
                             )}
                           </div>
                         </td>
-                        <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                        <td className="num px-1.5 py-3 text-right text-xs text-muted-foreground">
                           D+{c.prazoMedioDias}
                         </td>
-                        <td className="num px-3 py-3 text-right text-xs font-semibold text-profit">
+                        <td className="num px-1.5 py-3 text-right text-xs font-semibold text-profit">
                           {formatBRL(c.recebido)}
                         </td>
-                        <td className="num px-3 py-3 text-right text-xs font-semibold">
+                        <td className="num px-1.5 py-3 text-right text-xs font-semibold">
                           {formatBRL(c.pendente)}
                         </td>
                       </tr>
@@ -351,13 +351,13 @@ export function Financeiro() {
                                 {conta.nome}
                               </span>
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               D+{conta.prazoMedioDias}
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               {formatBRL(conta.recebido)}
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               {formatBRL(conta.pendente)}
                             </td>
                           </tr>
@@ -391,14 +391,14 @@ export function Financeiro() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Painel titulo="Devoluções por canal" descricao="Onde as devoluções mais pesam no faturamento">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[420px] text-left">
+          <div className="w-full">
+            <table className="w-full text-left">
               <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-5 py-2.5 font-medium">Canal</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Pedidos</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Valor devolvido</th>
-                  <th className="px-3 py-2.5 text-right font-medium">% do canal</th>
+                  <th className="px-1.5 py-2.5 text-right font-medium">Pedidos</th>
+                  <th className="px-1.5 py-2.5 text-right font-medium">Valor devolvido</th>
+                  <th className="px-1.5 py-2.5 text-right font-medium">% do canal</th>
                 </tr>
               </thead>
               <tbody>
@@ -419,13 +419,13 @@ export function Financeiro() {
                             )}
                           </div>
                         </td>
-                        <td className="num px-3 py-3 text-right text-xs">
+                        <td className="num px-1.5 py-3 text-right text-xs">
                           {formatNumero(c.pedidosDevolvidos)}
                         </td>
-                        <td className="num px-3 py-3 text-right text-xs font-semibold text-loss">
+                        <td className="num px-1.5 py-3 text-right text-xs font-semibold text-loss">
                           {c.valorDevolvido > 0 ? formatBRL(c.valorDevolvido) : "—"}
                         </td>
-                        <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                        <td className="num px-1.5 py-3 text-right text-xs text-muted-foreground">
                           {c.faturamento ? formatPercentual(c.valorDevolvido / c.faturamento) : "—"}
                         </td>
                       </tr>
@@ -438,13 +438,13 @@ export function Financeiro() {
                                 {conta.nome}
                               </span>
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               {formatNumero(conta.pedidosDevolvidos)}
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               {conta.valorDevolvido > 0 ? formatBRL(conta.valorDevolvido) : "—"}
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               {conta.faturamento
                                 ? formatPercentual(conta.valorDevolvido / conta.faturamento)
                                 : "—"}

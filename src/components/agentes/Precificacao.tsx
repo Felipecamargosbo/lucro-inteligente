@@ -143,7 +143,7 @@ export function PainelPrecificacao({
       </div>
 
       {/* Abas */}
-      <div className="flex gap-1 overflow-x-auto border-b px-4 pt-3">
+      <div className="flex flex-wrap gap-1 border-b px-4 pt-3">
         {ABAS.map(([id, rotulo]) => (
           <button
             key={id}
@@ -469,15 +469,15 @@ function ListaPrecoPorCanal({ lista }: { lista: PrecoPorCanalSku[] }) {
               </span>
             )}
           </div>
-          <div className="mt-2 overflow-x-auto rounded-lg border">
-            <table className="w-full min-w-[520px] text-xs">
+          <div className="mt-2 rounded-lg border">
+            <table className="w-full text-xs">
               <thead>
                 <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                  <th className="px-3 py-2 text-left font-bold">Canal</th>
-                  <th className="px-3 py-2 text-right font-bold">Preço hoje</th>
-                  <th className="px-3 py-2 text-right font-bold">Margem</th>
-                  <th className="px-3 py-2 text-right font-bold">Piso (mínima)</th>
-                  <th className="px-3 py-2 text-right font-bold">Ideal</th>
+                  <th className="px-1.5 py-2 text-left font-bold">Canal</th>
+                  <th className="px-1.5 py-2 text-right font-bold">Preço hoje</th>
+                  <th className="px-1.5 py-2 text-right font-bold">Margem</th>
+                  <th className="px-1.5 py-2 text-right font-bold">Piso (mínima)</th>
+                  <th className="px-1.5 py-2 text-right font-bold">Ideal</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -488,7 +488,7 @@ function ListaPrecoPorCanal({ lista }: { lista: PrecoPorCanalSku[] }) {
                       key={c.anuncio.id}
                       className={cn(c.faixa === "abaixo-do-piso" && "bg-loss-soft/40")}
                     >
-                      <td className="px-3 py-2">
+                      <td className="px-1.5 py-2">
                         <div className="flex items-center gap-1.5">
                           <SeloMarketplace id={c.anuncio.marketplaceId} />
                           <span className="text-[11px]">{conta?.nome ?? "—"}</span>
@@ -496,7 +496,7 @@ function ListaPrecoPorCanal({ lista }: { lista: PrecoPorCanalSku[] }) {
                       </td>
                       <td
                         className={cn(
-                          "num px-3 py-2 text-right font-semibold",
+                          "num px-1.5 py-2 text-right font-semibold",
                           c.faixa === "abaixo-do-piso" && "text-loss",
                           c.faixa === "abaixo-do-ideal" && "text-warning",
                           c.faixa === "ok" && "text-profit",
@@ -504,14 +504,14 @@ function ListaPrecoPorCanal({ lista }: { lista: PrecoPorCanalSku[] }) {
                       >
                         {formatBRL(c.anuncio.precoAtual)}
                       </td>
-                      <td className="num px-3 py-2 text-right">
+                      <td className="num px-1.5 py-2 text-right">
                         {c.margemAtual === null ? "—" : pct(c.margemAtual)}
                       </td>
-                      <td className="num px-3 py-2 text-right text-muted-foreground">
+                      <td className="num px-1.5 py-2 text-right text-muted-foreground">
                         {c.precoMinimo === null ? "sem custo" : formatBRL(c.precoMinimo)}
                         <span className="block text-[9px]">{pct(c.metas.margemMinima)}</span>
                       </td>
-                      <td className="num px-3 py-2 text-right text-muted-foreground">
+                      <td className="num px-1.5 py-2 text-right text-muted-foreground">
                         {c.precoIdeal === null ? "—" : formatBRL(c.precoIdeal)}
                         <span className="block text-[9px]">{pct(c.metas.margemIdeal)}</span>
                       </td>

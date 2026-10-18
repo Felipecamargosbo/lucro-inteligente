@@ -388,15 +388,15 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
           descricao="Quem mais faturou no período — e quanto realmente sobra (depois de ADS)"
           className="xl:col-span-3"
         >
-          <div className="overflow-x-auto">
+          <div className="w-full">
             <table className="w-full text-left">
               <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2 font-medium">Produto</th>
-                  <th className="px-4 py-2 text-center font-medium">ABC</th>
-                  <th className="px-4 py-2 text-right font-medium">Un.</th>
-                  <th className="px-4 py-2 text-right font-medium">Faturamento</th>
-                  <th className="px-4 py-2 text-right font-medium">Lucro</th>
+                  <th className="px-2 py-2 font-medium">Produto</th>
+                  <th className="px-2 py-2 text-center font-medium">ABC</th>
+                  <th className="px-2 py-2 text-right font-medium">Un.</th>
+                  <th className="px-2 py-2 text-right font-medium">Faturamento</th>
+                  <th className="px-2 py-2 text-right font-medium">Lucro</th>
                 </tr>
               </thead>
               <tbody>
@@ -404,13 +404,13 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
                   const lucroTotal = item.lucro;
                   return (
                     <tr key={item.sku} className="border-b last:border-0">
-                      <td className="max-w-[240px] px-4 py-2.5">
+                      <td className="max-w-[240px] px-2 py-2.5">
                         <p className="truncate text-xs font-medium">{item.produto}</p>
                         <p className="num text-[10px] text-muted-foreground">
                           {item.sku}
                         </p>
                       </td>
-                      <td className="px-4 py-2.5 text-center">
+                      <td className="px-2 py-2.5 text-center">
                         <span
                           className={cn(
                             "inline-flex size-5 items-center justify-center rounded text-[10px] font-bold",
@@ -424,13 +424,13 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
                           {item.classe}
                         </span>
                       </td>
-                      <td className="num px-4 py-2.5 text-right text-xs text-muted-foreground">
+                      <td className="num px-2 py-2.5 text-right text-xs text-muted-foreground">
                         {formatNumero(item.unidades)}
                       </td>
-                      <td className="num px-4 py-2.5 text-right text-xs font-semibold">
+                      <td className="num px-2 py-2.5 text-right text-xs font-semibold">
                         {formatBRL(item.faturamento)}
                       </td>
-                      <td className="px-4 py-2.5 text-right">
+                      <td className="px-2 py-2.5 text-right">
                         {item.semCusto ? (
                           <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                             sem custo
@@ -453,7 +453,7 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
                   <tr>
                     <td
                       colSpan={5}
-                      className="px-4 py-10 text-center text-xs text-muted-foreground"
+                      className="px-2 py-10 text-center text-xs text-muted-foreground"
                     >
                       Nenhuma venda registrada neste canal.
                     </td>

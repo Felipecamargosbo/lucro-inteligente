@@ -585,7 +585,7 @@ function TelaTodos({
         dividido entre canais. Para editar, selecione um marketplace específico na barra acima.
       </div>
 
-      <div className="card-glow overflow-x-auto">
+      <div className="card-glow">
         <table className="w-full text-[10px]">
           <thead className="bg-muted/40 text-[8px] uppercase tracking-wide text-muted-foreground">
             <tr>

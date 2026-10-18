@@ -108,7 +108,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       supabase
         .from("anuncios")
         .select(
-          "id, conta_id, produto_id, id_externo, sku, ean, titulo, preco_atual, preco_cheio, em_promocao, comissao_percentual, taxa_fixa, frete_unitario, custo_midia_unitario, custo_afiliado_unitario, origem_taxas, status, unidades_vendidas, data_ultima_venda, estoque, logistica, modalidade, link, nota_media, avaliacoes_total, avaliacoes_ruins, avaliacoes_comentarios, descricao, atributos, catalogo, status_ml, sub_status_ml, user_product_id, atualizado_em",
+          "id, conta_id, produto_id, id_externo, sku, ean, titulo, preco_atual, preco_cheio, em_promocao, comissao_percentual, taxa_fixa, frete_unitario, custo_midia_unitario, custo_afiliado_unitario, origem_taxas, status, unidades_vendidas, data_ultima_venda, estoque, logistica, modalidade, link, foto_url, nota_media, avaliacoes_total, avaliacoes_ruins, avaliacoes_comentarios, descricao, atributos, catalogo, status_ml, sub_status_ml, user_product_id, atualizado_em",
         )
         .eq("perfil_id", perfilId)
         .order("id")
@@ -250,6 +250,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       situacaoCanal: situacaoNoCanal(a.status_ml as string | null, a.sub_status_ml as string[] | null),
       grupoEstoque: (a.user_product_id as string | null) ?? null,
       idExterno: (a.id_externo as string | null) ?? null,
+      fotoUrl: (a.foto_url as string | null) ?? null,
       statusCanal: (a.status_ml as string | null) ?? null,
       atualizadoEm: (a.atualizado_em as string | null) ?? null,
       promocaoAtiva: promocaoAtivaDe(a),

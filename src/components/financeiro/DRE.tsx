@@ -371,15 +371,15 @@ export function DRE({
         titulo="Resumo das contas desta empresa"
         descricao="Para comparar todas de uma olhada antes de descer no detalhe"
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-5 py-2.5 font-medium">Conta</th>
-                <th className="px-3 py-2.5 text-right font-medium">Pedidos</th>
-                <th className="px-3 py-2.5 text-right font-medium">Faturamento</th>
-                <th className="px-3 py-2.5 text-right font-medium">Margem contrib.</th>
-                <th className="px-3 py-2.5 text-right font-medium">Resultado</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Pedidos</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Faturamento</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Margem contrib.</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Resultado</th>
               </tr>
             </thead>
             <tbody>
@@ -393,20 +393,20 @@ export function DRE({
                       </span>
                     </div>
                   </td>
-                  <td className="num px-3 py-3 text-right text-xs">
+                  <td className="num px-1.5 py-3 text-right text-xs">
                     {formatNumero(c.pedidos)}
                   </td>
-                  <td className="num px-3 py-3 text-right text-xs font-semibold">
+                  <td className="num px-1.5 py-3 text-right text-xs font-semibold">
                     {formatBRL(c.faturamento)}
                   </td>
-                  <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                  <td className="num px-1.5 py-3 text-right text-xs text-muted-foreground">
                     {formatPercentual(
                       c.faturamento > 0 ? c.margemContribuicao / c.faturamento : 0,
                     )}
                   </td>
                   <td
                     className={cn(
-                      "num px-3 py-3 text-right text-xs font-bold",
+                      "num px-1.5 py-3 text-right text-xs font-bold",
                       c.resultado >= 0 ? "text-profit" : "text-loss",
                     )}
                   >
@@ -416,16 +416,16 @@ export function DRE({
               ))}
               <tr className="bg-muted/20 font-semibold">
                 <td className="px-5 py-3 text-xs">Total das contas</td>
-                <td className="num px-3 py-3 text-right text-xs">
+                <td className="num px-1.5 py-3 text-right text-xs">
                   {formatNumero(dre.contas.reduce((s, c) => s + c.pedidos, 0))}
                 </td>
-                <td className="num px-3 py-3 text-right text-xs">
+                <td className="num px-1.5 py-3 text-right text-xs">
                   {formatBRL(dre.faturamento)}
                 </td>
-                <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                <td className="num px-1.5 py-3 text-right text-xs text-muted-foreground">
                   {formatPercentual(base > 0 ? dre.margemContribuicao / base : 0)}
                 </td>
-                <td className="num px-3 py-3 text-right text-xs text-profit">
+                <td className="num px-1.5 py-3 text-right text-xs text-profit">
                   {formatBRL(dre.resultadoDasContas)}
                 </td>
               </tr>

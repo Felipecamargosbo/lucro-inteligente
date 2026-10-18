@@ -128,7 +128,7 @@ export function PainelCriativo({
         </span>
       </div>
 
-      <div className="flex gap-1 overflow-x-auto border-b px-4 pt-3">
+      <div className="flex flex-wrap gap-1 border-b px-4 pt-3">
         {abas.map(([id, rotulo]) => (
           <button
             key={id}

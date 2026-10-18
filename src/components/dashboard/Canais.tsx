@@ -328,17 +328,17 @@ export function Canais() {
         titulo="Comparação por canal"
         descricao="Cada canal com o total, e quando tem mais de uma conta, o valor individual de cada loja logo abaixo"
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[680px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-5 py-2.5 font-medium">Canal</th>
-                <th className="px-3 py-2.5 text-right font-medium">Pedidos</th>
-                <th className="px-3 py-2.5 text-right font-medium">Unidades</th>
-                <th className="px-3 py-2.5 text-right font-medium">Faturamento</th>
-                <th className="px-3 py-2.5 text-right font-medium">Lucro</th>
-                <th className="px-3 py-2.5 text-right font-medium">Margem</th>
-                <th className="px-3 py-2.5 text-right font-medium">Vs. anterior</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Pedidos</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Unidades</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Faturamento</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Lucro</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Margem</th>
+                <th className="px-1.5 py-2.5 text-right font-medium">Vs. anterior</th>
               </tr>
             </thead>
             <tbody>
@@ -360,27 +360,27 @@ export function Canais() {
                           )}
                         </div>
                       </td>
-                      <td className="num px-3 py-3 text-right text-xs">{formatNumero(c.pedidos)}</td>
-                      <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                      <td className="num px-1.5 py-3 text-right text-xs">{formatNumero(c.pedidos)}</td>
+                      <td className="num px-1.5 py-3 text-right text-xs text-muted-foreground">
                         {formatNumero(c.unidades)}
                       </td>
-                      <td className="num px-3 py-3 text-right text-xs font-semibold">
+                      <td className="num px-1.5 py-3 text-right text-xs font-semibold">
                         {formatBRL(c.faturamento)}
                       </td>
                       <td
                         className={cn(
-                          "num px-3 py-3 text-right text-xs font-bold",
+                          "num px-1.5 py-3 text-right text-xs font-bold",
                           c.lucro >= 0 ? "text-profit" : "text-loss",
                         )}
                       >
                         {formatBRL(c.lucro)}
                       </td>
-                      <td className="num px-3 py-3 text-right text-xs text-muted-foreground">
+                      <td className="num px-1.5 py-3 text-right text-xs text-muted-foreground">
                         {formatPercentual(c.margem)}
                       </td>
                       <td
                         className={cn(
-                          "num px-3 py-3 text-right text-xs font-bold",
+                          "num px-1.5 py-3 text-right text-xs font-bold",
                           v >= 0 ? "text-profit" : "text-loss",
                         )}
                       >
@@ -399,29 +399,29 @@ export function Canais() {
                                 {conta.nome}
                               </span>
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               {formatNumero(conta.pedidos)}
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               {formatNumero(conta.unidades)}
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               {formatBRL(conta.faturamento)}
                             </td>
                             <td
                               className={cn(
-                                "num px-3 py-2.5 text-right text-[11px]",
+                                "num px-1.5 py-2.5 text-right text-[11px]",
                                 conta.lucro >= 0 ? "text-profit" : "text-loss",
                               )}
                             >
                               {formatBRL(conta.lucro)}
                             </td>
-                            <td className="num px-3 py-2.5 text-right text-[11px] text-muted-foreground">
+                            <td className="num px-1.5 py-2.5 text-right text-[11px] text-muted-foreground">
                               {formatPercentual(conta.margem)}
                             </td>
                             <td
                               className={cn(
-                                "num px-3 py-2.5 text-right text-[11px]",
+                                "num px-1.5 py-2.5 text-right text-[11px]",
                                 vConta >= 0 ? "text-profit" : "text-loss",
                               )}
                             >
@@ -436,10 +436,10 @@ export function Canais() {
               })}
               <tr className="bg-muted/20 font-semibold">
                 <td className="px-5 py-3 text-xs">Total</td>
-                <td className="num px-3 py-3 text-right text-xs">{formatNumero(totalPedidos)}</td>
-                <td className="px-3 py-3" />
-                <td className="num px-3 py-3 text-right text-xs">{formatBRL(totalFaturamento)}</td>
-                <td className="px-3 py-3" colSpan={3} />
+                <td className="num px-1.5 py-3 text-right text-xs">{formatNumero(totalPedidos)}</td>
+                <td className="px-1.5 py-3" />
+                <td className="num px-1.5 py-3 text-right text-xs">{formatBRL(totalFaturamento)}</td>
+                <td className="px-1.5 py-3" colSpan={3} />
               </tr>
             </tbody>
           </table>

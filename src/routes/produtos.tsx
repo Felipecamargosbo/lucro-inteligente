@@ -1167,7 +1167,7 @@ function Precificacao() {
                 <Fragment key={secao.titulo ?? "todos"}>
                   {secao.titulo && (
                     <tr className="border-y bg-brand/10">
-                      <td colSpan={COLUNAS} className="px-3 py-2">
+                      <td colSpan={COLUNAS} className="px-1.5 py-2">
                         <span className="inline-flex items-center gap-1.5 text-xs font-bold">
                           <Tag className="size-3.5 text-brand" />
                           {secao.titulo}
@@ -1185,7 +1185,7 @@ function Precificacao() {
                       <Fragment key={p.id}>
                         {/* Linha do produto */}
                         <tr className="border-t-2 border-white/40 bg-muted/30 [.claro_&]:border-black/70">
-                          <td colSpan={COLUNAS} className="px-3 py-2">
+                          <td colSpan={COLUNAS} className="px-1.5 py-2">
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
                               <button
                                 onClick={() => alternarProduto(p.id)}
@@ -1376,7 +1376,7 @@ function Precificacao() {
 
               {carregandoProdutos && (
                 <tr>
-                  <td colSpan={COLUNAS} className="px-4 py-12 text-center">
+                  <td colSpan={COLUNAS} className="px-2 py-12 text-center">
                     <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                       <Loader2 className="size-3.5 animate-spin" />
                       Carregando seus produtos...
@@ -1386,7 +1386,7 @@ function Precificacao() {
               )}
               {!carregandoProdutos && produtos.length === 0 && (
                 <tr>
-                  <td colSpan={COLUNAS} className="px-4 py-14 text-center">
+                  <td colSpan={COLUNAS} className="px-2 py-14 text-center">
                     <p className="text-xs text-muted-foreground">
                       Nenhum produto cadastrado ainda. Receba os anúncios do marketplace e vincule o
                       CMV de cada um.
@@ -1400,7 +1400,7 @@ function Precificacao() {
               )}
               {!carregandoProdutos && produtos.length > 0 && gruposFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={COLUNAS} className="px-4 py-12 text-center text-xs text-muted-foreground">
+                  <td colSpan={COLUNAS} className="px-2 py-12 text-center text-xs text-muted-foreground">
                     {termoBusca && pendentesVisiveis.length > 0 ? (
                       <>
                         Nenhum <strong>produto cadastrado</strong> com "{busca.trim()}". Mas achei{" "}
@@ -1977,13 +1977,20 @@ function LinhaDoAnuncio({
   return (
     <tr className={cn("border-t-2 border-white/25 text-xs transition-colors hover:bg-muted/20 [.claro_&]:border-black/40", sim && "bg-brand/[0.03]")}>
       <td className="px-1 py-2">
-        <div className="flex max-w-[190px] flex-wrap items-center gap-1 pl-3">
+        <div className="flex items-center gap-2 pl-2">
+          {a.fotoUrl ? (
+            <img src={a.fotoUrl} alt="" loading="lazy" className="size-12 shrink-0 rounded-md border bg-white object-contain" />
+          ) : (
+            <div className="size-12 shrink-0 rounded-md border bg-muted/40" />
+          )}
+        <div className="flex max-w-[160px] flex-wrap items-center gap-1">
           <span className={cn("size-1.5 shrink-0 rounded-full", ponto)} />
           <SeloMarketplace id={a.marketplaceId} />
           <span className="max-w-[90px] truncate text-[10px] text-muted-foreground" title={linha.nomeConta}>
             {linha.nomeConta}
           </span>
           <SelosTipoAnuncio anuncio={a} />
+        </div>
         </div>
       </td>
 
@@ -3217,11 +3224,11 @@ function TabelaGeral({
     return Math.abs(max - min) < 0.005 ? fmt(min) : `${fmt(min)} a ${fmt(max)}`;
   };
   return (
-    <div className="overflow-x-auto border-b">
-      <table className="w-full min-w-[900px] text-left">
+    <div className="w-full border-b">
+      <table className="w-full text-left">
         <thead>
           <tr className="border-b bg-muted/50 text-[9px] uppercase tracking-wide text-muted-foreground">
-            <th className="px-3 py-2.5 font-bold">Produto</th>
+            <th className="px-1.5 py-2.5 font-bold">Produto</th>
             <th className="px-2 py-2.5 text-right font-bold">CMV</th>
             {canais.map((c) => (
               <th key={c} className="border-l px-2 py-2.5 text-center font-bold" colSpan={3}>
@@ -3246,7 +3253,7 @@ function TabelaGeral({
         <tbody>
           {grupos.map((g) => (
             <tr key={g.produto.id} className="border-t border-border/40 text-xs hover:bg-muted/20">
-              <td className="max-w-[320px] px-3 py-2">
+              <td className="max-w-[320px] px-1.5 py-2">
                 <p className="truncate font-medium" title={g.produto.nome}>
                   {g.produto.nome}
                 </p>
@@ -3305,7 +3312,7 @@ function TabelaGeral({
           ))}
           {grupos.length === 0 && (
             <tr>
-              <td colSpan={2 + canais.length * 3} className="px-4 py-10 text-center text-xs text-muted-foreground">
+              <td colSpan={2 + canais.length * 3} className="px-2 py-10 text-center text-xs text-muted-foreground">
                 Nenhum produto com esses filtros.
               </td>
             </tr>

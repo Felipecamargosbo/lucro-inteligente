@@ -224,17 +224,17 @@ function Fulfillment() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] text-left">
+        <div className="w-full">
+          <table className="w-full text-left">
             <thead>
               <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-bold">Produto / SKU</th>
-                <th className="px-4 py-3 text-right font-bold">Qtd no Full</th>
-                <th className="px-4 py-3 text-right font-bold">Vendas/dia (média)</th>
-                <th className="px-4 py-3 text-right font-bold">Cobertura (dias)</th>
-                <th className="px-4 py-3 text-right font-bold">Valor no Full</th>
-                <th className="px-4 py-3 text-center font-bold">Status do estoque</th>
-                <th className="px-4 py-3 text-right font-bold">Ação</th>
+                <th className="px-2 py-3 font-bold">Produto / SKU</th>
+                <th className="px-2 py-3 text-right font-bold">Qtd no Full</th>
+                <th className="px-2 py-3 text-right font-bold">Vendas/dia (média)</th>
+                <th className="px-2 py-3 text-right font-bold">Cobertura (dias)</th>
+                <th className="px-2 py-3 text-right font-bold">Valor no Full</th>
+                <th className="px-2 py-3 text-center font-bold">Status do estoque</th>
+                <th className="px-2 py-3 text-right font-bold">Ação</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -242,22 +242,22 @@ function Fulfillment() {
                 const s = statusFull(i);
                 return (
                   <tr key={i.sku} className="transition-colors hover:bg-muted/40">
-                    <td className="max-w-[300px] px-4 py-3">
+                    <td className="max-w-[300px] px-2 py-3">
                       <p className="truncate text-xs font-medium">{i.produto}</p>
                       <div className="mt-1 flex items-center gap-2">
                         <span className="num text-[10px] text-muted-foreground">{i.sku}</span>
                         <SeloMarketplace id={i.marketplaceId} />
                       </div>
                     </td>
-                    <td className="num px-4 py-3 text-right text-xs">
+                    <td className="num px-2 py-3 text-right text-xs">
                       {formatNumero(i.quantidade)}
                     </td>
-                    <td className="num px-4 py-3 text-right text-xs text-muted-foreground">
+                    <td className="num px-2 py-3 text-right text-xs text-muted-foreground">
                       {i.vendasDia.toFixed(1).replace(".", ",")}
                     </td>
                     <td
                       className={cn(
-                        "num px-4 py-3 text-right text-xs font-bold",
+                        "num px-2 py-3 text-right text-xs font-bold",
                         i.quantidade === 0 || i.coberturaDias < 7
                           ? "text-loss"
                           : i.coberturaDias > 60
@@ -267,10 +267,10 @@ function Fulfillment() {
                     >
                       {i.quantidade === 0 ? "—" : `${i.coberturaDias} d`}
                     </td>
-                    <td className="num px-4 py-3 text-right text-xs">
+                    <td className="num px-2 py-3 text-right text-xs">
                       {formatBRL(i.valorEstoque)}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-2 py-3 text-center">
                       <span
                         className={cn(
                           "inline-flex rounded px-2 py-1 text-[10px] font-bold",
@@ -280,7 +280,7 @@ function Fulfillment() {
                         {s.texto}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-2 py-3 text-right">
                       <Button
                         size="sm"
                         className="h-7 bg-brand text-[11px] text-brand-foreground hover:bg-brand/90"
@@ -294,7 +294,7 @@ function Fulfillment() {
               })}
               {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                  <td colSpan={7} className="px-2 py-10 text-center text-xs text-muted-foreground">
                     Nenhum produto neste filtro.
                   </td>
                 </tr>

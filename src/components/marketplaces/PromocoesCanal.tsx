@@ -136,16 +136,16 @@ export function PromocoesCanal({ conta }: { conta: ContaMarketplace }) {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left">
+          <div className="w-full">
+            <table className="w-full text-left">
               <thead className="border-b bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2 font-medium">Produto / SKU</th>
-                  <th className="px-3 py-2 text-right font-medium">Preço hoje</th>
-                  <th className="px-3 py-2 text-right font-medium">Preço na campanha</th>
-                  <th className="px-3 py-2 text-right font-medium">Sobra hoje</th>
-                  <th className="px-3 py-2 text-right font-medium">Sobra na campanha</th>
-                  <th className="px-3 py-2 text-center font-medium">Veredito</th>
+                  <th className="px-2 py-2 font-medium">Produto / SKU</th>
+                  <th className="px-1.5 py-2 text-right font-medium">Preço hoje</th>
+                  <th className="px-1.5 py-2 text-right font-medium">Preço na campanha</th>
+                  <th className="px-1.5 py-2 text-right font-medium">Sobra hoje</th>
+                  <th className="px-1.5 py-2 text-right font-medium">Sobra na campanha</th>
+                  <th className="px-1.5 py-2 text-center font-medium">Veredito</th>
                 </tr>
               </thead>
               <tbody>
@@ -154,17 +154,17 @@ export function PromocoesCanal({ conta }: { conta: ContaMarketplace }) {
                   const virou = !semCusto && atual.lucroLiquido >= 0 && comDesconto.lucroLiquido < 0;
                   return (
                     <tr key={anuncio.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="max-w-[240px] px-4 py-3">
+                      <td className="max-w-[240px] px-2 py-3">
                         <p className="truncate text-xs font-medium">{anuncio.produto}</p>
                         <p className="num text-[10px] text-muted-foreground">{anuncio.sku}</p>
                       </td>
-                      <td className="num px-3 py-3 text-right text-xs">
+                      <td className="num px-1.5 py-3 text-right text-xs">
                         {formatBRL(atual.precoVenda)}
                       </td>
-                      <td className="num px-3 py-3 text-right text-xs font-semibold">
+                      <td className="num px-1.5 py-3 text-right text-xs font-semibold">
                         {formatBRL(comDesconto.precoVenda)}
                       </td>
-                      <td className="px-3 py-3 text-right">
+                      <td className="px-1.5 py-3 text-right">
                         {semCusto ? (
                           <span className="text-[10px] text-muted-foreground">—</span>
                         ) : (
@@ -178,7 +178,7 @@ export function PromocoesCanal({ conta }: { conta: ContaMarketplace }) {
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-3 text-right">
+                      <td className="px-1.5 py-3 text-right">
                         {semCusto ? (
                           <span className="text-[10px] text-muted-foreground">—</span>
                         ) : (
@@ -204,7 +204,7 @@ export function PromocoesCanal({ conta }: { conta: ContaMarketplace }) {
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-3 text-center">
+                      <td className="px-1.5 py-3 text-center">
                         {semCusto ? (
                           <span className="rounded bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
                             sem cálculo
