@@ -95,6 +95,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { Anuncio, MarketplaceId, Produto } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 // A tela continua no endereço /produtos (é o mesmo lugar da antiga tela
 // Custos), só mudou de nome e ganhou a planilha completa de preço.
@@ -1023,6 +1024,7 @@ function Precificacao() {
               <div className="divide-y">
                 {pendentesVisiveis.map((a) => (
                   <div key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
+                    <FotoAnuncio anuncioId={a.id} />
                     <div className="min-w-[200px] flex-1">
                       <p className="truncate text-xs font-medium">{a.produto}</p>
                       <p className="num text-[10px] text-muted-foreground">{a.sku}</p>
@@ -3253,12 +3255,12 @@ function TabelaGeral({
         <tbody>
           {grupos.map((g) => (
             <tr key={g.produto.id} className="border-t border-border/40 text-xs hover:bg-muted/20">
-              <td className="max-w-[320px] px-1.5 py-2">
+              <td className="max-w-[320px] px-1.5 py-2"><div className="flex items-center gap-2"><FotoAnuncio sku={g.produto.sku} /><div className="min-w-0">
                 <p className="truncate font-medium" title={g.produto.nome}>
                   {g.produto.nome}
                 </p>
                 <p className="num text-[10px] text-muted-foreground">SKU {g.produto.sku}</p>
-              </td>
+              </div></div></td>
               <td className="num px-2 py-2 text-right">{formatBRL(g.produto.cmv)}</td>
               {canais.map((c) => {
                 const ls = g.linhas.filter((l) => l.anuncio.marketplaceId === c);

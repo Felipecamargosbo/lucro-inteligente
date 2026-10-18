@@ -9,6 +9,7 @@ import { useConfiguracoes } from "@/context/configuracoes";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { Anuncio, ContaMarketplace } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 type TipoPendencia = "sem-custo" | "sem-vinculo" | "taxa-estimada";
 
@@ -214,10 +215,10 @@ export function PendenciasCanal({ conta }: { conta: ContaMarketplace }) {
                 const faturamento = anuncio.precoAtual * anuncio.unidadesVendidas;
                 return (
                   <tr key={anuncio.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="max-w-[280px] px-2 py-3">
+                    <td className="max-w-[280px] px-2 py-3"><div className="flex items-center gap-2"><FotoAnuncio anuncioId={anuncio.id} /><div className="min-w-0">
                       <p className="truncate text-xs font-medium">{anuncio.produto}</p>
                       <p className="num text-[10px] text-muted-foreground">{anuncio.sku}</p>
-                    </td>
+                    </div></div></td>
                     <td className="num px-1.5 py-3 text-right text-xs">
                       {formatBRL(r.precoVenda)}
                     </td>

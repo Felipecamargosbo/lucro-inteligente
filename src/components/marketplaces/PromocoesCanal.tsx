@@ -8,6 +8,7 @@ import { useConfiguracoes } from "@/context/configuracoes";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 /**
  * Promoções do canal. A pergunta que a tela responde não é "quanto desconto
@@ -154,10 +155,10 @@ export function PromocoesCanal({ conta }: { conta: ContaMarketplace }) {
                   const virou = !semCusto && atual.lucroLiquido >= 0 && comDesconto.lucroLiquido < 0;
                   return (
                     <tr key={anuncio.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="max-w-[240px] px-2 py-3">
+                      <td className="max-w-[240px] px-2 py-3"><div className="flex items-center gap-2"><FotoAnuncio anuncioId={anuncio.id} /><div className="min-w-0">
                         <p className="truncate text-xs font-medium">{anuncio.produto}</p>
                         <p className="num text-[10px] text-muted-foreground">{anuncio.sku}</p>
-                      </td>
+                      </div></div></td>
                       <td className="num px-1.5 py-3 text-right text-xs">
                         {formatBRL(atual.precoVenda)}
                       </td>

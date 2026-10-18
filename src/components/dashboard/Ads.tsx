@@ -25,6 +25,7 @@ import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { ExportarDados } from "@/components/comum/ExportarDados";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace, HistoricoAdsDia, MarketplaceId, Pedido, Periodo } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 /**
  * O sistema ainda não tem a conexão com a API de anúncios de cada
@@ -655,7 +656,7 @@ export function Ads() {
               return (
                 <div key={item.sku} className="space-y-1.5 px-5 py-3">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="truncate text-xs font-medium">{item.produto}</p>
+                    <span className="flex min-w-0 items-center gap-2"><FotoAnuncio sku={item.sku} /><span className="truncate text-xs font-medium">{item.produto}</span></span>
                     <p className="num shrink-0 text-[10px] text-muted-foreground">{item.sku}</p>
                   </div>
 

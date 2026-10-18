@@ -17,6 +17,7 @@ import {
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ItemEstoqueDetalhado } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 export const Route = createFileRoute("/fulfillment")({
   head: () => ({
@@ -242,13 +243,13 @@ function Fulfillment() {
                 const s = statusFull(i);
                 return (
                   <tr key={i.sku} className="transition-colors hover:bg-muted/40">
-                    <td className="max-w-[300px] px-2 py-3">
+                    <td className="max-w-[300px] px-2 py-3"><div className="flex items-center gap-2"><FotoAnuncio sku={i.sku} /><div className="min-w-0">
                       <p className="truncate text-xs font-medium">{i.produto}</p>
                       <div className="mt-1 flex items-center gap-2">
                         <span className="num text-[10px] text-muted-foreground">{i.sku}</span>
                         <SeloMarketplace id={i.marketplaceId} />
                       </div>
-                    </td>
+                    </div></div></td>
                     <td className="num px-2 py-3 text-right text-xs">
                       {formatNumero(i.quantidade)}
                     </td>

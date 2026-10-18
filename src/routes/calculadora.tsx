@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { MarketplaceId } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 export const Route = createFileRoute("/calculadora")({
   head: () => ({
@@ -869,7 +870,7 @@ function PuxarDoAnuncio({
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-muted"
             >
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{a.produto}</span>
+                <span className="flex items-center gap-2"><FotoAnuncio anuncioId={a.id} className="size-7" /><span className="block truncate font-medium">{a.produto}</span></span>
                 <span className="block text-[10px] text-muted-foreground">
                   SKU {a.sku}
                   {a.catalogo ? " · Catálogo" : ""}

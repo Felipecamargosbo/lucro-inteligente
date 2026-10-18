@@ -29,6 +29,7 @@ import {
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 
 interface ItemAbcPeriodo {
@@ -404,12 +405,12 @@ export function DashboardCanal({ conta }: { conta: ContaMarketplace }) {
                   const lucroTotal = item.lucro;
                   return (
                     <tr key={item.sku} className="border-b last:border-0">
-                      <td className="max-w-[240px] px-2 py-2.5">
+                      <td className="max-w-[240px] px-2 py-2.5"><div className="flex items-center gap-2"><FotoAnuncio sku={item.sku} /><div className="min-w-0">
                         <p className="truncate text-xs font-medium">{item.produto}</p>
                         <p className="num text-[10px] text-muted-foreground">
                           {item.sku}
                         </p>
-                      </td>
+                      </div></div></td>
                       <td className="px-2 py-2.5 text-center">
                         <span
                           className={cn(

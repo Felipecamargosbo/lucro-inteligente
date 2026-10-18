@@ -11,6 +11,7 @@ import { ExportarDados } from "@/components/comum/ExportarDados";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { Anuncio, FaixaSaudeMargem, ContaMarketplace, MetasMargem } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 /* ------------------------------------------------------------------ */
 /* Faixas de saúde — sempre relativas às metas do canal               */
@@ -150,7 +151,7 @@ function LinhaAnuncio({
     <>
       <tr className={cn("border-t transition-colors hover:bg-muted/30", simulando && "bg-brand-soft/30")}>
         {/* Produto */}
-        <td className="max-w-[230px] px-4 py-3">
+        <td className="max-w-[230px] px-4 py-3"><div className="flex items-center gap-2"><FotoAnuncio anuncioId={anuncio.id} /><div className="min-w-0">
           <p className="truncate text-xs font-medium">{anuncio.produto}</p>
           <p className="num text-[10px] text-muted-foreground">{anuncio.sku}</p>
           <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -170,7 +171,7 @@ function LinhaAnuncio({
               </span>
             )}
           </div>
-        </td>
+        </div></div></td>
 
         {/* Preço */}
         <td className="num px-3 py-3 text-right text-xs font-semibold whitespace-nowrap">

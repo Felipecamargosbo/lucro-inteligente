@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { MarketplaceId, Pedido, Periodo } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 /** Um canal em que o produto vendeu, com a(s) loja(s)/subconta(s) daquele
  * canal que efetivamente venderam — é essa parte que faltava: sem ela, dois
@@ -254,10 +255,10 @@ export function ProdutosMaisVendidos() {
                   onClick={() => setSelecionado(p)}
                   className="cursor-pointer transition-colors hover:bg-muted/40"
                 >
-                  <td className="max-w-[260px] px-2 py-3">
+                  <td className="max-w-[260px] px-2 py-3"><div className="flex items-center gap-2"><FotoAnuncio sku={p.sku} /><div className="min-w-0">
                     <p className="truncate text-xs font-medium">{p.produto}</p>
                     <p className="num text-[10px] text-muted-foreground">{p.sku}</p>
-                  </td>
+                  </div></div></td>
                   <td className="px-2 py-3">
                     <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                       {p.canais.map((c) => (

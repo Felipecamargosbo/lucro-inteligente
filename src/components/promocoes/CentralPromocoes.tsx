@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { Anuncio, Promocao } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 /** Telas do Mercado Livre para o que a API não cria. */
 const LINK_ML = {
@@ -709,6 +710,7 @@ function BlocoAnuncio({
         <td colSpan={10} className="px-3 py-2">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <Checkbox checked={marcado} onCheckedChange={(v) => aoMarcar(v === true)} />
+            <FotoAnuncio anuncioId={a.id} />
             <span className="max-w-[380px] truncate text-xs font-bold" title={a.produto}>
               {a.produto}
             </span>

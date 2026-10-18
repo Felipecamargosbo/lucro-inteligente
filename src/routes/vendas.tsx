@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { FaixaSaudeMargem, Pedido, TipoLogistica } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 export const Route = createFileRoute("/vendas")({
   head: () => ({
@@ -450,7 +451,7 @@ function Vendas() {
                       {contaPorId.get(p.contaId)?.nome ?? "—"}
                     </p>
                   </td>
-                  <td className="max-w-[240px] px-2 py-3">
+                  <td className="max-w-[240px] px-2 py-3"><div className="flex items-center gap-2"><FotoAnuncio sku={p.sku} /><div className="min-w-0">
                     <p className="truncate text-xs font-medium">{p.produto}</p>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1">
                       <span className="num text-[10px] text-muted-foreground">{p.sku}</span>
@@ -474,7 +475,7 @@ function Vendas() {
                         </span>
                       )}
                     </div>
-                  </td>
+                  </div></div></td>
                   <td className="num px-2 py-3 text-center text-xs">{p.quantidade}</td>
                   <td className="num px-2 py-3 text-right text-xs font-semibold">
                     {formatBRL(p.faturamento)}

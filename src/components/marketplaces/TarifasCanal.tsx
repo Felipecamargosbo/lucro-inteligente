@@ -5,6 +5,7 @@ import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { ContaMarketplace } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 /** Janela usada para o frete médio que o seller está pagando de verdade. */
 const DIAS_FRETE = 90;
@@ -202,10 +203,10 @@ export function TarifasCanal({ conta }: { conta: ContaMarketplace }) {
             <tbody>
               {filtradas.slice(0, 300).map((l) => (
                 <tr key={l.id} className="border-b last:border-0">
-                  <td className="max-w-[280px] px-2 py-2.5">
+                  <td className="max-w-[280px] px-2 py-2.5"><div className="flex items-center gap-2"><FotoAnuncio sku={l.sku} /><div className="min-w-0">
                     <p className="truncate text-xs font-medium">{l.produto}</p>
                     <p className="num text-[10px] text-muted-foreground">{l.sku}</p>
-                  </td>
+                  </div></div></td>
                   <td className="px-2 py-2.5 text-xs">{l.tipo}</td>
                   <td className="num px-2 py-2.5 text-right text-xs">{formatBRL(l.preco)}</td>
                   <td className="num px-2 py-2.5 text-right text-xs">

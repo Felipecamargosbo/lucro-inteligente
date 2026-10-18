@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { Campanha } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 type FiltroStatus = "todas" | "ativa" | "encerrada";
 
@@ -411,10 +412,10 @@ function DetalheCampanha({
                         onClick={() => setProdutoAberto({ sku: p.sku, nome: p.produto })}
                         className="cursor-pointer transition-colors hover:bg-muted/40"
                       >
-                        <td className="max-w-[240px] px-2 py-2.5">
+                        <td className="max-w-[240px] px-2 py-2.5"><div className="flex items-center gap-2"><FotoAnuncio sku={p.sku} /><div className="min-w-0">
                           <p className="truncate font-medium">{p.produto}</p>
                           <p className="num text-[10px] text-muted-foreground">{p.sku}</p>
-                        </td>
+                        </div></div></td>
                         <td className="num px-2 py-2.5 text-right">{p.unidades}</td>
                         <td className="num px-2 py-2.5 text-right">{formatBRL(p.receita)}</td>
                         <td

@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { Anuncio, Promocao } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 export const Route = createFileRoute("/promocoes")({
   head: () => ({
@@ -390,7 +391,7 @@ function Decidir() {
                 const ativo = participando[p.id] ?? false;
                 return (
                   <tr key={p.id} className="transition-colors hover:bg-muted/40">
-                    <td className="max-w-[280px] px-2 py-3">
+                    <td className="max-w-[280px] px-2 py-3"><div className="flex items-center gap-2"><FotoAnuncio sku={p.sku} /><div className="min-w-0">
                       <p className="truncate text-xs font-medium">{p.produto}</p>
                       <p className="num text-[10px] text-muted-foreground">
                         {p.sku} · {p.tipo}
@@ -409,7 +410,7 @@ function Decidir() {
                             : ""}
                         </p>
                       )}
-                    </td>
+                    </div></div></td>
                     <td className="px-2 py-3">
                       <SeloMarketplace id={p.marketplaceId} />
                     </td>
