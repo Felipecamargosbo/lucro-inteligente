@@ -14,6 +14,7 @@
 import type { Anuncio } from "@/types";
 import type { PrecoPlanejado } from "@/services";
 import {
+  comRebate,
   detalharPreco,
   precoParaMargem,
   type AjusteCusto,
@@ -118,10 +119,21 @@ export function contaDaLinha(p: {
     if (Math.abs(preco - a.precoAtual) < 0.005) return null;
     return p.custos(preco) ?? null;
   };
-  const calc = (preco: number) => detalharPreco(comCmv, preco, ajuste, cfg, undefined, canal(preco));
+  // Na promoção que está valendo, a redução de tarifa do canal (rebate) entra no lucro.
+  const rebateAtivo = ativa?.rebate ?? 0;
+  const calc = (preco: number) => {
+    const d = detalharPreco(comCmv, preco, ajuste, cfg, undefined, canal(preco));
+    return ativa && Math.abs(preco - ativa.preco) < 0.005 ? comRebate(d, rebateAtivo) : d;
+  };
 
-  const simulacao = envio === "alterado" || envio === "erro";
-  const precoCalculo = simulacao ? (planoPromo ?? planoCheio ?? precoCliente) : precoCliente;
+  // Os custos, o lucro e a margem da linha são os do preço que o seller
+  // digitou (promocional, ou o cheio sem promoção). Quando esse preço é
+  // diferente do que o cliente paga agora, a linha é uma simulação (azul) e
+  // o "agora" aparece pequeno embaixo.
+  const precoPlano = planoPromo ?? planoCheio;
+  const simulacao =
+    envio === "alterado" || envio === "erro" || (precoPlano !== null && Math.abs(precoPlano - precoCliente) >= 0.01);
+  const precoCalculo = simulacao ? (precoPlano ?? precoCliente) : precoCliente;
   const det = calc(precoCalculo);
   const detAgora = simulacao ? calc(precoCliente) : det;
   const detPlanoPromo =
@@ -240,6 +252,8 @@ const exemplosDe = (l: LinhaParaAviso[]) => l.slice(0, 3).map((x) => x.anuncio.p
 export function avisosPrecoPromocao(
   linhas: LinhaParaAviso[],
   propostasQueCabem: { campanha: string; quantidade: number }[],
+  /** Propostas do ML com redução de tarifa (rebate) */
+  rebates?: { valem: string[]; naoValem: number; total: number },
 ): AvisoPreco[] {
   const avisos: AvisoPreco[] = [];
   const dias = (iso: string | null | undefined) =>
@@ -333,6 +347,20 @@ export function avisosPrecoPromocao(
       destino: "/produtos",
       exemplos: exemplosDe(frete),
       quantidade: frete.length,
+    });
+
+  if (rebates && rebates.total > 0)
+    avisos.push({
+      id: "rebate",
+      gravidade: rebates.valem.length > 0 ? "verde" : "amarelo",
+      titulo: `${rebates.total} proposta(s) do Mercado Livre com redução de tarifa`,
+      texto:
+        rebates.valem.length > 0
+          ? `${rebates.valem.length} valem a pena: o ML devolve parte da tarifa e o lucro fica na sua margem mínima.${rebates.naoValem ? ` ${rebates.naoValem} não compensam.` : ""}`
+          : "Mesmo com a redução de tarifa, nenhuma cabe na sua margem mínima agora.",
+      destino: "/promocoes",
+      exemplos: rebates.valem.slice(0, 3),
+      quantidade: rebates.total,
     });
 
   const cabem = propostasQueCabem.filter((p) => p.quantidade > 0);

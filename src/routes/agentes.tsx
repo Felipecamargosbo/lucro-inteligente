@@ -82,7 +82,7 @@ import {
   listaPalavrasSeller,
   montarInformacoesProduto,
 } from "@/lib/criativo";
-import { anuncioComAjuste, type AjusteCusto } from "@/lib/precificacao";
+import { anuncioComAjuste, comRebate, type AjusteCusto } from "@/lib/precificacao";
 import { montarComparativos, montarTop3, type AgenteTop } from "@/lib/gestor";
 import { useBasePrecificacao } from "@/hooks/use-base-precificacao";
 import { anunciosVisiveis, avisosPrecoPromocao } from "@/lib/linha-preco";
@@ -372,19 +372,30 @@ function Agentes() {
   const avisosPreco = useMemo(() => {
     const porId = new Map(linhasPreco.map((l) => [l.anuncio.id, l]));
     const cabem = new Map<string, number>();
+    const rebates = { valem: [] as string[], naoValem: 0, total: 0 };
     for (const p of promocoesService.listar()) {
       if (p.situacao === "participando" || !p.anuncioId) continue;
       const l = porId.get(p.anuncioId);
       if (!l) continue;
-      const det = basePreco.noPreco(l.anuncio, p.precoFinal);
-      if (det.margem >= l.margemMinima) {
+      // A redução de tarifa que o ML devolve (rebate) entra no lucro.
+      const det = comRebate(basePreco.noPreco(l.anuncio, p.precoFinal), p.rebate);
+      const cabe = det.margem >= l.margemMinima;
+      if (cabe) {
         const nome = p.campanha ?? p.tipo;
         cabem.set(nome, (cabem.get(nome) ?? 0) + 1);
+      }
+      if (p.rebate > 0) {
+        rebates.total++;
+        // Vale a pena: cabe na margem mínima e o lucro por venda não cai muito.
+        const agora = l.conta.detAgora.lucro;
+        if (cabe && det.lucro >= agora * 0.8) rebates.valem.push(l.anuncio.produto);
+        else rebates.naoValem++;
       }
     }
     return avisosPrecoPromocao(
       linhasPreco,
       [...cabem.entries()].map(([campanha, quantidade]) => ({ campanha, quantidade })),
+      rebates,
     );
   }, [linhasPreco, basePreco.noPreco]);
 

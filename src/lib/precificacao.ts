@@ -111,6 +111,15 @@ export interface Detalhamento {
   outros: number;
   lucro: number;
   margem: number;
+  /** Redução de tarifa que o canal devolve na promoção (rebate), em R$ */
+  rebate?: number;
+}
+
+/** O mesmo detalhamento com a redução de tarifa (rebate) do canal somada ao lucro. */
+export function comRebate(d: Detalhamento, rebate: number | null | undefined): Detalhamento {
+  if (!rebate || rebate <= 0) return d;
+  const lucro = d.lucro + rebate;
+  return { ...d, rebate, lucro, margem: d.preco > 0 ? lucro / d.preco : 0 };
 }
 
 function adsNoPreco(a: Anuncio, ajuste: AjusteCusto, preco: number): number {

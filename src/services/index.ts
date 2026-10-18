@@ -798,6 +798,8 @@ export const precosMlService = {
       preco: number;
       precoPromo?: number | null;
       promocao?: { tipo: "PRICE_DISCOUNT" | "SELLER_CAMPAIGN"; idPromocao?: string } | null;
+      /** Etapa 2 sozinha: não mexe no preço cheio, só entra na promoção */
+      soPromocao?: boolean;
     }[],
   ): Promise<{ anuncioId: string; ok: boolean; erro?: string; promoOk?: boolean | null; erroPromo?: string | null }[]> => {
     if (emDemonstracao()) {

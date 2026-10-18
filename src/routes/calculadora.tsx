@@ -1,7 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfiguracoes } from "@/context/configuracoes";
-import { Target } from "lucide-react";
+import { Download, Search, Target } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useBasePrecificacao } from "@/hooks/use-base-precificacao";
+import { anunciosVisiveis } from "@/lib/linha-preco";
+import { anunciosService } from "@/services";
+import { toast } from "sonner";
+import type { Anuncio } from "@/types";
 import { formatBRL, formatPercentual } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
@@ -202,6 +209,37 @@ function Calculadora() {
   }, [fiscal]);
   const [detalheAberto, setDetalheAberto] = useState<CanalId | null>(null);
 
+  const base = useBasePrecificacao();
+  /** Anúncio de onde vieram os números (pra mostrar embaixo dos campos) */
+  const [puxado, setPuxado] = useState<Partial<Record<CanalId, string>>>({});
+
+  /** Preenche o canal com os números reais de um anúncio: preço que o cliente
+   * paga hoje, CMV do produto, comissão, taxa fixa e frete do canal, imposto,
+   * Ads e outros custos (os mesmos da Precificação). */
+  const puxarDoAnuncio = (canal: CanalId, a: Anuncio) => {
+    const preco = a.promocaoAtiva?.preco ?? a.precoAtual;
+    const d = base.noPreco(a, preco);
+    const br = (n: number) => n.toFixed(2).replace(".", ",");
+    impostoEditado.current = true;
+    setDados((prev) => ({
+      ...prev,
+      [canal]: {
+        ...prev[canal],
+        precoVenda: br(preco),
+        cmv: br(d.cmv),
+        comissao: br(preco > 0 ? (d.comissao / preco) * 100 : 0),
+        taxaFixa: br(d.taxaFixa),
+        frete: br(d.frete),
+        imposto: br(preco > 0 ? (d.imposto / preco) * 100 : 0),
+        embalagem: br(d.outros),
+        ads: br(preco > 0 ? (d.ads / preco) * 100 : 0),
+      },
+    }));
+    setPuxado((p) => ({ ...p, [canal]: `${a.produto} (SKU ${a.sku})` }));
+    if (!d.cmv) toast.warning("Este anúncio está sem CMV. Vincule o produto na Precificação.");
+    else toast.success("Números do anúncio puxados para a calculadora.");
+  };
+
   const atualizarCampo = (canal: CanalId, campo: keyof CamposCanal, valor: string) => {
     if (campo === "imposto") impostoEditado.current = true;
     setDados((prev) => ({ ...prev, [canal]: { ...prev[canal], [campo]: valor } }));
@@ -272,6 +310,18 @@ function Calculadora() {
               titulo="Dados da simulação"
               descricao={`Custos do produto neste canal (${CANAIS_INFO.find((c) => c.id === canalAtivo)?.nome})`}
             >
+              <div className="flex flex-wrap items-center gap-2 border-b px-5 py-3">
+                <PuxarDoAnuncio
+                  canal={canalAtivo!}
+                  pronto={base.pronto}
+                  aoEscolher={(a) => puxarDoAnuncio(canalAtivo!, a)}
+                />
+                {puxado[canalAtivo!] && (
+                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                    Valores de: <strong className="text-foreground">{puxado[canalAtivo!]}</strong> — mude o que quiser
+                  </span>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-3 p-5">
                 <Campo
                   rotulo="Preço de venda desejado"
@@ -761,5 +811,76 @@ function LinhaDre({ rotulo, valor }: { rotulo: string; valor: number }) {
       <span className="text-muted-foreground">{rotulo}</span>
       <span className="num font-medium text-loss">{formatBRL(valor)}</span>
     </div>
+  );
+}
+
+/** Escolher um anúncio do canal pra puxar CMV, taxas e frete pra calculadora. */
+function PuxarDoAnuncio({
+  canal,
+  pronto,
+  aoEscolher,
+}: {
+  canal: CanalId;
+  pronto: boolean;
+  aoEscolher: (a: Anuncio) => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [busca, setBusca] = useState("");
+  const lista = useMemo(
+    () => (aberto ? anunciosVisiveis(anunciosService.listar()).filter((a) => a.marketplaceId === canal) : []),
+    [aberto, canal],
+  );
+  const termo = busca.trim().toLowerCase();
+  const achados = (termo
+    ? lista.filter((a) => `${a.produto} ${a.sku} ${a.idExterno ?? ""}`.toLowerCase().includes(termo))
+    : lista
+  ).slice(0, 40);
+  return (
+    <Popover open={aberto} onOpenChange={setAberto}>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="outline" className="h-8 text-xs" disabled={!pronto}>
+          <Download className="size-3.5" />
+          Puxar de um anúncio
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-96 space-y-2 p-3">
+        <p className="text-xs font-semibold">Puxar CMV, taxas e frete de um anúncio</p>
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            autoFocus
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Nome, SKU ou MLB"
+            className="h-8 pl-7 text-xs"
+          />
+        </div>
+        <div className="max-h-72 space-y-0.5 overflow-y-auto">
+          {achados.length === 0 && (
+            <p className="py-4 text-center text-[11px] text-muted-foreground">Nenhum anúncio encontrado neste canal.</p>
+          )}
+          {achados.map((a) => (
+            <button
+              key={a.id}
+              onClick={() => {
+                aoEscolher(a);
+                setAberto(false);
+              }}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-muted"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{a.produto}</span>
+                <span className="block text-[10px] text-muted-foreground">
+                  SKU {a.sku}
+                  {a.catalogo ? " · Catálogo" : ""}
+                  {a.tipoAnuncio ? ` · ${a.tipoAnuncio}` : ""}
+                </span>
+              </span>
+              <span className="num shrink-0 font-semibold">{formatBRL(a.promocaoAtiva?.preco ?? a.precoAtual)}</span>
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

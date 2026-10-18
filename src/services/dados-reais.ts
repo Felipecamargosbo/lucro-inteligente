@@ -208,6 +208,11 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
     const camp = campanhaAtivaPorAnuncio.get(a.id as string);
     const preco = num(a.preco_atual);
     const cheio = a.preco_cheio === null || a.preco_cheio === undefined ? null : num(a.preco_cheio);
+    // O ML devolve parte do desconto como redução de tarifa (% do preço cheio).
+    const rebateEm = (base: number) =>
+      camp && num(camp.desconto_canal_percentual) > 0
+        ? Math.round(base * num(camp.desconto_canal_percentual)) / 100
+        : 0;
     if (cheio !== null && cheio > preco) {
       return {
         nome: (camp?.nome as string) ?? "Desconto no preço",
@@ -215,6 +220,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
         preco,
         precoCheio: cheio,
         fim: (camp?.fim as string | null) ?? null,
+        rebate: rebateEm(num(camp?.preco_original) || cheio),
       };
     }
     if (camp && num(camp.preco_promocional) > 0 && num(camp.preco_promocional) < preco) {
@@ -224,6 +230,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
         preco: num(camp.preco_promocional),
         precoCheio: preco,
         fim: (camp.fim as string | null) ?? null,
+        rebate: rebateEm(num(camp.preco_original) || preco),
       };
     }
     return null;
@@ -447,7 +454,9 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       produto: a.produto,
       precoAtual: original,
       tipo: (p.nome as string) ?? (p.tipo as string) ?? "Campanha",
-      rebate: 0,
+      // Parte que o ML banca, devolvida como redução de tarifa por venda.
+      rebate:
+        num(p.desconto_canal_percentual) > 0 ? Math.round(original * num(p.desconto_canal_percentual)) / 100 : 0,
       precoFinal: promocional,
       cmv: cmvPorSku.get(a.sku) ?? 0,
       impostoPercentual: aliquota,

@@ -497,6 +497,8 @@ export interface PromocaoAtiva {
   /** O preço cheio riscado */
   precoCheio: number;
   fim: string | null;
+  /** Redução de tarifa que o canal devolve por venda (rebate), em R$ */
+  rebate?: number;
 }
 
 export interface Promocao {

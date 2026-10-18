@@ -32,7 +32,7 @@ import {
   centavos,
   type ContaDaLinha,
 } from "@/lib/linha-preco";
-import { lerNumero } from "@/lib/precificacao";
+import { comRebate, lerNumero, type Detalhamento } from "@/lib/precificacao";
 import { formatBRL, formatNumero, formatPercentual } from "@/lib/format";
 import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { Button } from "@/components/ui/button";
@@ -75,7 +75,7 @@ const diasAte = (iso: string | null | undefined) =>
 
 type FiltroSituacao = "todos" | "sem-promocao" | "ativa" | "outro-valor" | "com-propostas" | "vencendo";
 
-type NoPreco = (a: Anuncio, preco: number) => { lucro: number; margem: number };
+type NoPreco = (a: Anuncio, preco: number) => Detalhamento;
 
 interface ItemPromocao {
   anuncio: Anuncio;
@@ -175,15 +175,21 @@ export function CentralPromocoes() {
   /** Cada proposta já com lucro e margem de verdade. */
   const avaliar = (i: ItemPromocao, p: Promocao) => {
     const preco = p.precoFinal;
-    const det = base.noPreco(i.anuncio, preco);
+    // A parte que o ML banca volta como redução de tarifa: entra no lucro.
+    const rebate = p.rebate > 0 ? p.rebate : 0;
+    const det = comRebate(base.noPreco(i.anuncio, preco), rebate);
     const desconto = i.conta.cheioCanal > 0 ? 1 - preco / i.conta.cheioCanal : 0;
+    const agora = i.conta.simulacao ? i.conta.detAgora : i.conta.det;
     return {
       preco,
       det,
       desconto,
-      voceRecebe: preco - det.comissao - det.taxaFixa - det.frete,
+      rebate,
+      voceRecebe: preco - det.comissao - det.taxaFixa - det.frete + rebate,
       cabe: det.margem >= i.margemMinima,
       prejuizo: det.lucro < 0,
+      /** Lucro por venda comparado com o de hoje */
+      difLucro: det.lucro - agora.lucro,
     };
   };
 
@@ -195,7 +201,7 @@ export function CentralPromocoes() {
     const d = diasAte(i.anuncio.promocaoAtiva?.fim);
     return d !== null && d >= 0 && d <= 2;
   });
-  const ativasAbaixo = ativas.filter((i) => i.conta.det.margem < i.margemMinima && !i.conta.simulacao);
+  const ativasAbaixo = ativas.filter((i) => i.conta.detAgora.margem < i.margemMinima);
   const propostasDisponiveis = itens.flatMap((i) =>
     i.propostas.filter((p) => p.situacao !== "participando").map((p) => ({ i, p, r: avaliar(i, p) })),
   );
@@ -553,7 +559,7 @@ export function CentralPromocoes() {
                 <th className="px-2 py-2.5 font-bold">Período</th>
                 <th className="px-2 py-2.5 text-right font-bold">Desconto</th>
                 <th className="px-2 py-2.5 text-right font-bold">Preço final</th>
-                <th className="px-2 py-2.5 text-right font-bold">ML ajuda</th>
+                <th className="px-2 py-2.5 text-right font-bold" title="Redução de tarifa que o Mercado Livre dá por venda (rebate)">ML devolve</th>
                 <th className="px-2 py-2.5 text-right font-bold">Você recebe</th>
                 <th className="px-2 py-2.5 text-right font-bold">Lucro</th>
                 <th className="px-2 py-2.5 text-right font-bold">Margem</th>
@@ -678,9 +684,11 @@ function BlocoAnuncio({
     preco: number;
     det: { lucro: number; margem: number };
     desconto: number;
+    rebate: number;
     voceRecebe: number;
     cabe: boolean;
     prejuizo: boolean;
+    difLucro: number;
   };
   aoAgir: () => void;
 }) {
@@ -767,7 +775,16 @@ function LinhaProposta({
   noPreco: NoPreco;
   item: ItemPromocao;
   p: Promocao;
-  r: { preco: number; det: { lucro: number; margem: number }; desconto: number; voceRecebe: number; cabe: boolean; prejuizo: boolean };
+  r: {
+    preco: number;
+    det: { lucro: number; margem: number };
+    desconto: number;
+    rebate: number;
+    voceRecebe: number;
+    cabe: boolean;
+    prejuizo: boolean;
+    difLucro: number;
+  };
   aoAgir: () => void;
 }) {
   const [enviando, setEnviando] = useState(false);
@@ -812,8 +829,18 @@ function LinhaProposta({
           </span>
         )}
       </td>
-      <td className="num px-2 py-2 text-right text-muted-foreground">
-        {p.descontoCanalPercentual ? `${formatNumero(p.descontoCanalPercentual)}%` : "—"}
+      <td className="num px-2 py-2 text-right">
+        {r.rebate > 0 ? (
+          <span
+            className="font-semibold text-profit"
+            title={`O Mercado Livre banca ${formatNumero(p.descontoCanalPercentual ?? 0)}% do preço cheio: reduz as suas tarifas em ${formatBRL(r.rebate)} por venda. Já está somado no lucro.`}
+          >
+            −{formatBRL(r.rebate)}
+            <span className="block text-[9px] font-normal text-muted-foreground">na tarifa</span>
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
       </td>
       <td className="num px-2 py-2 text-right">
         {freteCarregando ? <Loader2 className="ml-auto size-3 animate-spin" /> : formatBRL(r.voceRecebe)}
@@ -837,6 +864,15 @@ function LinhaProposta({
         >
           {r.prejuizo ? "Prejuízo" : r.cabe ? "Cabe" : "Não cabe"}
         </span>
+        {!participando && (
+          <span
+            className={cn("mt-0.5 block text-[9px]", r.difLucro >= 0 ? "text-profit" : "text-muted-foreground")}
+            title="Lucro por venda nesta promoção comparado com o que você ganha hoje"
+          >
+            {r.difLucro >= 0 ? "+" : "−"}
+            {formatBRL(Math.abs(r.difLucro))} vs hoje
+          </span>
+        )}
       </td>
       <td className="px-3 py-2 text-right">
         {participando ? (
@@ -870,7 +906,7 @@ function PopoverParticipar({
   const tipo = p.tipoPromocao ?? "";
   const comPreco = PROMOCAO_COM_PRECO.has(tipo);
   const preco = comPreco ? (lerNumero(texto) ?? 0) : p.precoFinal;
-  const det = preco > 0 ? noPreco(i.anuncio, preco) : null;
+  const det = preco > 0 ? comRebate(noPreco(i.anuncio, preco), p.rebate) : null;
   const foraDaFaixa =
     comPreco && ((p.precoMinimo && preco < p.precoMinimo) || (p.precoMaximo && preco > p.precoMaximo));
 
@@ -925,7 +961,7 @@ function PopoverParticipar({
         ) : (
           <p className="text-muted-foreground">
             Preço definido pelo Mercado Livre: <strong className="text-foreground">{formatBRL(p.precoFinal)}</strong>
-            {p.descontoCanalPercentual ? ` (o ML banca ${formatNumero(p.descontoCanalPercentual)}% do desconto)` : ""}.
+            {p.rebate > 0 ? ` (o ML devolve ${formatBRL(p.rebate)} por venda em redução de tarifa)` : ""}.
           </p>
         )}
         {det && (
