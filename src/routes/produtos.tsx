@@ -1637,8 +1637,8 @@ function PainelLivre({
   children: ReactNode;
 }) {
   return (
-    <section className="[--muted-foreground:oklch(0.86_0.01_255)] [.claro_&]:[--muted-foreground:#374151]">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
+    <section className="card-glow overflow-hidden [--muted-foreground:oklch(0.86_0.01_255)] [.claro_&]:[--muted-foreground:#374151]">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
         <div>
           <h2 className="text-sm font-semibold">{titulo}</h2>
           {descricao && <p className="text-xs text-muted-foreground">{descricao}</p>}
