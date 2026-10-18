@@ -1160,7 +1160,7 @@ function Precificacao() {
         )}
 
         {/* A planilha */}
-        <div className={cn(aba === "geral" && "hidden")}>
+        <div className={cn("[&_.num]:[font-family:Helvetica,Arial,sans-serif] [&_input]:[font-family:Helvetica,Arial,sans-serif]", aba === "geral" && "hidden")}>
           <table className="w-full text-left">
             <tbody>
               {secoes.map((secao) => (
