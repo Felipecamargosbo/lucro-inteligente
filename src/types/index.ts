@@ -108,6 +108,8 @@ export interface RepasseParcela {
 
 export interface Pedido {
   id: string;
+  /** Anúncio no canal (pra foto e vínculo) */
+  anuncioId?: string | null;
   /** Número do pedido no marketplace (o que o seller vê lá). Sem ele, a
    * tela mostra o id interno. */
   numero?: string;
@@ -761,6 +763,7 @@ export type TipoOportunidadeRecuperacao =
 export type StatusOportunidadeRecuperacao = "aguardando-acao" | "mensagem-enviada";
 
 export interface OportunidadeRecuperacao {
+  anuncioId?: string | null;
   id: string;
   cliente: string;
   telefone: string;

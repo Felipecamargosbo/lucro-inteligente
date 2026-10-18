@@ -451,7 +451,7 @@ function Vendas() {
                       {contaPorId.get(p.contaId)?.nome ?? "—"}
                     </p>
                   </td>
-                  <td className="max-w-[240px] px-2 py-3"><div className="flex items-center gap-2"><FotoAnuncio sku={p.sku} /><div className="min-w-0">
+                  <td className="max-w-[240px] px-2 py-3"><div className="flex items-center gap-2"><FotoAnuncio anuncioId={p.anuncioId} sku={p.sku} /><div className="min-w-0">
                     <p className="truncate text-xs font-medium">{p.produto}</p>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1">
                       <span className="num text-[10px] text-muted-foreground">{p.sku}</span>

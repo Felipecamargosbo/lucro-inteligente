@@ -33,6 +33,7 @@ import type {
   StatusOportunidadeRecuperacao,
   TipoOportunidadeRecuperacao,
 } from "@/types";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 
 export const Route = createFileRoute("/recuperacao")({
   head: () => ({
@@ -247,7 +248,7 @@ function Recuperacao() {
                 const s = ROTULO_STATUS[statusAtual];
                 return (
                   <tr key={o.id} className="transition-colors hover:bg-muted/40">
-                    <td className="max-w-[260px] px-2 py-3">
+                    <td className="max-w-[300px] px-2 py-3"><div className="flex items-center gap-2"><FotoAnuncio anuncioId={o.anuncioId} sku={o.sku} /><div className="min-w-0">
                       <p className="truncate text-xs font-medium">{o.cliente}</p>
                       <p className="num text-[10px] text-muted-foreground">
                         {o.linkCanal ? o.pedidoId : `${o.pedidoId} · ${o.id}`}
@@ -255,7 +256,7 @@ function Recuperacao() {
                       <p className="text-[10px] text-muted-foreground">
                         {formatDataHora(o.dataCriacao)}
                       </p>
-                    </td>
+                    </div></div></td>
                     <td className="px-2 py-3">
                       <SeloMarketplace id={o.marketplaceId} />
                     </td>

@@ -30,6 +30,7 @@ interface CanalDoProduto {
 }
 
 interface ItemProduto {
+  anuncioId?: string | null;
   sku: string;
   produto: string;
   unidades: number;
@@ -59,6 +60,7 @@ function agruparProdutos(pedidos: Pedido[]): ItemProduto[] {
   for (const p of pedidos) {
     if (p.status === "cancelado") continue;
     const atual = mapa.get(p.sku) ?? {
+      anuncioId: p.anuncioId ?? null,
       sku: p.sku,
       produto: p.produto,
       unidades: 0,
@@ -255,7 +257,7 @@ export function ProdutosMaisVendidos() {
                   onClick={() => setSelecionado(p)}
                   className="cursor-pointer transition-colors hover:bg-muted/40"
                 >
-                  <td className="max-w-[260px] px-2 py-3"><div className="flex items-center gap-2"><FotoAnuncio sku={p.sku} /><div className="min-w-0">
+                  <td className="max-w-[260px] px-2 py-3"><div className="flex items-center gap-2"><FotoAnuncio anuncioId={p.anuncioId} sku={p.sku} /><div className="min-w-0">
                     <p className="truncate text-xs font-medium">{p.produto}</p>
                     <p className="num text-[10px] text-muted-foreground">{p.sku}</p>
                   </div></div></td>
