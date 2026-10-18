@@ -843,7 +843,7 @@ function Precificacao() {
   const COLUNAS = 16;
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6">
+    <div className="w-full space-y-6">
       <PainelLivre
         titulo="Precificação"
         descricao="Todos os produtos e anúncios numa planilha: custo, taxas, lucro e margem — e o preço novo, por valor ou por margem"
@@ -1160,8 +1160,8 @@ function Precificacao() {
         )}
 
         {/* A planilha */}
-        <div className={cn("overflow-x-auto", aba === "geral" && "hidden")}>
-          <table className="w-full min-w-[1500px] text-left">
+        <div className={cn(aba === "geral" && "hidden")}>
+          <table className="w-full text-left">
             <tbody>
               {secoes.map((secao) => (
                 <Fragment key={secao.titulo ?? "todos"}>
@@ -1650,10 +1650,10 @@ function PainelLivre({
 
 /** Títulos das colunas, repetidos em cada produto (a planilha é longa). */
 function CabecalhoColunas() {
-  const th = "px-2 py-1.5 text-right font-semibold";
+  const th = "px-1 py-1.5 text-right font-semibold";
   return (
     <tr className="bg-muted/40 text-[9px] uppercase tracking-wide text-muted-foreground">
-      <th className="px-3 py-1.5 pl-8 text-left font-semibold">Canal / conta</th>
+      <th className="px-1 py-1.5 pl-4 text-left font-semibold">Canal / conta</th>
       <th className={th} title="O preço que vai pro canal (o botão Lançar manda este)">Preço cheio</th>
       <th className={th}>Desc. %</th>
       <th className={th} title="O preço com desconto. Verde = promoção valendo; amarelo = valendo em outro valor; tracejado vermelho = sem promoção">
@@ -1670,7 +1670,7 @@ function CabecalhoColunas() {
       <th className={th}>Margem</th>
       <th className={th}>Mínimo</th>
       <th className={th}>Empate</th>
-      <th className="border-l px-3 py-1.5 text-right font-semibold">No canal</th>
+      <th className="border-l px-1 py-1.5 text-right font-semibold">No canal</th>
     </tr>
   );
 }
@@ -1831,7 +1831,7 @@ function CampoValor({
       onBlur={() => setTexto(null)}
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
       className={cn(
-        "num h-7 w-[84px] rounded-md border border-input bg-background/60 px-1.5 text-right text-xs outline-none transition-colors hover:border-foreground/40 focus:border-ring focus:bg-background",
+        "num h-7 w-[68px] rounded-md border border-input bg-background/60 px-1.5 text-right text-xs outline-none transition-colors hover:border-foreground/40 focus:border-ring focus:bg-background",
         destaque && "border-brand ring-1 ring-brand/40",
         className,
       )}
@@ -1976,11 +1976,13 @@ function LinhaDoAnuncio({
 
   return (
     <tr className={cn("border-t border-border/40 text-xs transition-colors hover:bg-muted/20", sim && "bg-brand/[0.03]")}>
-      <td className="px-3 py-2">
-        <div className="flex items-center gap-2 pl-5">
+      <td className="px-1 py-2">
+        <div className="flex max-w-[190px] flex-wrap items-center gap-1 pl-3">
           <span className={cn("size-1.5 shrink-0 rounded-full", ponto)} />
           <SeloMarketplace id={a.marketplaceId} />
-          <span className="truncate text-[10px] text-muted-foreground">{linha.nomeConta}</span>
+          <span className="max-w-[90px] truncate text-[10px] text-muted-foreground" title={linha.nomeConta}>
+            {linha.nomeConta}
+          </span>
           <SelosTipoAnuncio anuncio={a} />
         </div>
       </td>
@@ -2013,7 +2015,7 @@ function LinhaDoAnuncio({
                 : "Digite o desconto da promoção, em %"
             }
             destaque={faltaDesconto}
-            className={cn("w-16", faltaDesconto && "border-loss ring-loss/40")}
+            className={cn("w-11", faltaDesconto && "border-loss ring-loss/40")}
           />
           <span className="text-[10px] text-muted-foreground">%</span>
         </span>
@@ -2086,18 +2088,18 @@ function LinhaDoAnuncio({
         </div>
       </td>
 
-      <td className="num px-2 py-2 text-right align-top text-muted-foreground">{formatBRL(v.cmv)}</td>
+      <td className="num px-1 py-2 text-right align-top text-muted-foreground">{formatBRL(v.cmv)}</td>
       <td
-        className={cn("num px-2 py-2 text-right align-top", sim ? "text-brand" : "text-muted-foreground")}
+        className={cn("num px-1 py-2 text-right align-top", sim ? "text-brand" : "text-muted-foreground")}
         title={`${formatPercentual(v.preco > 0 ? v.comissao / v.preco : 0)} do preço`}
       >
         {formatBRL(v.comissao)}
       </td>
-      <td className={cn("num px-2 py-2 text-right align-top", sim ? "text-brand" : "text-muted-foreground")}>
+      <td className={cn("num px-1 py-2 text-right align-top", sim ? "text-brand" : "text-muted-foreground")}>
         {formatBRL(v.taxaFixa)}
       </td>
       <td
-        className={cn("num px-2 py-2 text-right align-top", sim ? "text-brand" : "text-muted-foreground")}
+        className={cn("num px-1 py-2 text-right align-top", sim ? "text-brand" : "text-muted-foreground")}
         title={
           c.cruzou79
             ? `Passou da linha dos R$ ${LIMITE_FRETE_GRATIS_ML}: o frete muda (hoje ${formatBRL(c.detAgora.frete)}).`
@@ -2111,16 +2113,16 @@ function LinhaDoAnuncio({
           </span>
         )}
       </td>
-      <td className="px-2 py-2 text-right align-top">
+      <td className="px-1 py-2 text-right align-top">
         <PopoverAds anuncio={a} ajuste={ajuste} valorAtual={v.ads} aoSalvar={aoSalvarAjuste} />
       </td>
-      <td className={cn("num px-2 py-2 text-right align-top", sim ? "text-brand" : "text-muted-foreground")}>
+      <td className={cn("num px-1 py-2 text-right align-top", sim ? "text-brand" : "text-muted-foreground")}>
         {formatBRL(v.imposto)}
       </td>
-      <td className="px-2 py-2 text-right align-top">
+      <td className="px-1 py-2 text-right align-top">
         <PopoverOutros det={v} ajuste={ajuste} aoSalvar={aoSalvarAjuste} />
       </td>
-      <td className={cn("num px-2 py-2 text-right align-top font-bold", sim ? "text-brand" : v.lucro < 0 ? "text-loss" : "")}>
+      <td className={cn("num px-1 py-2 text-right align-top font-bold", sim ? "text-brand" : v.lucro < 0 ? "text-loss" : "")}>
         {formatBRL(v.lucro)}
         {comparacao && (
           <span className={cn(textoPequeno, "font-normal text-muted-foreground")}>
@@ -2135,7 +2137,7 @@ function LinhaDoAnuncio({
           casas={1}
           placeholder="impossível"
           destaque={base === "margem"}
-          className={cn("w-16 font-bold", sim ? "text-brand" : corMargem)}
+          className={cn("w-12 font-bold", sim ? "text-brand" : corMargem)}
           titulo="Digite a margem que você quer: o preço sai sozinho"
         />
         {comparacao && (
@@ -2145,12 +2147,12 @@ function LinhaDoAnuncio({
         )}
       </td>
       <td
-        className="num px-2 py-2 text-right align-top"
+        className="num px-1 py-2 text-right align-top"
         title={`Margem mínima desta conta: ${formatPercentual(margemMinima)}`}
       >
         {limites.precoMinimo !== null ? formatBRL(limites.precoMinimo) : "—"}
       </td>
-      <td className="num px-2 py-2 text-right align-top text-loss">
+      <td className="num px-1 py-2 text-right align-top text-loss">
         {limites.precoEmpate !== null ? formatBRL(limites.precoEmpate) : "—"}
       </td>
 
