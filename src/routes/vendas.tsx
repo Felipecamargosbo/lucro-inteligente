@@ -397,12 +397,12 @@ function Vendas() {
           <table className="w-full text-left">
             <thead>
               <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+                <th className="px-2 py-3 font-bold">Produto / SKU</th>
                 <CabecalhoOrdenavel campo="data" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3">
                   Data
                 </CabecalhoOrdenavel>
                 <th className="px-2 py-3 font-bold">Pedido</th>
                 <th className="px-2 py-3 font-bold">Canal</th>
-                <th className="px-2 py-3 font-bold">Produto / SKU</th>
                 <CabecalhoOrdenavel campo="quantidade" ordenacao={ordenacao} onClick={alternarOrdenacao} className="px-2 py-3 text-center">
                   Qtd
                 </CabecalhoOrdenavel>
@@ -443,14 +443,6 @@ function Vendas() {
                   onClick={() => setSelecionado(p)}
                   className="cursor-pointer transition-colors hover:bg-muted/40"
                 >
-                  <td className="px-2 py-3 text-xs">{formatData(p.data)}</td>
-                  <td className="num px-2 py-3 text-[11px] text-muted-foreground">#{p.numero ?? p.id}</td>
-                  <td className="px-2 py-3">
-                    <SeloMarketplace id={p.marketplaceId} />
-                    <p className="mt-1 truncate text-[10px] text-muted-foreground">
-                      {contaPorId.get(p.contaId)?.nome ?? "—"}
-                    </p>
-                  </td>
                   <td className="max-w-[240px] px-2 py-3"><div className="flex items-center gap-2"><FotoAnuncio anuncioId={p.anuncioId} sku={p.sku} /><div className="min-w-0">
                     <p className="truncate text-xs font-medium">{p.produto}</p>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1">
@@ -476,6 +468,14 @@ function Vendas() {
                       )}
                     </div>
                   </div></div></td>
+                  <td className="px-2 py-3 text-xs">{formatData(p.data)}</td>
+                  <td className="num px-2 py-3 text-[11px] text-muted-foreground">#{p.numero ?? p.id}</td>
+                  <td className="px-2 py-3">
+                    <SeloMarketplace id={p.marketplaceId} />
+                    <p className="mt-1 truncate text-[10px] text-muted-foreground">
+                      {contaPorId.get(p.contaId)?.nome ?? "—"}
+                    </p>
+                  </td>
                   <td className="num px-2 py-3 text-center text-xs">{p.quantidade}</td>
                   <td className="num px-2 py-3 text-right text-xs font-semibold">
                     {formatBRL(p.faturamento)}
