@@ -430,9 +430,11 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
     });
   }
   const estoque = [...porSku.entries()].map(([k, i]) => {
-    const vendasDia = Math.round(((vendidas.get(k) ?? 0) / 30) * 100) / 100;
+    const vendidas30 = vendidas.get(k) ?? 0;
+    const vendasDia = Math.round((vendidas30 / 30) * 100) / 100;
     return {
       ...i,
+      vendidas30,
       vendasDia,
       // Sem venda nos últimos 30 dias, a cobertura não tem fim: 999 = sem giro.
       coberturaDias: i.quantidade === 0 ? 0 : vendasDia > 0 ? Math.round(i.quantidade / vendasDia) : 999,

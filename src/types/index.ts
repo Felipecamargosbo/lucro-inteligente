@@ -797,6 +797,8 @@ export interface ItemEstoqueDetalhado {
   marketplaceId: MarketplaceId;
   quantidade: number;
   vendasDia: number;
+  /** Unidades realmente vendidas nos últimos 30 dias (sem cancelados). */
+  vendidas30?: number;
   coberturaDias: number;
   custoUnitario: number;
   valorEstoque: number;

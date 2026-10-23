@@ -101,6 +101,9 @@ function statusEstoque(item: ItemEstoqueDetalhado): StatusOficial {
 type ChaveOrdem = "produto" | "qtd" | "vendas" | "cobertura" | "valor" | "status";
 const PESO_STATUS: Record<StatusOficial["texto"], number> = { Esgotado: 0, Atenção: 1, "Sem Giro": 2, "Estoque Saudável": 3 };
 
+/** Unidades vendidas nos últimos 30 dias (real; nos dados de exemplo, derivado da média). */
+const vendido30 = (i: ItemEstoqueDetalhado) => i.vendidas30 ?? Math.round(i.vendasDia * 30);
+
 function Estoque() {
   const itens = estoqueService.listarDetalhado();
   const resumo = estoqueService.resumo();
@@ -137,7 +140,7 @@ function Estoque() {
         case "qtd":
           return i.quantidade;
         case "vendas":
-          return i.vendasDia;
+          return vendido30(i);
         case "cobertura":
           // Esgotado não tem cobertura; "sem venda" (999) fica como o maior.
           return i.quantidade === 0 ? null : i.coberturaDias;
@@ -153,7 +156,7 @@ function Estoque() {
     SKU: i.sku,
     Produto: i.produto,
     Quantidade: i.quantidade,
-    "Vendas/dia": i.vendasDia,
+    "Vendeu (30 dias)": vendido30(i),
     "Cobertura (dias)": i.coberturaDias >= 999 ? "sem venda em 30 dias" : i.coberturaDias,
     "Valor em estoque": i.valorEstoque,
     Status: statusEstoque(i).texto,
@@ -271,7 +274,7 @@ function Estoque() {
               <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
                 <CabecalhoOrdenavel chave="produto" primeiro="asc" ordem={ordem} aoClicar={alternar}>Produto / SKU</CabecalhoOrdenavel>
                 <CabecalhoOrdenavel chave="qtd" alinhar="right" ordem={ordem} aoClicar={alternar}>Qtd em estoque</CabecalhoOrdenavel>
-                <CabecalhoOrdenavel chave="vendas" alinhar="right" ordem={ordem} aoClicar={alternar}>Vendas/dia (média)</CabecalhoOrdenavel>
+                <CabecalhoOrdenavel chave="vendas" alinhar="right" ordem={ordem} aoClicar={alternar}>Vendeu (30 dias)</CabecalhoOrdenavel>
                 <CabecalhoOrdenavel chave="cobertura" alinhar="right" ordem={ordem} aoClicar={alternar}>Cobertura (dias)</CabecalhoOrdenavel>
                 <CabecalhoOrdenavel chave="valor" alinhar="right" ordem={ordem} aoClicar={alternar}>Valor em estoque</CabecalhoOrdenavel>
                 <CabecalhoOrdenavel chave="status" alinhar="center" primeiro="asc" ordem={ordem} aoClicar={alternar}>Status do estoque</CabecalhoOrdenavel>
@@ -294,7 +297,7 @@ function Estoque() {
                       {formatNumero(i.quantidade)}
                     </td>
                     <td className="num px-2 py-3 text-right text-xs text-muted-foreground">
-                      {i.vendasDia.toFixed(1).replace(".", ",")}
+                      {formatNumero(vendido30(i))} un
                     </td>
                     <td
                       className={cn(
