@@ -581,6 +581,7 @@ function Anuncios() {
         <DialogFotoProduto
           produto={fotoDe.produto}
           anuncios={fotoDe.anuncios}
+          canais={canais}
           aoFechar={() => setFotoDe(null)}
           aoConcluir={() => {
             setFotoDe(null);

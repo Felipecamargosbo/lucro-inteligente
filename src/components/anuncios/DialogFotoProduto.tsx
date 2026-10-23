@@ -6,6 +6,7 @@ import { useAuth } from "@/context/auth";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
+import { CANAIS } from "@/config/navegacao";
 import {
   Dialog,
   DialogContent,
@@ -13,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { Anuncio, Produto } from "@/types";
+import type { Anuncio, MarketplaceId, Produto } from "@/types";
 
 /**
  * Foto de um produto: escolher a de um anúncio vinculado, enviar uma imagem
@@ -22,20 +23,30 @@ import type { Anuncio, Produto } from "@/types";
 export function DialogFotoProduto({
   produto,
   anuncios,
+  canais,
   aoFechar,
   aoConcluir,
 }: {
   produto: Produto;
   anuncios: Anuncio[];
+  /** Canais conectados (ou com anúncio), na ordem do menu. */
+  canais: MarketplaceId[];
   aoFechar: () => void;
   aoConcluir: () => void;
 }) {
   const { sessao } = useAuth();
   const [salvando, setSalvando] = useState(false);
   const [arrastando, setArrastando] = useState(false);
-  const comFoto = anuncios.filter((a) => a.fotoUrl);
-  // Mesma foto em dois anúncios aparece uma vez só.
-  const opcoes = comFoto.filter((a, i) => comFoto.findIndex((b) => b.fotoUrl === a.fotoUrl) === i);
+  // Fotos por canal: cada canal conectado aparece, com as fotos dos anúncios
+  // dele (mesma foto repetida aparece uma vez só).
+  const porCanal = canais.map((c) => {
+    const urls: { id: string; url: string; titulo: string }[] = [];
+    for (const a of anuncios) {
+      if (a.marketplaceId !== c || !a.fotoUrl || urls.some((u) => u.url === a.fotoUrl)) continue;
+      urls.push({ id: a.id, url: a.fotoUrl, titulo: a.produto });
+    }
+    return { canal: c, urls };
+  });
 
   const usar = async (url: string | null) => {
     setSalvando(true);
@@ -78,31 +89,46 @@ export function DialogFotoProduto({
           </DialogDescription>
         </DialogHeader>
 
-        {opcoes.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-semibold">Usar a foto de um anúncio</p>
-            <div className="flex flex-wrap gap-2">
-              {opcoes.map((a) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  disabled={salvando}
-                  onClick={() => usar(a.fotoUrl ?? null)}
-                  className={cn(
-                    "relative rounded-lg border p-1 transition-colors hover:border-brand",
-                    produto.fotoUrl === a.fotoUrl && "border-brand ring-2 ring-brand/30",
-                  )}
-                  title={a.produto}
-                >
-                  <img src={a.fotoUrl ?? ""} alt="" className="size-20 rounded-md bg-white object-contain" />
-                  <span className="absolute bottom-1.5 right-1.5">
-                    <LogoMarketplace id={a.marketplaceId} tamanho="xs" />
-                  </span>
-                </button>
-              ))}
+        <div className="space-y-3">
+          <p className="text-xs font-semibold">Escolha a foto de capa</p>
+          {porCanal.map(({ canal, urls }) => (
+            <div key={canal} className="space-y-1.5">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <LogoMarketplace id={canal} tamanho="xs" />
+                {CANAIS.find((c) => c.id === canal)?.titulo ?? canal}
+              </p>
+              {urls.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {urls.map((u) => {
+                    const atual = produto.fotoUrl === u.url;
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        disabled={salvando}
+                        onClick={() => usar(u.url)}
+                        className={cn(
+                          "relative rounded-lg border p-1 transition-colors hover:border-brand",
+                          atual && "border-brand ring-2 ring-brand/30",
+                        )}
+                        title={u.titulo}
+                      >
+                        <img src={u.url} alt="" className="size-20 rounded-md bg-white object-contain" />
+                        {atual && (
+                          <span className="absolute left-1.5 top-1.5 rounded bg-brand px-1 text-[9px] font-bold text-brand-foreground">
+                            CAPA
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">Sem anúncio com foto neste canal.</p>
+              )}
             </div>
-          </div>
-        )}
+          ))}
+        </div>
 
         <label
           onDragOver={(e) => {
