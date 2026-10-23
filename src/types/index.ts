@@ -344,6 +344,8 @@ export interface Produto {
   /** Categoria escolhida pelo seller ("Relógios", "Áudio"...) pra separar e
    * filtrar a tela Precificação. null/ausente = sem categoria. */
   categoria?: string | null;
+  /** Foto do produto (aba Anúncios). null = usa a foto de um anúncio vinculado. */
+  fotoUrl?: string | null;
 }
 
 /** Números brutos de Ads de um anúncio — o resto (ROAS, ACOS, CTR, CPC) é
@@ -422,6 +424,11 @@ export interface Anuncio {
    * vincular a um produto existente ou criar um novo a partir dele.
    */
   produtoId: string | null;
+  /** Vínculo escolhido à mão pelo seller (gravado no banco, coluna
+   * anuncios.produto_id). Vale mais que o vínculo automático por SKU. */
+  produtoIdBanco?: string | null;
+  /** Estoque do anúncio no canal, da última leitura */
+  estoque?: number | null;
   status: StatusAnuncio;
   elegivelPromocao: boolean;
   /** Unidades vendidas no período — usado na curva ABC e no realizado */

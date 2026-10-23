@@ -764,7 +764,7 @@ function Precificacao() {
       toast.error(erro);
       return;
     }
-    limparCustos();
+    limparCustos(linha?.anuncio.id);
     toast.success(resumo, { description: "Recarregando os dados do canal..." });
     // Recarrega os dados reais (anúncios, taxas, frete e promoções).
     window.dispatchEvent(new Event("nexo:dados-reais"));
@@ -1876,7 +1876,7 @@ function LinhaDoAnuncio({
       (x): x is number => typeof x === "number" && x > 0 && Math.abs(x - a.precoAtual) >= 0.005,
     );
     if (precos.length === 0) return;
-    const t = setTimeout(() => precos.forEach((p) => pedirCustos(a.id, p)), 500);
+    const t = setTimeout(() => precos.forEach((p) => pedirCustos(a.id, p)), 300);
     return () => clearTimeout(t);
   }, [a.id, a.precoAtual, c.precoCalculo, c.planoPromo, c.planoCheio]);
 

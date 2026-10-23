@@ -278,6 +278,8 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       custoAfiliadoUnitario: num(a.custo_afiliado_unitario),
       origemTaxas: a.origem_taxas === "liquidado" ? "liquidado" : "estimado",
       produtoId: (a.produto_id as string | null) ?? null,
+      produtoIdBanco: (a.produto_id as string | null) ?? null,
+      estoque: a.estoque === null || a.estoque === undefined ? null : num(a.estoque),
       status: STATUS_ANUNCIO.includes(a.status as StatusAnuncio) ? (a.status as StatusAnuncio) : "pausado",
       elegivelPromocao: emCampanha.has(a.id as string),
       unidadesVendidas: num(a.unidades_vendidas),

@@ -341,6 +341,7 @@ export const produtosService = {
       nome: p.nome as string,
       cmv: Number(p.cmv) || 0,
       categoria: (p.categoria as string | null | undefined) ?? null,
+      fotoUrl: (p.foto_url as string | null | undefined) ?? null,
     }));
   },
   /** Muda só a categoria do produto (vazio = sem categoria). */
@@ -357,8 +358,10 @@ export const produtosService = {
    */
   reconciliarComAnuncios: (produtos: Produto[]) => {
     const porSku = new Map(produtos.map((p) => [p.sku, p]));
+    const porId = new Map(produtos.map((p) => [p.id, p]));
     for (const a of anunciosAtuais()) {
-      const produto = porSku.get(a.sku);
+      // Vínculo escolhido à mão (aba Anúncios) vale mais que o SKU.
+      const produto = (a.produtoIdBanco ? porId.get(a.produtoIdBanco) : undefined) ?? porSku.get(a.sku);
       if (produto) {
         a.produtoId = produto.id;
         a.cmv = produto.cmv;
@@ -481,6 +484,53 @@ export const produtosService = {
     const vinculados = anunciosAtuais().filter((a) => a.produtoId === produtoId);
     const marketplaces = [...new Set(vinculados.map((a) => a.marketplaceId))];
     return { totalAnuncios: vinculados.length, marketplaces };
+  },
+  /** Vincula (ou desvincula, com null) um anúncio a um produto, gravando no
+   * banco. Vale mais que o SKU e sobrevive às sincronizações. */
+  vincularNoBanco: async (anuncioId: string, produto: Produto | null): Promise<string | null> => {
+    const { error } = await supabase
+      .from("anuncios")
+      .update({ produto_id: produto?.id ?? null })
+      .eq("id", anuncioId);
+    if (error) return error.message;
+    const anuncio = anunciosAtuais().find((a) => a.id === anuncioId);
+    if (anuncio) {
+      anuncio.produtoIdBanco = produto?.id ?? null;
+      if (produto) {
+        anuncio.produtoId = produto.id;
+        anuncio.cmv = produto.cmv;
+      }
+    }
+    return null;
+  },
+  /** Importa o catálogo por planilha (SKU + nome, e CMV/EAN quando vierem). */
+  importar: async (
+    itens: { sku: string; nome: string | null; cmv: number | null; ean: string | null }[],
+  ): Promise<{ criados: number; atualizados: number; erro: string | null }> => {
+    const { data, error } = await supabase.rpc("importar_produtos" as never, { itens } as never);
+    if (error) return { criados: 0, atualizados: 0, erro: error.message };
+    const r = (data ?? {}) as { criados?: number; atualizados?: number };
+    return { criados: r.criados ?? 0, atualizados: r.atualizados ?? 0, erro: null };
+  },
+  /** Grava a foto de vários produtos de uma vez (null = volta pra automática). */
+  definirFotos: async (itens: { id: string; foto: string | null }[]): Promise<string | null> => {
+    if (!itens.length) return null;
+    const { error } = await supabase.rpc("definir_fotos_produtos" as never, { itens } as never);
+    return error?.message ?? null;
+  },
+  /** Envia uma imagem do computador e usa como foto do produto. */
+  enviarFoto: async (perfilId: string, produtoId: string, arquivo: File): Promise<{ url: string | null; erro: string | null }> => {
+    if (!/^image\/(png|jpe?g|webp)$/.test(arquivo.type)) return { url: null, erro: "Use uma imagem JPG, PNG ou WEBP." };
+    if (arquivo.size > 5 * 1024 * 1024) return { url: null, erro: "A imagem pode ter no máximo 5 MB." };
+    const ext = arquivo.type === "image/png" ? "png" : arquivo.type === "image/webp" ? "webp" : "jpg";
+    const caminho = `${perfilId}/${produtoId}-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage
+      .from("produtos-fotos")
+      .upload(caminho, arquivo, { contentType: arquivo.type, cacheControl: "31536000" });
+    if (error) return { url: null, erro: error.message };
+    const url = supabase.storage.from("produtos-fotos").getPublicUrl(caminho).data.publicUrl;
+    const erro = await produtosService.definirFotos([{ id: produtoId, foto: url }]);
+    return { url: erro ? null : url, erro };
   },
 };
 

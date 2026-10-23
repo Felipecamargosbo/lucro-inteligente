@@ -3,6 +3,7 @@ import {
   Bot,
   Boxes,
   Calculator,
+  LayoutGrid,
   Landmark,
   LayoutDashboard,
   LifeBuoy,
@@ -58,6 +59,15 @@ export const MENU: ItemMenu[] = [
     // Mesmo filtro global de canal/loja do Dashboard, na mesma posição —
     // ao lado do título, lá na barra de cima.
     usaFiltroContas: true,
+  },
+  {
+    titulo: "Anúncios",
+    url: "/anuncios",
+    icone: LayoutGrid,
+    grupo: "Análise",
+    descricao: "Em quais canais cada produto está — e onde ainda falta anunciar",
+    usaPeriodo: false,
+    usaFiltroContas: false,
   },
   {
     titulo: "Calculadora",
