@@ -17,6 +17,7 @@ import { formatBRL, formatNumero } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { CardKpi, Painel } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
+import { CabecalhoOrdenavel, ordenarPor, useOrdem } from "@/components/comum/CabecalhoOrdenavel";
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { DialogImportarProdutos } from "@/components/anuncios/DialogImportarProdutos";
 import { DialogFotoProduto } from "@/components/anuncios/DialogFotoProduto";
@@ -66,6 +67,8 @@ type LinhaProduto = {
   foto: string | null;
   vendas30: number;
 };
+
+type ChaveOrdem = "produto" | "cmv" | "estoque" | "vendas" | "canais";
 
 type Filtro = "todos" | "sem-canal" | `falta:${MarketplaceId}`;
 
@@ -182,6 +185,8 @@ function Anuncios() {
   const confere = (texto: string, sku: string) =>
     !termo || texto.toLowerCase().includes(termo) || sku.toLowerCase().includes(termo);
 
+  const { ordem, alternar } = useOrdem<ChaveOrdem>();
+
   const linhasFiltradas = useMemo(() => {
     let lista = linhas.filter((l) => confere(l.produto.nome, l.produto.sku));
     if (filtro === "sem-canal") lista = lista.filter((l) => l.canais.size === 0);
@@ -190,9 +195,23 @@ function Anuncios() {
       lista = lista.filter((l) => !l.canais.has(canal));
     }
     // Mais vendidos primeiro: é onde subir num canal novo rende mais.
-    return [...lista].sort((x, y) => y.vendas30 - x.vendas30 || x.produto.nome.localeCompare(y.produto.nome));
+    const padrao = [...lista].sort((x, y) => y.vendas30 - x.vendas30 || x.produto.nome.localeCompare(y.produto.nome));
+    return ordenarPor(padrao, ordem, (l, k) => {
+      switch (k) {
+        case "produto":
+          return l.produto.nome;
+        case "cmv":
+          return l.produto.cmv > 0 ? l.produto.cmv : null;
+        case "estoque":
+          return l.estoque;
+        case "vendas":
+          return l.vendas30;
+        case "canais":
+          return l.canais.size;
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linhas, filtro, termo]);
+  }, [linhas, filtro, termo, ordem]);
 
   const anunciosDaAba = useMemo(() => {
     if (aba === "todos") return [];
@@ -416,11 +435,11 @@ function Anuncios() {
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                  <th className="px-3 py-3 font-bold">Produto / SKU</th>
-                  <th className="px-2 py-3 text-right font-bold">CMV</th>
-                  <th className="px-2 py-3 text-right font-bold">Estoque</th>
-                  <th className="px-2 py-3 text-right font-bold">Vendas 30 dias</th>
-                  <th className="px-2 py-3 text-center font-bold">Canais</th>
+                  <CabecalhoOrdenavel chave="produto" primeiro="asc" className="px-3" ordem={ordem} aoClicar={alternar}>Produto / SKU</CabecalhoOrdenavel>
+                  <CabecalhoOrdenavel chave="cmv" alinhar="right" ordem={ordem} aoClicar={alternar}>CMV</CabecalhoOrdenavel>
+                  <CabecalhoOrdenavel chave="estoque" alinhar="right" ordem={ordem} aoClicar={alternar}>Estoque</CabecalhoOrdenavel>
+                  <CabecalhoOrdenavel chave="vendas" alinhar="right" ordem={ordem} aoClicar={alternar}>Vendas 30 dias</CabecalhoOrdenavel>
+                  <CabecalhoOrdenavel chave="canais" alinhar="center" ordem={ordem} aoClicar={alternar}>Canais</CabecalhoOrdenavel>
                   <th className="w-10 px-2 py-3" />
                 </tr>
               </thead>

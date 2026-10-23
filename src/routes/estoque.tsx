@@ -19,6 +19,7 @@ import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ItemEstoqueDetalhado } from "@/types";
 import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
+import { CabecalhoOrdenavel, ordenarPor, useOrdem } from "@/components/comum/CabecalhoOrdenavel";
 
 export const Route = createFileRoute("/estoque")({
   head: () => ({
@@ -97,6 +98,9 @@ function statusEstoque(item: ItemEstoqueDetalhado): StatusOficial {
   };
 }
 
+type ChaveOrdem = "produto" | "qtd" | "vendas" | "cobertura" | "valor" | "status";
+const PESO_STATUS: Record<StatusOficial["texto"], number> = { Esgotado: 0, Atenção: 1, "Sem Giro": 2, "Estoque Saudável": 3 };
+
 function Estoque() {
   const itens = estoqueService.listarDetalhado();
   const resumo = estoqueService.resumo();
@@ -105,6 +109,8 @@ function Estoque() {
   const [filtroRuptura, setFiltroRuptura] = useState<string>("off");
   const [filtroSemGiro, setFiltroSemGiro] = useState<string>("off");
   const [itemPedido, setItemPedido] = useState<ItemEstoqueDetalhado | null>(null);
+
+  const { ordem, alternar } = useOrdem<ChaveOrdem>();
 
   const filtrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -124,8 +130,24 @@ function Estoque() {
         (i) =>
           i.sku.toLowerCase().includes(termo) || i.produto.toLowerCase().includes(termo),
       );
-    return lista;
-  }, [itens, aba, busca, filtroRuptura, filtroSemGiro]);
+    return ordenarPor(lista, ordem, (i, k) => {
+      switch (k) {
+        case "produto":
+          return i.produto;
+        case "qtd":
+          return i.quantidade;
+        case "vendas":
+          return i.vendasDia;
+        case "cobertura":
+          // Esgotado não tem cobertura; "sem venda" (999) fica como o maior.
+          return i.quantidade === 0 ? null : i.coberturaDias;
+        case "valor":
+          return i.quantidade > 0 && i.custoUnitario === 0 ? null : i.valorEstoque;
+        case "status":
+          return PESO_STATUS[statusEstoque(i).texto];
+      }
+    });
+  }, [itens, aba, busca, filtroRuptura, filtroSemGiro, ordem]);
 
   const linhasExport = filtrados.map((i) => ({
     SKU: i.sku,
@@ -247,12 +269,12 @@ function Estoque() {
           <table className="w-full text-left">
             <thead>
               <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
-                <th className="px-2 py-3 font-bold">Produto / SKU</th>
-                <th className="px-2 py-3 text-right font-bold">Qtd em estoque</th>
-                <th className="px-2 py-3 text-right font-bold">Vendas/dia (média)</th>
-                <th className="px-2 py-3 text-right font-bold">Cobertura (dias)</th>
-                <th className="px-2 py-3 text-right font-bold">Valor em estoque</th>
-                <th className="px-2 py-3 text-center font-bold">Status do estoque</th>
+                <CabecalhoOrdenavel chave="produto" primeiro="asc" ordem={ordem} aoClicar={alternar}>Produto / SKU</CabecalhoOrdenavel>
+                <CabecalhoOrdenavel chave="qtd" alinhar="right" ordem={ordem} aoClicar={alternar}>Qtd em estoque</CabecalhoOrdenavel>
+                <CabecalhoOrdenavel chave="vendas" alinhar="right" ordem={ordem} aoClicar={alternar}>Vendas/dia (média)</CabecalhoOrdenavel>
+                <CabecalhoOrdenavel chave="cobertura" alinhar="right" ordem={ordem} aoClicar={alternar}>Cobertura (dias)</CabecalhoOrdenavel>
+                <CabecalhoOrdenavel chave="valor" alinhar="right" ordem={ordem} aoClicar={alternar}>Valor em estoque</CabecalhoOrdenavel>
+                <CabecalhoOrdenavel chave="status" alinhar="center" primeiro="asc" ordem={ordem} aoClicar={alternar}>Status do estoque</CabecalhoOrdenavel>
                 <th className="px-2 py-3 text-right font-bold">Ação</th>
               </tr>
             </thead>
