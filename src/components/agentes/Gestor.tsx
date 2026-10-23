@@ -42,6 +42,7 @@ import {
   type montarComparativos,
 } from "@/lib/gestor";
 import { Painel } from "@/components/comum/Indicadores";
+import { FotoAnuncio } from "@/components/comum/FotoAnuncio";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { InsightAnalista, TipoInsightAnalista } from "@/types";
@@ -236,6 +237,7 @@ function AbaResumo({
             <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand/15 text-[11px] font-bold text-brand">
               {i + 1}
             </span>
+            {(t.sku || t.anuncioId) && <FotoAnuncio sku={t.sku} anuncioId={t.anuncioId} className="size-12" />}
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={cn("size-2 rounded-full", COR_PONTO[t.semaforo])} />
@@ -244,6 +246,7 @@ function AbaResumo({
                   {t.nomeAgente}
                 </span>
               </div>
+              {t.sku && <p className="num text-[10px] text-muted-foreground">SKU {t.sku}</p>}
               <p className="text-[11px] leading-relaxed text-muted-foreground">{t.explicacao}</p>
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span className="num text-sm font-bold">{formatBRL(t.valor)}</span>
@@ -441,7 +444,7 @@ async function montarContextoGestor(
       ? top3
           .map(
             (t, i) =>
-              `${i + 1}. [${t.nomeAgente}] ${t.titulo} — ${formatBRL(t.valor)} ${t.rotuloValor}. ${t.explicacao}`,
+              `${i + 1}. [${t.nomeAgente}] ${t.titulo}${t.sku ? ` (SKU ${t.sku})` : ""} — ${formatBRL(t.valor)} ${t.rotuloValor}. ${t.explicacao}`,
           )
           .join("\n")
       : "Nenhuma decisão com dinheiro em jogo agora.";

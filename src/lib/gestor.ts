@@ -32,6 +32,10 @@ export interface ItemTop {
   nomeAgente: string;
   /** Uma frase curta do que fazer */
   titulo: string;
+  /** SKU do produto (quando a decisão é sobre um produto), pro seller reconhecer */
+  sku?: string;
+  /** Anúncio, pra achar a foto quando o SKU não basta */
+  anuncioId?: string;
   /** Por que, com os números */
   explicacao: string;
   /** Quanto dinheiro está em jogo — é o que ordena o Top 3 */
@@ -84,6 +88,7 @@ function itemEstoque(
           agente,
           nomeAgente: NOME_AGENTE[agente],
           titulo: `Retirar ${a.produto} parado no Full`,
+          sku: a.sku,
           explicacao: `Parado há mais de 60 dias no Full, pagando armazenagem. Tirar ${formatNumero(a.quantidadeRetirar ?? a.estoqueAtual)} unidades economiza ${formatBRL(economia)} por mês.`,
           valor: economia,
           rotuloValor: "de economia por mês",
@@ -94,6 +99,7 @@ function itemEstoque(
           agente,
           nomeAgente: NOME_AGENTE[agente],
           titulo: `${a.produto} parado`,
+          sku: a.sku,
           explicacao: `${formatNumero(a.estoqueAtual)} unidades sem vender, com ${formatBRL(parado)} de mercadoria parada. Vale uma promoção ou baixar o preço.`,
           valor: parado,
           rotuloValor: "de mercadoria parada",
@@ -112,6 +118,7 @@ function itemEstoque(
       agente,
       nomeAgente: NOME_AGENTE[agente],
       titulo: `Repor ${a.produto}`,
+      sku: a.sku,
       explicacao: `${dias === 0 ? "O estoque já acabou" : `O estoque acaba em ${dias} dia${dias === 1 ? "" : "s"}`}${a.prazoFornecedorDias ? ` e o fornecedor leva ${a.prazoFornecedorDias} dias pra entregar` : ""}. Sem repor, você deixa de ${usouMargem ? "lucrar" : "faturar"} cerca de ${formatBRL(valor)} por semana.`,
       valor,
       rotuloValor: usouMargem ? "de lucro em risco por semana" : "de faturamento em risco por semana",
@@ -167,6 +174,7 @@ export function montarTop3(p: {
         agente: "precificacao",
         nomeAgente: NOME_AGENTE.precificacao,
         titulo: `Subir o preço de ${e.produto}`,
+        sku: e.sku,
         explicacao: `Vende rápido e o estoque vai acabar antes da reposição. Subir de ${formatBRL(e.precoAtual)} para ${formatBRL(e.precoSugerido)} rende uns ${formatBRL(ganho)} a mais por semana no ritmo atual.`,
         valor: ganho,
         rotuloValor: "a mais por semana",
@@ -179,6 +187,7 @@ export function montarTop3(p: {
         agente: "precificacao",
         nomeAgente: NOME_AGENTE.precificacao,
         titulo: `Baixar o preço de ${e.produto}`,
+        sku: e.sku,
         explicacao: `Parado há ${e.diasParado} dias, com ${formatBRL(preso)} de mercadoria presa. Baixar de ${formatBRL(e.precoAtual)} para ${formatBRL(e.precoSugerido)} ajuda a girar e liberar esse dinheiro.`,
         valor: preso,
         rotuloValor: "de dinheiro parado",
@@ -209,6 +218,8 @@ export function montarTop3(p: {
         agente: "ads",
         nomeAgente: NOME_AGENTE.ads,
         titulo: `Revisar o anúncio de ${a.produto}`,
+        sku: a.sku,
+        anuncioId: a.anuncioId,
         explicacao: `${formatNumero(d.cliques)} cliques e só ${formatNumero(d.vendas)} venda(s) em 14 dias: ${formatBRL(d.investimento)} pagos por visita que não compra.`,
         valor: d.investimento,
         rotuloValor: "gastos em 14 dias",
@@ -221,6 +232,8 @@ export function montarTop3(p: {
         agente: "ads",
         nomeAgente: NOME_AGENTE.ads,
         titulo: `Reduzir a verba de Ads de ${d.fonte.produto}`,
+        sku: a.sku,
+        anuncioId: a.anuncioId,
         explicacao: `Gastou ${formatBRL(d.fonte.investimento)} em Ads nos últimos 14 dias abaixo do ROAS mínimo — vendendo no prejuízo.`,
         valor: d.fonte.investimento,
         rotuloValor: "no prejuízo em 14 dias",

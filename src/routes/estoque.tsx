@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { estoqueService } from "@/services";
+import { estoqueService, pedidosService } from "@/services";
+import { usePeriodo } from "@/context/periodo";
 import { formatBRL, formatNumero } from "@/lib/format";
 import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
 import { ExportarDados } from "@/components/comum/ExportarDados";
@@ -101,9 +102,6 @@ function statusEstoque(item: ItemEstoqueDetalhado): StatusOficial {
 type ChaveOrdem = "produto" | "qtd" | "vendas" | "cobertura" | "valor" | "status";
 const PESO_STATUS: Record<StatusOficial["texto"], number> = { Esgotado: 0, Atenção: 1, "Sem Giro": 2, "Estoque Saudável": 3 };
 
-/** Unidades vendidas nos últimos 30 dias (real; nos dados de exemplo, derivado da média). */
-const vendido30 = (i: ItemEstoqueDetalhado) => i.vendidas30 ?? Math.round(i.vendasDia * 30);
-
 function Estoque() {
   const itens = estoqueService.listarDetalhado();
   const resumo = estoqueService.resumo();
@@ -114,6 +112,24 @@ function Estoque() {
   const [itemPedido, setItemPedido] = useState<ItemEstoqueDetalhado | null>(null);
 
   const { ordem, alternar } = useOrdem<ChaveOrdem>();
+
+  // Unidades realmente vendidas no período escolhido lá em cima (sem cancelados).
+  const { periodo } = usePeriodo();
+  const pedidos = pedidosService.listar();
+  const vendidasNoPeriodo = useMemo(() => {
+    const ini = periodo.inicio.getTime();
+    const fim = new Date(periodo.fim).setHours(23, 59, 59, 999);
+    const m = new Map<string, number>();
+    for (const p of pedidos) {
+      if (p.status === "cancelado") continue;
+      const t = new Date(p.data).getTime();
+      if (t < ini || t > fim) continue;
+      const k = `${p.marketplaceId}|${p.sku}`;
+      m.set(k, (m.get(k) ?? 0) + p.quantidade);
+    }
+    return m;
+  }, [pedidos, periodo]);
+  const vendido = (i: ItemEstoqueDetalhado) => vendidasNoPeriodo.get(`${i.marketplaceId}|${i.sku}`) ?? 0;
 
   const filtrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -140,7 +156,7 @@ function Estoque() {
         case "qtd":
           return i.quantidade;
         case "vendas":
-          return vendido30(i);
+          return vendido(i);
         case "cobertura":
           // Esgotado não tem cobertura; "sem venda" (999) fica como o maior.
           return i.quantidade === 0 ? null : i.coberturaDias;
@@ -150,13 +166,14 @@ function Estoque() {
           return PESO_STATUS[statusEstoque(i).texto];
       }
     });
-  }, [itens, aba, busca, filtroRuptura, filtroSemGiro, ordem]);
+  }, [itens, aba, busca, filtroRuptura, filtroSemGiro, ordem, vendidasNoPeriodo]);
 
   const linhasExport = filtrados.map((i) => ({
     SKU: i.sku,
     Produto: i.produto,
     Quantidade: i.quantidade,
-    "Vendeu (30 dias)": vendido30(i),
+    "Unidades vendidas": vendido(i),
+    Período: periodo.rotulo,
     "Cobertura (dias)": i.coberturaDias >= 999 ? "sem venda em 30 dias" : i.coberturaDias,
     "Valor em estoque": i.valorEstoque,
     Status: statusEstoque(i).texto,
@@ -274,7 +291,10 @@ function Estoque() {
               <tr className="border-b bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
                 <CabecalhoOrdenavel chave="produto" primeiro="asc" ordem={ordem} aoClicar={alternar}>Produto / SKU</CabecalhoOrdenavel>
                 <CabecalhoOrdenavel chave="qtd" alinhar="right" ordem={ordem} aoClicar={alternar}>Qtd em estoque</CabecalhoOrdenavel>
-                <CabecalhoOrdenavel chave="vendas" alinhar="right" ordem={ordem} aoClicar={alternar}>Vendeu (30 dias)</CabecalhoOrdenavel>
+                <CabecalhoOrdenavel chave="vendas" alinhar="right" ordem={ordem} aoClicar={alternar}>
+                  Unidades vendidas
+                  <span className="block text-[9px] font-normal normal-case tracking-normal">{periodo.rotulo}</span>
+                </CabecalhoOrdenavel>
                 <CabecalhoOrdenavel chave="cobertura" alinhar="right" ordem={ordem} aoClicar={alternar}>Cobertura (dias)</CabecalhoOrdenavel>
                 <CabecalhoOrdenavel chave="valor" alinhar="right" ordem={ordem} aoClicar={alternar}>Valor em estoque</CabecalhoOrdenavel>
                 <CabecalhoOrdenavel chave="status" alinhar="center" primeiro="asc" ordem={ordem} aoClicar={alternar}>Status do estoque</CabecalhoOrdenavel>
@@ -297,7 +317,7 @@ function Estoque() {
                       {formatNumero(i.quantidade)}
                     </td>
                     <td className="num px-2 py-3 text-right text-xs text-muted-foreground">
-                      {formatNumero(vendido30(i))} un
+                      {formatNumero(vendido(i))} un
                     </td>
                     <td
                       className={cn(
