@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { estoqueService, pedidosService } from "@/services";
+import { estoqueService, vendasService } from "@/services";
 import { usePeriodo } from "@/context/periodo";
 import { formatBRL, formatNumero } from "@/lib/format";
 import { CardKpi, Painel, SeloMarketplace } from "@/components/comum/Indicadores";
@@ -115,7 +115,7 @@ function Estoque() {
 
   // Unidades realmente vendidas no período escolhido lá em cima (sem cancelados).
   const { periodo } = usePeriodo();
-  const pedidos = pedidosService.listar();
+  const pedidos = vendasService.listar();
   const vendidasNoPeriodo = useMemo(() => {
     const ini = periodo.inicio.getTime();
     const fim = new Date(periodo.fim).setHours(23, 59, 59, 999);
