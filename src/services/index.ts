@@ -358,10 +358,9 @@ export const produtosService = {
    */
   reconciliarComAnuncios: (produtos: Produto[]) => {
     const porSku = new Map(produtos.map((p) => [p.sku, p]));
-    const porId = new Map(produtos.map((p) => [p.id, p]));
     for (const a of anunciosAtuais()) {
-      // Vínculo escolhido à mão (aba Anúncios) vale mais que o SKU.
-      const produto = (a.produtoIdBanco ? porId.get(a.produtoIdBanco) : undefined) ?? porSku.get(a.sku);
+      // Vínculo só pelo SKU.
+      const produto = porSku.get(a.sku);
       if (produto) {
         a.produtoId = produto.id;
         a.cmv = produto.cmv;

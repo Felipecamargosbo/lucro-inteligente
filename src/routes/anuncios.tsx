@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ImageDown, Link2, Loader2, RefreshCw, Search, Unlink, Upload } from "lucide-react";
+import { ImageDown, Link2, Loader2, RefreshCw, Search, Upload } from "lucide-react";
 import {
   anunciosService,
   atualizarAnunciosDoCanal,
@@ -21,7 +21,6 @@ import { CabecalhoOrdenavel, ordenarPor, useOrdem } from "@/components/comum/Cab
 import { LogoMarketplace } from "@/components/comum/LogoMarketplace";
 import { DialogImportarProdutos } from "@/components/anuncios/DialogImportarProdutos";
 import { DialogFotoProduto } from "@/components/anuncios/DialogFotoProduto";
-import { DialogVincularAnuncio } from "@/components/anuncios/DialogVincularAnuncio";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -82,7 +81,7 @@ function Anuncios() {
   const [versao, setVersao] = useState(0);
   // Os anúncios ficam em memória; mudar um vínculo mexe neles direto, e este
   // número força a tela a refazer as contas.
-  const [mudancas, setMudancas] = useState(0);
+  const [mudancas] = useState(0);
   const [aba, setAba] = useState<"todos" | MarketplaceId>("todos");
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [busca, setBusca] = useState("");
@@ -90,7 +89,6 @@ function Anuncios() {
   const [atualizando, setAtualizando] = useState<string | null>(null);
   const [importar, setImportar] = useState(false);
   const [fotoDe, setFotoDe] = useState<LinhaProduto | null>(null);
-  const [vincular, setVincular] = useState<Anuncio | null>(null);
   const [verSemProduto, setVerSemProduto] = useState(false);
 
   const recarregarProdutos = useCallback(() => setVersao((v) => v + 1), []);
@@ -120,13 +118,13 @@ function Anuncios() {
 
   // --- vínculo de cada anúncio --------------------------------------------
   const { linhas, semProduto, produtoDoAnuncio } = useMemo(() => {
-    const porId = new Map(produtos.map((p) => [p.id, p]));
     const porSku = new Map(produtos.map((p) => [chaveSku(p.sku), p]));
     const produtoDoAnuncio = new Map<string, Produto>();
     const grupos = new Map<string, Anuncio[]>();
     const semProduto: Anuncio[] = [];
     for (const a of anuncios) {
-      const p = (a.produtoIdBanco ? porId.get(a.produtoIdBanco) : undefined) ?? porSku.get(chaveSku(a.sku));
+      // Vínculo só pelo SKU: SKU errado se corrige no anúncio, não aqui.
+      const p = porSku.get(chaveSku(a.sku));
       if (!p) {
         semProduto.push(a);
         continue;
@@ -405,8 +403,8 @@ function Anuncios() {
         {aba === "todos" && verSemProduto && semProduto.length > 0 && (
           <div className="border-b bg-warning/5 px-5 py-3">
             <p className="mb-2 text-xs font-semibold">
-              Anúncios sem produto no catálogo — o SKU deles não bate com nenhum produto.
-              Vincule a um produto ou crie o produto.
+              Anúncios sem produto no catálogo: o SKU deles não bate com nenhum produto. Corrija o SKU no
+              anúncio (ou refaça o anúncio com o SKU certo), ou suba o produto pela "Importar planilha".
             </p>
             <div className="max-h-72 space-y-1 overflow-y-auto">
               {semProduto.map((a) => (
@@ -414,11 +412,7 @@ function Anuncios() {
                   <LogoMarketplace id={a.marketplaceId} tamanho="xs" />
                   <FotoPequena url={a.fotoUrl ?? null} />
                   <span className="min-w-0 flex-1 truncate">{a.produto}</span>
-                  <span className="num shrink-0 text-[10px] text-muted-foreground">{a.sku}</span>
-                  <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => setVincular(a)}>
-                    <Link2 className="size-3" />
-                    Vincular
-                  </Button>
+                  <span className="num shrink-0 text-[11px] font-semibold text-foreground">SKU {a.sku || "vazio"}</span>
                 </div>
               ))}
             </div>
@@ -531,7 +525,7 @@ function Anuncios() {
                           <div className="min-w-0">
                             <p className="truncate text-xs font-medium">{a.produto}</p>
                             <p className="num text-[10px] text-muted-foreground">
-                              {a.sku}
+                              <span className="font-semibold text-foreground">{a.sku}</span>
                               {a.situacaoCanal ? ` · ${a.situacaoCanal}` : ""}
                             </p>
                           </div>
@@ -539,22 +533,11 @@ function Anuncios() {
                       </td>
                       <td className="max-w-0 px-2 py-2 text-xs">
                         {p ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="truncate">{p.nome}</span>
-                            <button
-                              type="button"
-                              onClick={() => setVincular(a)}
-                              title="Trocar o produto deste anúncio"
-                              className="grid size-7 shrink-0 place-items-center rounded-md border text-foreground transition-colors hover:border-brand hover:bg-brand/10"
-                            >
-                              {a.produtoIdBanco ? <Unlink className="size-4" /> : <Link2 className="size-4" />}
-                            </button>
-                          </div>
+                          <span className="block truncate">{p.nome}</span>
                         ) : (
-                          <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => setVincular(a)}>
-                            <Link2 className="size-3" />
-                            Vincular
-                          </Button>
+                          <span className="text-[11px] font-semibold text-warning" title="O SKU deste anúncio não está no catálogo">
+                            SKU fora do catálogo
+                          </span>
                         )}
                       </td>
                       <td className="num px-2 py-2 text-right text-xs">
@@ -602,19 +585,6 @@ function Anuncios() {
           aoConcluir={() => {
             setFotoDe(null);
             recarregarProdutos();
-          }}
-        />
-      )}
-      {vincular && (
-        <DialogVincularAnuncio
-          anuncio={vincular}
-          produtos={produtos}
-          produtoAtual={produtoDoAnuncio.get(vincular.id) ?? null}
-          aoFechar={() => setVincular(null)}
-          aoConcluir={(criouProduto) => {
-            setVincular(null);
-            if (criouProduto) recarregarProdutos();
-            else setMudancas((n) => n + 1);
           }}
         />
       )}
