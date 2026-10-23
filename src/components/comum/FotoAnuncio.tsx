@@ -12,8 +12,15 @@ export function FotoAnuncio({
   className?: string;
 }) {
   let url: string | null | undefined = null;
-  if (anuncioId) url = anunciosService.buscarPorId(anuncioId)?.fotoUrl;
-  if (!url && sku) url = anunciosService.listar().find((a) => a.sku === sku && a.fotoUrl)?.fotoUrl;
+  // A capa escolhida na aba Anúncios vale mais que a foto do anúncio.
+  if (anuncioId) {
+    const a = anunciosService.buscarPorId(anuncioId);
+    url = a?.fotoCapa || a?.fotoUrl;
+  }
+  if (!url && sku) {
+    const doSku = anunciosService.listar().filter((a) => a.sku === sku);
+    url = doSku.find((a) => a.fotoCapa)?.fotoCapa ?? doSku.find((a) => a.fotoUrl)?.fotoUrl;
+  }
   const base = "size-9 shrink-0 rounded-md border bg-white object-contain";
   if (!url) return <div className={cn(base, "bg-muted/40", className)} aria-hidden />;
   return <img src={url} alt="" loading="lazy" className={cn(base, className)} />;

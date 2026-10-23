@@ -126,7 +126,7 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
         .range(de, ate),
     ),
     todasAsLinhas((de, ate) =>
-      supabase.from("produtos").select("sku, cmv").eq("perfil_id", perfilId).order("sku").range(de, ate),
+      supabase.from("produtos").select("sku, cmv, foto_url").eq("perfil_id", perfilId).order("sku").range(de, ate),
     ),
     todasAsLinhas((de, ate) =>
       supabase
@@ -286,6 +286,13 @@ export async function carregarDadosReais(perfilId: string): Promise<DadosReais> 
       dataUltimaVenda: (a.data_ultima_venda as string | null) ?? null,
       roasObjetivo: null,
     }));
+
+  // Foto de capa escolhida na aba Anúncios: vale para todos os anúncios do SKU.
+  const capaPorSku = new Map<string, string>();
+  for (const p of rProdutos.data ?? []) {
+    if (p.foto_url) capaPorSku.set(String(p.sku ?? "").trim().toUpperCase(), p.foto_url as string);
+  }
+  for (const a of anuncios) a.fotoCapa = capaPorSku.get((a.sku ?? "").trim().toUpperCase()) ?? null;
 
   // CMV de cada venda: o custo cadastrado no catálogo (Produtos) para o SKU.
   const cmvPorSku = new Map(

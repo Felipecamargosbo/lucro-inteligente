@@ -361,6 +361,8 @@ export const produtosService = {
     for (const a of anunciosAtuais()) {
       // Vínculo só pelo SKU.
       const produto = porSku.get(a.sku);
+      // Foto de capa do produto (aba Anúncios) vale no site todo.
+      a.fotoCapa = produto?.fotoUrl ?? null;
       if (produto) {
         a.produtoId = produto.id;
         a.cmv = produto.cmv;

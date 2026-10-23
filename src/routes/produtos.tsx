@@ -1980,8 +1980,8 @@ function LinhaDoAnuncio({
     <tr className={cn("border-t-2 border-white/25 text-xs transition-colors hover:bg-muted/20 [.claro_&]:border-black/40", sim && "bg-brand/[0.03]")}>
       <td className="px-1 py-2">
         <div className="flex items-center gap-2 pl-2">
-          {a.fotoUrl ? (
-            <img src={a.fotoUrl} alt="" loading="lazy" className="size-12 shrink-0 rounded-md border bg-white object-contain" />
+          {a.fotoCapa || a.fotoUrl ? (
+            <img src={(a.fotoCapa || a.fotoUrl) ?? ""} alt="" loading="lazy" className="size-12 shrink-0 rounded-md border bg-white object-contain" />
           ) : (
             <div className="size-12 shrink-0 rounded-md border bg-muted/40" />
           )}

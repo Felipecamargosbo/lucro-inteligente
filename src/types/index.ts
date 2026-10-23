@@ -382,6 +382,9 @@ export interface Anuncio {
   /** Código do anúncio no canal (ex.: MLB4552785169). */
   /** Foto principal do anúncio no canal */
   fotoUrl?: string | null;
+  /** Foto de capa escolhida para o produto (aba Anúncios). Vale no site todo;
+   * `fotoUrl` continua sendo a foto do próprio anúncio no canal. */
+  fotoCapa?: string | null;
   idExterno?: string | null;
   /** Status cru no canal (ex.: active, paused, under_review, closed). */
   statusCanal?: string | null;
