@@ -5,7 +5,7 @@ import { ImageDown, Link2, Loader2, RefreshCw, Search, Unlink, Upload } from "lu
 import {
   anunciosService,
   atualizarAnunciosDoCanal,
-  contasService,
+  obterContasReais,
   produtosService,
   vendasService,
 } from "@/services";
@@ -50,6 +50,9 @@ export const Route = createFileRoute("/anuncios")({
 const chaveSku = (s: string | null | undefined) => (s ?? "").trim().toUpperCase();
 
 const nomeCanal = (id: MarketplaceId) => CANAIS.find((c) => c.id === id)?.titulo ?? id;
+/** "no Mercado Livre", "na Shopee"... */
+const noCanal = (id: MarketplaceId) =>
+  `${id === "mercado-livre" || id === "tiktok-shop" ? "no" : "na"} ${nomeCanal(id)}`;
 
 /** Ordem de preferência da foto automática. */
 const ORDEM_FOTO: MarketplaceId[] = ["mercado-livre", "shopee", "tiktok-shop", "amazon", "magalu", "shein"];
@@ -105,10 +108,9 @@ function Anuncios() {
 
   const anuncios = anunciosService.listar();
 
-  // Canais conectados (na ordem do menu). Sem conta conectada, os canais
-  // dos anúncios que existirem.
+  // Canais com conta realmente conectada ou com anúncio (na ordem do menu).
   const canais = useMemo(() => {
-    const conectados = new Set(contasService.ativas().map((c) => c.marketplaceId));
+    const conectados = new Set(obterContasReais().filter((c) => c.conectada).map((c) => c.marketplaceId));
     for (const a of anuncios) conectados.add(a.marketplaceId);
     return CANAIS.map((c) => c.id).filter((id) => conectados.has(id));
   }, [anuncios]);
@@ -362,7 +364,7 @@ function Anuncios() {
             </Chip>
             {canais.map((c) => (
               <Chip key={c} ativo={filtro === `falta:${c}`} onClick={() => setFiltro(`falta:${c}`)}>
-                Falta no {nomeCanal(c)} ({formatNumero(produtos.length - (resumo.porCanal.get(c) ?? 0))})
+                Falta {noCanal(c)} ({formatNumero(produtos.length - (resumo.porCanal.get(c) ?? 0))})
               </Chip>
             ))}
             <Chip ativo={filtro === "sem-canal"} onClick={() => setFiltro("sem-canal")}>
@@ -424,8 +426,8 @@ function Anuncios() {
               </thead>
               <tbody className="divide-y">
                 {linhasFiltradas.slice(0, limite).map((l) => (
-                  <tr key={l.produto.id} className="transition-colors hover:bg-muted/30">
-                    <td className="px-3 py-2">
+                  <tr key={l.produto.id} className="whitespace-nowrap transition-colors hover:bg-muted/30">
+                    <td className="w-full max-w-0 px-3 py-2">
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
@@ -503,8 +505,8 @@ function Anuncios() {
                   const p = produtoDoAnuncio.get(a.id) ?? null;
                   const outros = p ? (linhaPorProduto.get(p.id)?.anuncios ?? []).filter((x) => x.marketplaceId !== a.marketplaceId) : [];
                   return (
-                    <tr key={a.id} className="transition-colors hover:bg-muted/30">
-                      <td className="px-3 py-2">
+                    <tr key={a.id} className="whitespace-nowrap transition-colors hover:bg-muted/30">
+                      <td className="w-1/2 max-w-0 px-3 py-2">
                         <div className="flex items-center gap-3">
                           <FotoPequena url={a.fotoUrl ?? null} grande />
                           <div className="min-w-0">
@@ -516,7 +518,7 @@ function Anuncios() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-2 py-2 text-xs">
+                      <td className="max-w-0 px-2 py-2 text-xs">
                         {p ? (
                           <div className="flex items-center gap-1.5">
                             <span className="truncate">{p.nome}</span>
