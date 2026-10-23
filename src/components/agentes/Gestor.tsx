@@ -246,7 +246,7 @@ function AbaResumo({
                   {t.nomeAgente}
                 </span>
               </div>
-              {t.sku && <p className="num text-[10px] text-muted-foreground">SKU {t.sku}</p>}
+              {t.sku && <p className="num text-[11px] font-semibold text-foreground">SKU {t.sku}</p>}
               <p className="text-[11px] leading-relaxed text-muted-foreground">{t.explicacao}</p>
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span className="num text-sm font-bold">{formatBRL(t.valor)}</span>
