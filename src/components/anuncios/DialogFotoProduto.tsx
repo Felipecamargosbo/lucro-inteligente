@@ -70,10 +70,10 @@ export function DialogFotoProduto({
 
   return (
     <Dialog open onOpenChange={(v) => !v && aoFechar()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>Foto do produto</DialogTitle>
-          <DialogDescription className="truncate">
+          <DialogDescription className="line-clamp-2">
             {produto.nome} · SKU {produto.sku}
           </DialogDescription>
         </DialogHeader>

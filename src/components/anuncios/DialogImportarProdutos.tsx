@@ -163,7 +163,7 @@ export function DialogImportarProdutos({
 
   return (
     <Dialog open onOpenChange={(v) => !v && aoFechar()}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>Importar produtos por planilha</DialogTitle>
           <DialogDescription>

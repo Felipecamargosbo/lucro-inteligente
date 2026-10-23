@@ -80,7 +80,7 @@ export function DialogVincularAnuncio({
 
   return (
     <Dialog open onOpenChange={(v) => !v && aoFechar()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>Vincular anúncio a um produto</DialogTitle>
           <DialogDescription className="flex items-center gap-2">
