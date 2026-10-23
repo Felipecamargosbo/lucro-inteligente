@@ -545,9 +545,9 @@ function Anuncios() {
                               type="button"
                               onClick={() => setVincular(a)}
                               title="Trocar o produto deste anúncio"
-                              className="shrink-0 text-muted-foreground hover:text-foreground"
+                              className="grid size-7 shrink-0 place-items-center rounded-md border text-foreground transition-colors hover:border-brand hover:bg-brand/10"
                             >
-                              {a.produtoIdBanco ? <Unlink className="size-3" /> : <Link2 className="size-3" />}
+                              {a.produtoIdBanco ? <Unlink className="size-4" /> : <Link2 className="size-4" />}
                             </button>
                           </div>
                         ) : (
